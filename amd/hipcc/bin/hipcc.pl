@@ -580,10 +580,6 @@ if ($HIP_PLATFORM eq "amd") {
         if ($rdc) {
             $HIPLDFLAGS .= $HIPLDARCHFLAGS;
         }
-        if (not $isWindows) {
-            $HIPLDFLAGS .= " --rtlib=compiler-rt -unwindlib=libgcc";
-
-        }
     }
 }
 

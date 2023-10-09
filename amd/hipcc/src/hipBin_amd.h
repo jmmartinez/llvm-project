@@ -878,9 +878,6 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
     if (rdc) {
       HIPLDFLAGS += HIPLDARCHFLAGS;
     }
-    if (!windows) {
-      HIPLDFLAGS += "  --rtlib=compiler-rt -unwindlib=libgcc";
-    }
   }
 
   if (!var.hipccCompileFlagsAppendEnv_.empty()) {
