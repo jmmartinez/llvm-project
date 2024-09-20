@@ -15,7 +15,6 @@ define amdgpu_ps float @uniform_phi_with_undef(float inreg %c, float %v, i32 %x,
 ; GCN-NEXT:    s_mov_b32 s1, exec_lo
 ; GCN-NEXT:    s_and_b32 s2, s1, s2
 ; GCN-NEXT:    s_mov_b32 exec_lo, s2
-; GCN-NEXT:    s_cbranch_execz .LBB0_2
 ; GCN-NEXT:  ; %bb.1: ; %if
 ; GCN-NEXT:    s_mov_b32 s2, 0x40400000
 ; GCN-NEXT:    v_div_scale_f32 v1, s3, s2, s2, v0
@@ -30,7 +29,7 @@ define amdgpu_ps float @uniform_phi_with_undef(float inreg %c, float %v, i32 %x,
 ; GCN-NEXT:    v_fma_f32 v1, -v1, v4, v3
 ; GCN-NEXT:    v_div_fmas_f32 v1, v1, v2, v4
 ; GCN-NEXT:    v_div_fixup_f32 v0, v1, s2, v0
-; GCN-NEXT:  .LBB0_2: ; %end
+; GCN-NEXT:  ; %bb.2: ; %end
 ; GCN-NEXT:    s_or_b32 exec_lo, exec_lo, s1
 ; GCN-NEXT:    v_add_f32_e64 v0, v0, s0
 ; GCN-NEXT:    ; return to shader part epilog

@@ -15,18 +15,12 @@
 #include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/TargetSchedule.h"
+#include "llvm/Support/BranchProbability.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "si-pre-emit-peephole"
-
-static unsigned SkipThreshold;
-
-static cl::opt<unsigned, true> SkipThresholdFlag(
-    "amdgpu-skip-threshold", cl::Hidden,
-    cl::desc(
-        "Number of instructions before jumping over divergent control flow"),
-    cl::location(SkipThreshold), cl::init(12));
 
 namespace {
 
@@ -41,7 +35,8 @@ private:
                             MachineBasicBlock *&TrueMBB,
                             MachineBasicBlock *&FalseMBB,
                             SmallVectorImpl<MachineOperand> &Cond);
-  bool mustRetainExeczBranch(const MachineBasicBlock &From,
+  bool mustRetainExeczBranch(const MachineBasicBlock &Head,
+                             const MachineBasicBlock &From,
                              const MachineBasicBlock &To) const;
   bool removeExeczBranch(MachineInstr &MI, MachineBasicBlock &SrcMBB);
 
@@ -304,11 +299,67 @@ bool SIPreEmitPeephole::getBlockDestinations(
   return true;
 }
 
-bool SIPreEmitPeephole::mustRetainExeczBranch(
-    const MachineBasicBlock &From, const MachineBasicBlock &To) const {
-  unsigned NumInstr = 0;
-  const MachineFunction *MF = From.getParent();
+namespace {
+class BranchWeightCostModel {
+  const SIInstrInfo &TII;
+  const TargetSchedModel &SchedModel;
+  BranchProbability BranchProb;
+  uint64_t BranchCost;
+  uint64_t ThenCyclesCost = 0;
 
+public:
+  BranchWeightCostModel(const SIInstrInfo &TII, const MachineInstr &Branch,
+                        const MachineBasicBlock &Succ)
+      : TII(TII), SchedModel(TII.getSchedModel()) {
+    assert(SchedModel.hasInstrSchedModelOrItineraries());
+
+    const MachineBasicBlock &Head = *Branch.getParent();
+    const auto *FromIt = find(Head.successors(), &Succ);
+    assert(FromIt != Head.succ_end());
+
+    BranchProb = Head.getSuccProbability(FromIt);
+    if (BranchProb.isUnknown())
+      return;
+
+    BranchCost = SchedModel.computeInstrLatency(&Branch, false);
+  }
+
+  bool isUnknown() const { return BranchProb.isUnknown(); }
+
+  bool isProfitable(const MachineInstr &MI) {
+    assert(!isUnknown());
+
+    if (TII.isWaitcnt(MI.getOpcode()))
+      return false;
+
+    ThenCyclesCost += SchedModel.computeInstrLatency(&MI, false);
+
+    // Consider `P = N/D` to be the probability of execnz being true
+    // The transformation is profitable if always executing the 'then' block
+    // is cheaper than executing sometimes 'then' and always
+    // executing s_cbranch_execnz:
+    // * ThenCost <= P*ThenCost + BranchCost
+    // * (1-P) * ThenCost <= BranchCost
+    // * (D-N)/D * ThenCost <= BranchCost
+    uint64_t Numerator = BranchProb.getNumerator();
+    uint64_t Denominator = BranchProb.getDenominator();
+    return (Denominator - Numerator) * ThenCyclesCost <=
+           Denominator * BranchCost;
+  }
+};
+
+bool SIPreEmitPeephole::mustRetainExeczBranch(
+    const MachineBasicBlock &Head, const MachineBasicBlock &From,
+    const MachineBasicBlock &To) const {
+
+  const auto *FromIt = find(Head.successors(), &From);
+  assert(FromIt != Head.succ_end());
+
+  BranchWeightCostModel CostModel{*TII, *Head.getFirstTerminator(), From};
+  if (CostModel.isUnknown())
+    return true;
+
+  const MachineFunction *MF = From.getParent();
   for (MachineFunction::const_iterator MBBI(&From), ToI(&To), End = MF->end();
        MBBI != End && MBBI != ToI; ++MBBI) {
     const MachineBasicBlock &MBB = *MBBI;
@@ -326,23 +377,22 @@ bool SIPreEmitPeephole::mustRetainExeczBranch(
       if (TII->hasUnwantedEffectsWhenEXECEmpty(MI))
         return true;
 
-      // These instructions are potentially expensive even if EXEC = 0.
-      if (TII->isSMRD(MI) || TII->isVMEM(MI) || TII->isFLAT(MI) ||
-          TII->isDS(MI) || TII->isWaitcnt(MI.getOpcode()))
-        return true;
-
-      ++NumInstr;
-      if (NumInstr >= SkipThreshold)
+      if (!CostModel.isProfitable(MI))
         return true;
     }
   }
 
   return false;
 }
+} // namespace
 
 // Returns true if the skip branch instruction is removed.
 bool SIPreEmitPeephole::removeExeczBranch(MachineInstr &MI,
                                           MachineBasicBlock &SrcMBB) {
+
+  if (!TII->getSchedModel().hasInstrSchedModelOrItineraries())
+    return false;
+
   MachineBasicBlock *TrueMBB = nullptr;
   MachineBasicBlock *FalseMBB = nullptr;
   SmallVector<MachineOperand, 1> Cond;
@@ -351,8 +401,11 @@ bool SIPreEmitPeephole::removeExeczBranch(MachineInstr &MI,
     return false;
 
   // Consider only the forward branches.
-  if ((SrcMBB.getNumber() >= TrueMBB->getNumber()) ||
-      mustRetainExeczBranch(*FalseMBB, *TrueMBB))
+  if (SrcMBB.getNumber() >= TrueMBB->getNumber())
+    return false;
+
+  // Consider only when it is legal and profitable
+  if (mustRetainExeczBranch(SrcMBB, *FalseMBB, *TrueMBB))
     return false;
 
   LLVM_DEBUG(dbgs() << "Removing the execz branch: " << MI);
