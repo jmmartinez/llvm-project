@@ -432,7 +432,10 @@ bool SIPreEmitPeephole::runOnMachineFunction(MachineFunction &MF) {
       case AMDGPU::S_CBRANCH_VCCZ:
       case AMDGPU::S_CBRANCH_VCCNZ:
         Changed |= optimizeVccBranch(MI);
-        break;
+        // try to optimize the new execz branch
+        if (MI.getOpcode() != AMDGPU::S_CBRANCH_EXECZ)
+          break;
+        [[fallthrough]];
       case AMDGPU::S_CBRANCH_EXECZ:
         Changed |= removeExeczBranch(MI, MBB);
         break;
