@@ -178,6 +178,10 @@ configure_file("source/legacy/source2-v3.o" "source/source2-v3.o" COPYONLY)
 configure_file("source/legacy/source3-v3.o" "source/source3-v3.o" COPYONLY)
 configure_file("source/legacy/source4-v3.o" "source/source4-v3.o" COPYONLY)
 
+macro(add_comgr_unittests source)
+    list(APPEND COMGR_UNITTESTS ${source})
+endmacro()
+
 # Creates executable ${name} and accompanying test ${name} built from
 # test/${name}.cl
 macro(add_comgr_test name lang)
@@ -228,7 +232,7 @@ add_comgr_test(metadata_multiple_msgpacks_test c)
 add_comgr_test(metadata_merge_test c)
 add_comgr_test(symbols_test c)
 add_comgr_test(symbols_iterate_test c)
-add_comgr_test(compile_test c)
+add_comgr_unittests(compile_test.cpp)
 add_comgr_test(compile_minimal_test c)
 add_comgr_test(compile_log_test c)
 add_comgr_test(compile_log_remarks_test c)
@@ -265,3 +269,16 @@ if (DEFINED HIP_COMPILER AND "${HIP_COMPILER}" STREQUAL "clang")
   add_comgr_test(mangled_names_hip_test c)
   add_comgr_test(name_expression_map_test c)
 endif()
+
+add_executable(comgr-unittests unittests-main.cpp ${COMGR_UNITTESTS} unittests-common.cpp)
+target_link_libraries(comgr-unittests PRIVATE amd_comgr llvm_gtest LLVMSupport)
+
+target_compile_definitions(comgr-unittests
+    PRIVATE -DTEST_OBJ_DIR=\"${CMAKE_CURRENT_BINARY_DIR}/source\")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  target_compile_definitions(comgr-unittests
+    PRIVATE -D_CRT_SECURE_NO_WARNINGS)
+endif()
+
+add_test(NAME comgr-unittests COMMAND comgr-unittests)
+add_dependencies(check-comgr comgr-unittests)
