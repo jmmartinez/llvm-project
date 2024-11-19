@@ -66,6 +66,15 @@ llvm::StringRef getHIPPath();
 /// otherwise return the default LLVM path.
 llvm::StringRef getLLVMPath();
 
+/// If environment variable AMD_COMGR_CACHE_POLICY is set, return the
+/// environment varialbe, otherwise return emtpy
+llvm::StringRef getCachePolicy();
+
+/// If environment variable AMD_COMGR_CACHE_DIR is set, return the environment
+/// varialbe, otherwise return the default path: On Linux it's typically
+/// $HOME/.cache/comgr_cache (depnds on XDG_CACHE_HOME)
+llvm::StringRef getCacheDirectory();
+
 } // namespace env
 } // namespace COMGR
 
