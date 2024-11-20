@@ -59,7 +59,14 @@ foreach(AMDGCN_LIB_TARGET ${AMD_DEVICE_LIBS_TARGETS})
   add_dependencies(amd_comgr ${AMDGCN_LIB_TARGET}_header)
 
   list(APPEND TARGETS_INCLUDES "#include \"${header}\"")
+
+  # hash the device-lib bitcode and concatenate all of the hashes
+  file(SHA256 ${bc_lib_path} bc_lib_sha)
+  set(all_bc_libs_sha "${all_bc_libs_sha}${bc_lib_sha}")
 endforeach()
+# pass a single hash for all the device-libs bitcode
+string(SHA256 all_bc_libs_sha "${all_bc_libs_sha}")
+list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "DEVICE_LIBS_SHA=${all_bc_libs_sha}")
 
 list(JOIN TARGETS_INCLUDES "\n" TARGETS_INCLUDES)
 file(GENERATE OUTPUT ${GEN_LIBRARY_INC_FILE} CONTENT "${TARGETS_INCLUDES}")
