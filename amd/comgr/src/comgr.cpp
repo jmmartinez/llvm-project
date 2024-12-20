@@ -318,8 +318,7 @@ amd_comgr_status_t COMGR::setCStr(char *&Dest, StringRef Src, size_t *Size) {
 }
 
 StringRef COMGR::getComgrHashIdentifier() {
-  return xstringify(AMD_COMGR_VERSION_ID) xstringify(OPENCL_C_SHA)
-      xstringify(DEVICE_LIBS_SHA);
+  return xstringify(AMD_COMGR_VERSION_ID);
 }
 
 amd_comgr_status_t COMGR::parseTargetIdentifier(StringRef IdentStr,

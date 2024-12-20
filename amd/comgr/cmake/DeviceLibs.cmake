@@ -59,14 +59,8 @@ foreach(AMDGCN_LIB_TARGET ${AMD_DEVICE_LIBS_TARGETS})
   add_dependencies(amd_comgr ${AMDGCN_LIB_TARGET}_header)
 
   list(APPEND TARGETS_INCLUDES "#include \"${header}\"")
-
-  # hash the device-lib bitcode and concatenate all of the hashes
-  file(SHA256 ${bc_lib_path} bc_lib_sha)
-  set(all_bc_libs_sha "${all_bc_libs_sha}${bc_lib_sha}")
+  list(APPEND TARGETS_HEADERS "${INC_DIR}/${header}")
 endforeach()
-# pass a single hash for all the device-libs bitcode
-string(SHA256 all_bc_libs_sha "${all_bc_libs_sha}")
-list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "DEVICE_LIBS_SHA=${all_bc_libs_sha}")
 
 list(JOIN TARGETS_INCLUDES "\n" TARGETS_INCLUDES)
 file(GENERATE OUTPUT ${GEN_LIBRARY_INC_FILE} CONTENT "${TARGETS_INCLUDES}")
@@ -116,5 +110,18 @@ list(APPEND TARGETS_DEFS "#undef AMD_DEVICE_LIBS_FUNCTION")
 
 list(JOIN TARGETS_DEFS "\n" TARGETS_DEFS)
 file(GENERATE OUTPUT ${GEN_LIBRARY_DEFS_INC_FILE} CONTENT "${TARGETS_DEFS}")
+
+# compute the sha256 of the device libraries to detect changes and pass them to comgr (used by the cache)
+find_package(Python3 REQUIRED Interpreter)
+set(DEVICE_LIBS_ID_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/device-libs-id.py")
+set(DEVICE_LIBS_ID_HEADER ${INC_DIR}/libraries_sha.inc)
+add_custom_command(OUTPUT ${DEVICE_LIBS_ID_HEADER}
+  COMMAND ${Python3_EXECUTABLE} ${DEVICE_LIBS_ID_SCRIPT} --varname DEVICE_LIBS_ID --output ${DEVICE_LIBS_ID_HEADER} ${TARGETS_HEADERS}
+  DEPENDS ${DEVICE_LIBS_ID_SCRIPT} ${TARGETS_HEADERS}
+    COMMENT "Generating ${INC_DIR}/libraries_sha.inc"
+)
+set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${INC_DIR}/libraries_sha.inc)
+add_custom_target(libraries_sha_header DEPENDS ${INC_DIR}/libraries_sha.inc)
+add_dependencies(amd_comgr libraries_sha_header)
 
 include_directories(${INC_DIR})

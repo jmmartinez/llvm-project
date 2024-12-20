@@ -1,5 +1,6 @@
 #include "comgr-cache-command.h"
 #include "comgr-cache.h"
+#include "comgr-device-libs.h"
 #include "comgr.h"
 
 #include <clang/Basic/Version.h>
@@ -118,6 +119,7 @@ CachedCommandAdaptor::getIdentifier() const {
   H.update(getClass());
   addString(H, getClangFullVersion());
   addString(H, getComgrHashIdentifier());
+  addString(H, getDeviceLibrariesIdentifier());
 
   if (Error E = addInputIdentifier(H))
     return E;
