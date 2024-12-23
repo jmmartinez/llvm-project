@@ -8,14 +8,37 @@
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/StringSet.h>
 
-#include <regex>
+#include <optional>
 
 namespace COMGR {
 using namespace llvm;
 using namespace clang;
 
 namespace {
-const std::regex ComgrTmpModel("comgr-[[:alnum:]]{6}");
+std::optional<size_t> searchComgrTmpModel(StringRef S) {
+  // Ideally, we would use std::regex_search with the regex
+  // "comgr-[[:alnum:]]{6}". However, due to a bug in stdlibc++
+  // (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85824) we have to roll our
+  // own search of this regular expression. This bug resulted in a crash in
+  // luxmarkv3, during the std::regex constructor.
+  const StringRef Prefix = "comgr-";
+  const size_t AlnumCount = 6;
+
+  size_t N = S.size();
+  size_t Pos = S.find(Prefix);
+
+  size_t AlnumStart = Pos + Prefix.size();
+  size_t AlnumEnd = AlnumStart + AlnumCount;
+  if (Pos == StringRef::npos || N < AlnumEnd)
+    return std::nullopt;
+
+  for (size_t i = AlnumStart; i < AlnumEnd; ++i) {
+    if (!std::isalnum(S[i]))
+      return std::nullopt;
+  }
+
+  return Pos;
+}
 
 bool hasDebugOrProfileInfo(ArrayRef<const char *> Args) {
   // These are too difficult to handle since they generate debug info that
@@ -45,14 +68,15 @@ void addFileContents(CachedCommandAdaptor::HashAlgorithm &H, StringRef Buf) {
   // different commands in #line directives in preprocessed files, and the
   // ModuleID or source_filename in the bitcode.
   while (!Buf.empty()) {
-    StringRef ToHash = Buf;
-    std::cmatch Match;
-    if (std::regex_search(Buf.begin(), Buf.end(), Match, ComgrTmpModel)) {
-      ToHash = Buf.substr(0, Match.position());
+    std::optional<size_t> ComgrTmpPos = searchComgrTmpModel(Buf);
+    if (!ComgrTmpPos) {
+      addString(H, Buf);
+      break;
     }
-    addString(H, ToHash);
 
-    Buf = Buf.substr(ToHash.size() + Match.length());
+    StringRef ToHash = Buf.substr(0, *ComgrTmpPos);
+    addString(H, ToHash);
+    Buf = Buf.substr(ToHash.size() + StringRef("comgr-xxxxxx").size());
   }
 }
 
@@ -178,8 +202,7 @@ void CachedCommand::addOptionsIdentifier(HashAlgorithm &H) const {
       continue;
 
 #ifndef NDEBUG
-    bool IsComgrTmpPath =
-        std::regex_search(Arg.begin(), Arg.end(), ComgrTmpModel);
+    bool IsComgrTmpPath = searchComgrTmpModel(Arg).has_value();
     // On debug builds, fail on /tmp/comgr-xxxx/... paths.
     // Implicit dependencies should have been considered before.
     // On release builds, add them to the hash to force a cache miss.
