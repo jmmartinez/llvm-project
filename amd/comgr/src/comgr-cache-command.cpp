@@ -15,6 +15,18 @@ using namespace llvm;
 using namespace clang;
 
 namespace {
+// std::isalnum is locale dependant and can have issues
+// depending on the stdlib version and application. We prefer to avoid it
+bool isalnum(char c) {
+  char low[] = {'0', 'a', 'A'};
+  char hi[] = {'9', 'z', 'Z'};
+  for (unsigned i = 0; i != 3; ++i) {
+    if (low[i] <= c && c <= hi[i])
+      return true;
+  }
+  return false;
+}
+
 std::optional<size_t> searchComgrTmpModel(StringRef S) {
   // Ideally, we would use std::regex_search with the regex
   // "comgr-[[:alnum:]]{6}". However, due to a bug in stdlibc++
@@ -33,7 +45,7 @@ std::optional<size_t> searchComgrTmpModel(StringRef S) {
     return std::nullopt;
 
   for (size_t i = AlnumStart; i < AlnumEnd; ++i) {
-    if (!std::isalnum(S[i]))
+    if (!isalnum(S[i]))
       return std::nullopt;
   }
 
