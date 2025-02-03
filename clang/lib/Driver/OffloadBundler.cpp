@@ -1065,13 +1065,29 @@ CompressedOffloadBundle::compress(llvm::compression::Params P,
       llvm::StringRef(FinalBuffer.data(), FinalBuffer.size()));
 }
 
+llvm::Expected<CompressedOffloadBundle::Header> CompressedOffloadBundle::readHeader(llvm::StringRef Buf) {
+  if (Buf.size() < sizeof(V1Header))
+      return createStringError(inconvertibleErrorCode(),
+                               "Compressed bundle header size too small");
+
+  Header H;
+  memset(&H, 0, sizeof(H));
+  memcpy(&H, Buf.data(), std::min(Buf.size(), sizeof(H)));
+
+  if (H.AnyVersion.Version >= 2 && Buf.size() < sizeof(V2Header))
+      return createStringError(inconvertibleErrorCode(),
+                               "Compressed bundle header size too small");
+
+  return H;
+}
+
 llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>>
 CompressedOffloadBundle::decompress(const llvm::MemoryBuffer &Input,
                                     bool Verbose) {
 
   StringRef Blob = Input.getBuffer();
 
-  if (Blob.size() < V1HeaderSize)
+  if (Blob.size() < sizeof(V1Header))
     return llvm::MemoryBuffer::getMemBufferCopy(Blob);
 
   if (llvm::identify_magic(Blob) !=
@@ -1081,32 +1097,24 @@ CompressedOffloadBundle::decompress(const llvm::MemoryBuffer &Input,
     return llvm::MemoryBuffer::getMemBufferCopy(Blob);
   }
 
-  size_t CurrentOffset = MagicSize;
+  Expected<Header> HeaderOrErr = readHeader(Blob);
+  if(!HeaderOrErr)
+    return HeaderOrErr.takeError();
 
-  uint16_t ThisVersion;
-  memcpy(&ThisVersion, Blob.data() + CurrentOffset, sizeof(uint16_t));
-  CurrentOffset += VersionFieldSize;
+  Header &H = *HeaderOrErr;
 
-  uint16_t CompressionMethod;
-  memcpy(&CompressionMethod, Blob.data() + CurrentOffset, sizeof(uint16_t));
-  CurrentOffset += MethodFieldSize;
+  uint16_t ThisVersion = H.AnyVersion.Version;
+  uint16_t CompressionMethod = H.AnyVersion.Method;
+
+  bool V2OrMore = ThisVersion >= 2;
 
   uint32_t TotalFileSize;
-  if (ThisVersion >= 2) {
-    if (Blob.size() < V2HeaderSize)
-      return createStringError(inconvertibleErrorCode(),
-                               "Compressed bundle header size too small");
-    memcpy(&TotalFileSize, Blob.data() + CurrentOffset, sizeof(uint32_t));
-    CurrentOffset += FileSizeFieldSize;
+  if (V2OrMore) {
+    TotalFileSize = H.V2.TotalFileSize;
   }
 
-  uint32_t UncompressedSize;
-  memcpy(&UncompressedSize, Blob.data() + CurrentOffset, sizeof(uint32_t));
-  CurrentOffset += UncompressedSizeFieldSize;
-
-  uint64_t StoredHash;
-  memcpy(&StoredHash, Blob.data() + CurrentOffset, sizeof(uint64_t));
-  CurrentOffset += HashFieldSize;
+  uint32_t UncompressedSize = V2OrMore ? H.V2.UncompressedSize : H.V1.UncompressedSize;
+  uint32_t StoredHash = V2OrMore ? H.V2.Hash: H.V1.Hash;
 
   llvm::compression::Format CompressionFormat;
   if (CompressionMethod ==
@@ -1125,7 +1133,7 @@ CompressedOffloadBundle::decompress(const llvm::MemoryBuffer &Input,
     DecompressTimer.startTimer();
 
   SmallVector<uint8_t, 0> DecompressedData;
-  StringRef CompressedData = Blob.substr(CurrentOffset);
+  StringRef CompressedData = Blob.substr(V2OrMore ? sizeof(V2Header) : sizeof(V1Header));
   if (llvm::Error DecompressionError = llvm::compression::decompress(
           CompressionFormat, llvm::arrayRefFromStringRef(CompressedData),
           DecompressedData, UncompressedSize))

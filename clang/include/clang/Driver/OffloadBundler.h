@@ -17,6 +17,7 @@
 #ifndef LLVM_CLANG_DRIVER_OFFLOADBUNDLER_H
 #define LLVM_CLANG_DRIVER_OFFLOADBUNDLER_H
 
+#include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/Error.h"
 #include "llvm/TargetParser/Triple.h"
@@ -107,22 +108,41 @@ struct OffloadTargetInfo {
 
 class CompressedOffloadBundle {
 private:
-  static inline const size_t MagicSize = 4;
-  static inline const size_t VersionFieldSize = sizeof(uint16_t);
-  static inline const size_t MethodFieldSize = sizeof(uint16_t);
-  static inline const size_t FileSizeFieldSize = sizeof(uint32_t);
-  static inline const size_t UncompressedSizeFieldSize = sizeof(uint32_t);
-  static inline const size_t HashFieldSize = sizeof(uint64_t);
-  static inline const size_t V1HeaderSize =
-      MagicSize + VersionFieldSize + MethodFieldSize +
-      UncompressedSizeFieldSize + HashFieldSize;
-  static inline const size_t V2HeaderSize =
-      MagicSize + VersionFieldSize + FileSizeFieldSize + MethodFieldSize +
-      UncompressedSizeFieldSize + HashFieldSize;
   static inline const llvm::StringRef MagicNumber = "CCOB";
   static inline const uint16_t Version = 2;
 
 public:
+  struct HeaderCommon {
+    uint32_t Magic;
+    uint16_t Version;
+    uint16_t Method;
+  };
+
+  struct V1Header {
+    uint32_t Magic;
+    uint16_t Version;
+    uint16_t Method;
+    uint32_t UncompressedSize;
+    uint64_t Hash;
+  };
+
+  struct V2Header {
+    uint32_t Magic;
+    uint16_t Version;
+    uint16_t Method;
+    uint32_t TotalFileSize;
+    uint32_t UncompressedSize;
+    uint64_t Hash;
+  };
+
+  union Header {
+    HeaderCommon AnyVersion;
+    V1Header V1;
+    V2Header V2;
+  };
+
+  static llvm::Expected<Header> readHeader(llvm::StringRef Buf); 
+
   static llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>>
   compress(llvm::compression::Params P, const llvm::MemoryBuffer &Input,
            bool Verbose = false);

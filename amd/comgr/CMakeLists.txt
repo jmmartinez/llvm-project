@@ -71,6 +71,7 @@ option(COMGR_BUILD_SHARED_LIBS "Build the shared library"
 set(SOURCES
   src/comgr-cache.cpp
   src/comgr-cache-command.cpp
+  src/comgr-cache-bundler-command.cpp
   src/comgr-compiler.cpp
   src/comgr.cpp
   src/comgr-device-libs.cpp
@@ -447,10 +448,10 @@ endif()
 find_package(Threads)
 target_link_libraries(amd_comgr PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 
-find_library(LIBRT rt)
-if(LIBRT)
-  target_link_libraries(amd_comgr PRIVATE ${LIBRT})
-endif()
+#find_library(LIBRT rt)
+#if(LIBRT)
+#  target_link_libraries(amd_comgr PRIVATE ${LIBRT})
+#endif()
 
 
 if (NOT WIN32)
