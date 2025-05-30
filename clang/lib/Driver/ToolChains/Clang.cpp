@@ -5024,6 +5024,12 @@ static void ProcessVSRuntimeLibrary(const ToolChain &TC, const ArgList &Args,
     CmdArgs.push_back("--dependent-lib=softintrin");
 }
 
+static bool hasNoDisableFree(const ArgList &Args) {
+  return llvm::any_of(Args.filtered(options::OPT_Xclang), [](auto *Arg) {
+    return StringRef(Arg->getValue()) == "-no-disable-free";
+  });
+}
+
 void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfo &Output, const InputInfoList &Inputs,
                          const ArgList &Args, const char *LinkingOutput) const {
@@ -5603,7 +5609,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // We normally speed up the clang process a bit by skipping destructors at
   // exit, but when we're generating diagnostics we can rely on some of the
   // cleanup.
-  if (!C.isForDiagnostics())
+  if (!C.isForDiagnostics() && !hasNoDisableFree(Args))
     CmdArgs.push_back("-disable-free");
   CmdArgs.push_back("-clear-ast-before-backend");
 
