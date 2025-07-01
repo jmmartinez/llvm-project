@@ -99,6 +99,12 @@ OPENCL_EXTENSION(cl_intel_subgroups, true, 120)
 OPENCL_EXTENSION(cl_intel_subgroups_short, true, 120)
 OPENCL_EXTENSION(cl_intel_device_side_avc_motion_estimation, true, 120)
 
+// ARM OpenCL extensions
+OPENCL_EXTENSION(cl_arm_integer_dot_product_int8, true, 120)
+OPENCL_EXTENSION(cl_arm_integer_dot_product_accumulate_int8, true, 120)
+OPENCL_EXTENSION(cl_arm_integer_dot_product_accumulate_int16, true, 120)
+OPENCL_EXTENSION(cl_arm_integer_dot_product_accumulate_saturate_int8, true, 120)
+
 // OpenCL C 3.0 features (6.2.1. Features)
 OPENCL_OPTIONALCOREFEATURE(__opencl_c_pipes, false, 300, OCL_C_30)
 OPENCL_OPTIONALCOREFEATURE(__opencl_c_generic_address_space, false, 300, OCL_C_30)
