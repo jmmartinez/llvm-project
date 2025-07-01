@@ -25,6 +25,10 @@
 #pragma OPENCL EXTENSION cl_khr_3d_image_writes : enable
 #endif
 
+#if __OPENCL_C_VERSION__ < CL_VERSION_1_1
+#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+#endif
+
 // First, test that Clang gracefully handles missing types.
 #ifdef NO_HEADER
 void test_without_header(void) {
