@@ -847,13 +847,10 @@ static void InsertOCLBuiltinDeclarationsFromTable(Sema &S, LookupResult &LR,
     if (!Extensions.empty()) {
       SmallVector<StringRef, 2> ExtVec;
       Extensions.split(ExtVec, " ");
-      bool AllExtensionsDefined = true;
-      for (StringRef Ext : ExtVec) {
-        if (!S.getPreprocessor().isMacroDefined(Ext)) {
-          AllExtensionsDefined = false;
-          break;
-        }
-      }
+      auto IsAvailableExtension = [&S](StringRef Ext) {
+        return S.getOpenCLOptions().isAvailableOption(Ext, S.getLangOpts());
+      };
+      bool AllExtensionsDefined = all_of(ExtVec, IsAvailableExtension);
       if (!AllExtensionsDefined)
         continue;
     }
