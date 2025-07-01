@@ -88,7 +88,6 @@ typedef struct {int a;} ndrange_t;
 #define __opencl_c_atomic_scope_device 1
 #endif
 
-#define __opencl_c_named_address_space_builtins 1
 #endif
 
 kernel void test_pointers(volatile global void *global_p, global const int4 *a) {

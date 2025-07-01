@@ -1132,6 +1132,10 @@ OpenCLBuiltinFileEmitterBase::emitExtensionGuard(const Record *Builtin) {
     if (!isFirst) {
       OS << " &&";
     }
+    bool Negate = Ext.consume_front("!");
+    if (Negate) {
+      OS << " !";
+    }
     OS << " defined(" << Ext << ")";
     isFirst = false;
   }

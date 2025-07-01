@@ -848,7 +848,8 @@ static void InsertOCLBuiltinDeclarationsFromTable(Sema &S, LookupResult &LR,
       SmallVector<StringRef, 2> ExtVec;
       Extensions.split(ExtVec, " ");
       auto IsAvailableExtension = [&S](StringRef Ext) {
-        return S.getOpenCLOptions().isAvailableOption(Ext, S.getLangOpts());
+        bool Negate = Ext.consume_front("!");
+        return Negate ^ S.getOpenCLOptions().isAvailableOption(Ext, S.getLangOpts());
       };
       bool AllExtensionsDefined = all_of(ExtVec, IsAvailableExtension);
       if (!AllExtensionsDefined)

@@ -104,7 +104,7 @@ def FuncExtKhrGlMsaaSharing              : FunctionExtension<"cl_khr_gl_msaa_sha
 
 def FuncExtOpenCLCDeviceEnqueue          : FunctionExtension<"__opencl_c_device_enqueue">;
 def FuncExtOpenCLCGenericAddressSpace    : FunctionExtension<"__opencl_c_generic_address_space">;
-def FuncExtOpenCLCNamedAddressSpaceBuiltins : FunctionExtension<"__opencl_c_named_address_space_builtins">;
+def FuncExtNotOpenCLCNamedAddressSpaceBuiltins : FunctionExtension<"!__opencl_c_generic_address_space">;
 def FuncExtOpenCLCPipes                  : FunctionExtension<"__opencl_c_pipes">;
 def FuncExtOpenCLCWGCollectiveFunctions  : FunctionExtension<"__opencl_c_work_group_collective_functions">;
 def FuncExtOpenCLCReadWriteImages        : FunctionExtension<"__opencl_c_read_write_images">;
@@ -635,7 +635,7 @@ multiclass MathWithPointer<list<AddressSpace> addrspaces> {
   }
 }
 
-let Extension = FuncExtOpenCLCNamedAddressSpaceBuiltins in {
+let Extension = FuncExtNotOpenCLCNamedAddressSpaceBuiltins in {
   defm : MathWithPointer<[GlobalAS, LocalAS, PrivateAS]>;
 }
 let Extension = FuncExtOpenCLCGenericAddressSpace in {
@@ -884,7 +884,7 @@ multiclass VloadVstore<list<AddressSpace> addrspaces, bit defStores> {
   }
 }
 
-let Extension = FuncExtOpenCLCNamedAddressSpaceBuiltins in {
+let Extension = FuncExtNotOpenCLCNamedAddressSpaceBuiltins in {
   defm : VloadVstore<[GlobalAS, LocalAS, PrivateAS], 1>;
 }
 let Extension = FuncExtOpenCLCGenericAddressSpace in {
@@ -918,7 +918,7 @@ multiclass VloadVstoreHalf<list<AddressSpace> addrspaces, bit defStores> {
   }
 }
 
-let Extension = FuncExtOpenCLCNamedAddressSpaceBuiltins in {
+let Extension = FuncExtNotOpenCLCNamedAddressSpaceBuiltins in {
   defm : VloadVstoreHalf<[GlobalAS, LocalAS, PrivateAS], 1>;
 }
 let Extension = FuncExtOpenCLCGenericAddressSpace in {
@@ -974,7 +974,7 @@ multiclass BuiltinWithDefaultPointerArg<AddressSpace AS> {
   }
 }
 
-let Extension = FuncExtOpenCLCNamedAddressSpaceBuiltins in {
+let Extension = FuncExtNotOpenCLCNamedAddressSpaceBuiltins in {
   defm : BuiltinWithDefaultPointerArg<PrivateAS>;
 }
 let Extension = FuncExtOpenCLCGenericAddressSpace in {
@@ -1132,7 +1132,7 @@ multiclass OpenCL2Atomics<AddressSpace addrspace, FunctionExtension BaseExt> {
     foreach Variant = ["weak", "strong"] in {
       foreach exp_ptr_addrspace = !cond(
             !eq(BaseExt, FuncExtOpenCLCGenericAddressSpace): [GenericAS],
-            !eq(BaseExt, FuncExtOpenCLCNamedAddressSpaceBuiltins): [GlobalAS, LocalAS, PrivateAS])
+            !eq(BaseExt, FuncExtNotOpenCLCNamedAddressSpaceBuiltins): [GlobalAS, LocalAS, PrivateAS])
           in {
         let Extension = concatExtension<BaseExt, "__opencl_c_atomic_order_seq_cst __opencl_c_atomic_scope_device">.ret in {
           def : Builtin<"atomic_compare_exchange_" # Variant,
@@ -1180,8 +1180,8 @@ let MinVersion = CL20 in {
   def : Builtin<"atomic_work_item_fence", [Void, MemFenceFlags, MemoryOrder, MemoryScope]>;
 
   defm : OpenCL2Atomics<GenericAS, FuncExtOpenCLCGenericAddressSpace>;
-  defm : OpenCL2Atomics<GlobalAS, FuncExtOpenCLCNamedAddressSpaceBuiltins>;
-  defm : OpenCL2Atomics<LocalAS, FuncExtOpenCLCNamedAddressSpaceBuiltins>;
+  defm : OpenCL2Atomics<GlobalAS, FuncExtNotOpenCLCNamedAddressSpaceBuiltins>;
+  defm : OpenCL2Atomics<LocalAS, FuncExtNotOpenCLCNamedAddressSpaceBuiltins>;
 }
 
 // The functionality added by cl_ext_float_atomics extension
