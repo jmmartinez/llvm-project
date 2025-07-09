@@ -880,7 +880,6 @@ static bool canOverlap(MemTransferBase<T> *Memcpy, ScalarEvolution *SE) {
 void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
                               const TargetTransformInfo &TTI,
                               ScalarEvolution *SE) {
-  bool CanOverlap = canOverlap(Memcpy, SE);
   if (ConstantInt *CI = dyn_cast<ConstantInt>(Memcpy->getLength())) {
     createMemCpyLoopKnownSize(
         /* InsertBefore */ Memcpy,
@@ -891,7 +890,7 @@ void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
         /* DestAlign */ Memcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ Memcpy->isVolatile(),
         /* DstIsVolatile */ Memcpy->isVolatile(),
-        /* CanOverlap */ CanOverlap,
+        /* CanOverlap */ false, // SrcAddr & DstAddr may not overlap by spec.
         /* TargetTransformInfo */ TTI);
   } else {
     createMemCpyLoopUnknownSize(
@@ -903,7 +902,7 @@ void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
         /* DestAlign */ Memcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ Memcpy->isVolatile(),
         /* DstIsVolatile */ Memcpy->isVolatile(),
-        /* CanOverlap */ CanOverlap,
+        /* CanOverlap */ false, // SrcAddr & DstAddr may not overlap by spec.
         /* TargetTransformInfo */ TTI);
   }
 }
