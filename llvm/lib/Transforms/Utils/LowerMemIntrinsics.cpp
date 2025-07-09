@@ -24,7 +24,7 @@ using namespace llvm;
 void llvm::createMemCpyLoopKnownSize(
     Instruction *InsertBefore, Value *SrcAddr, Value *DstAddr,
     ConstantInt *CopyLen, Align SrcAlign, Align DstAlign, bool SrcIsVolatile,
-    bool DstIsVolatile, bool CanOverlap, const TargetTransformInfo &TTI,
+    bool DstIsVolatile, const TargetTransformInfo &TTI,
     std::optional<uint32_t> AtomicElementSize) {
   // No need to expand zero length copies.
   if (CopyLen->isZero())
@@ -80,18 +80,16 @@ void llvm::createMemCpyLoopKnownSize(
     Value *SrcGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, SrcAddr, LoopIndex);
     LoadInst *Load = LoopBuilder.CreateAlignedLoad(LoopOpType, SrcGEP,
                                                    PartSrcAlign, SrcIsVolatile);
-    if (!CanOverlap) {
-      // Set alias scope for loads.
-      Load->setMetadata(LLVMContext::MD_alias_scope,
-                        MDNode::get(Ctx, NewScope));
-    }
+    // Set alias scope for loads.
+    Load->setMetadata(LLVMContext::MD_alias_scope, MDNode::get(Ctx, NewScope));
+
     Value *DstGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, DstAddr, LoopIndex);
     StoreInst *Store = LoopBuilder.CreateAlignedStore(
         Load, DstGEP, PartDstAlign, DstIsVolatile);
-    if (!CanOverlap) {
+
       // Indicate that stores don't overlap loads.
       Store->setMetadata(LLVMContext::MD_noalias, MDNode::get(Ctx, NewScope));
-    }
+
     if (AtomicElementSize) {
       Load->setAtomic(AtomicOrdering::Unordered);
       Store->setAtomic(AtomicOrdering::Unordered);
@@ -131,19 +129,19 @@ void llvm::createMemCpyLoopKnownSize(
           Int8Type, SrcAddr, ConstantInt::get(TypeOfCopyLen, BytesCopied));
       LoadInst *Load =
           RBuilder.CreateAlignedLoad(OpTy, SrcGEP, PartSrcAlign, SrcIsVolatile);
-      if (!CanOverlap) {
+
         // Set alias scope for loads.
         Load->setMetadata(LLVMContext::MD_alias_scope,
                           MDNode::get(Ctx, NewScope));
-      }
+
       Value *DstGEP = RBuilder.CreateInBoundsGEP(
           Int8Type, DstAddr, ConstantInt::get(TypeOfCopyLen, BytesCopied));
       StoreInst *Store = RBuilder.CreateAlignedStore(Load, DstGEP, PartDstAlign,
                                                      DstIsVolatile);
-      if (!CanOverlap) {
+
         // Indicate that stores don't overlap loads.
         Store->setMetadata(LLVMContext::MD_noalias, MDNode::get(Ctx, NewScope));
-      }
+
       if (AtomicElementSize) {
         Load->setAtomic(AtomicOrdering::Unordered);
         Store->setAtomic(AtomicOrdering::Unordered);
@@ -180,8 +178,7 @@ static Value *getRuntimeLoopBytes(const DataLayout &DL, IRBuilderBase &B,
 void llvm::createMemCpyLoopUnknownSize(
     Instruction *InsertBefore, Value *SrcAddr, Value *DstAddr, Value *CopyLen,
     Align SrcAlign, Align DstAlign, bool SrcIsVolatile, bool DstIsVolatile,
-    bool CanOverlap, const TargetTransformInfo &TTI,
-    std::optional<uint32_t> AtomicElementSize) {
+    const TargetTransformInfo &TTI, std::optional<uint32_t> AtomicElementSize) {
   BasicBlock *PreLoopBB = InsertBefore->getParent();
   BasicBlock *PostLoopBB =
       PreLoopBB->splitBasicBlock(InsertBefore, "post-loop-memcpy-expansion");
@@ -242,17 +239,17 @@ void llvm::createMemCpyLoopUnknownSize(
   Value *SrcGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, SrcAddr, LoopIndex);
   LoadInst *Load = LoopBuilder.CreateAlignedLoad(LoopOpType, SrcGEP,
                                                  PartSrcAlign, SrcIsVolatile);
-  if (!CanOverlap) {
+
     // Set alias scope for loads.
     Load->setMetadata(LLVMContext::MD_alias_scope, MDNode::get(Ctx, NewScope));
-  }
+
   Value *DstGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, DstAddr, LoopIndex);
   StoreInst *Store =
       LoopBuilder.CreateAlignedStore(Load, DstGEP, PartDstAlign, DstIsVolatile);
-  if (!CanOverlap) {
+
     // Indicate that stores don't overlap loads.
     Store->setMetadata(LLVMContext::MD_noalias, MDNode::get(Ctx, NewScope));
-  }
+
   if (AtomicElementSize) {
     Load->setAtomic(AtomicOrdering::Unordered);
     Store->setAtomic(AtomicOrdering::Unordered);
@@ -310,18 +307,18 @@ void llvm::createMemCpyLoopUnknownSize(
     Value *SrcGEP = ResBuilder.CreateInBoundsGEP(Int8Type, SrcAddr, FullOffset);
     LoadInst *Load = ResBuilder.CreateAlignedLoad(ResLoopOpType, SrcGEP,
                                                   ResSrcAlign, SrcIsVolatile);
-    if (!CanOverlap) {
+
       // Set alias scope for loads.
       Load->setMetadata(LLVMContext::MD_alias_scope,
                         MDNode::get(Ctx, NewScope));
-    }
+
     Value *DstGEP = ResBuilder.CreateInBoundsGEP(Int8Type, DstAddr, FullOffset);
     StoreInst *Store =
         ResBuilder.CreateAlignedStore(Load, DstGEP, ResDstAlign, DstIsVolatile);
-    if (!CanOverlap) {
+
       // Indicate that stores don't overlap loads.
       Store->setMetadata(LLVMContext::MD_noalias, MDNode::get(Ctx, NewScope));
-    }
+
     if (AtomicElementSize) {
       Load->setAtomic(AtomicOrdering::Unordered);
       Store->setAtomic(AtomicOrdering::Unordered);
@@ -880,7 +877,6 @@ static bool canOverlap(MemTransferBase<T> *Memcpy, ScalarEvolution *SE) {
 void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
                               const TargetTransformInfo &TTI,
                               ScalarEvolution *SE) {
-  bool CanOverlap = canOverlap(Memcpy, SE);
   if (ConstantInt *CI = dyn_cast<ConstantInt>(Memcpy->getLength())) {
     createMemCpyLoopKnownSize(
         /* InsertBefore */ Memcpy,
@@ -891,7 +887,6 @@ void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
         /* DestAlign */ Memcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ Memcpy->isVolatile(),
         /* DstIsVolatile */ Memcpy->isVolatile(),
-        /* CanOverlap */ CanOverlap,
         /* TargetTransformInfo */ TTI);
   } else {
     createMemCpyLoopUnknownSize(
@@ -903,7 +898,6 @@ void llvm::expandMemCpyAsLoop(MemCpyInst *Memcpy,
         /* DestAlign */ Memcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ Memcpy->isVolatile(),
         /* DstIsVolatile */ Memcpy->isVolatile(),
-        /* CanOverlap */ CanOverlap,
         /* TargetTransformInfo */ TTI);
   }
 }
@@ -928,13 +922,11 @@ bool llvm::expandMemMoveAsLoop(MemMoveInst *Memmove,
       if (ConstantInt *CI = dyn_cast<ConstantInt>(CopyLen)) {
         createMemCpyLoopKnownSize(/*InsertBefore=*/Memmove, SrcAddr, DstAddr,
                                   CI, SrcAlign, DstAlign, SrcIsVolatile,
-                                  DstIsVolatile,
-                                  /*CanOverlap=*/false, TTI);
+                                  DstIsVolatile, TTI);
       } else {
         createMemCpyLoopUnknownSize(/*InsertBefore=*/Memmove, SrcAddr, DstAddr,
                                     CopyLen, SrcAlign, DstAlign, SrcIsVolatile,
-                                    DstIsVolatile,
-                                    /*CanOverlap=*/false, TTI);
+                                    DstIsVolatile, TTI);
       }
 
       return true;
@@ -996,7 +988,6 @@ void llvm::expandAtomicMemCpyAsLoop(AnyMemCpyInst *AtomicMemcpy,
         /* DestAlign */ AtomicMemcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ AtomicMemcpy->isVolatile(),
         /* DstIsVolatile */ AtomicMemcpy->isVolatile(),
-        /* CanOverlap */ false, // SrcAddr & DstAddr may not overlap by spec.
         /* TargetTransformInfo */ TTI,
         /* AtomicCpySize */ AtomicMemcpy->getElementSizeInBytes());
   } else {
@@ -1009,7 +1000,6 @@ void llvm::expandAtomicMemCpyAsLoop(AnyMemCpyInst *AtomicMemcpy,
         /* DestAlign */ AtomicMemcpy->getDestAlign().valueOrOne(),
         /* SrcIsVolatile */ AtomicMemcpy->isVolatile(),
         /* DstIsVolatile */ AtomicMemcpy->isVolatile(),
-        /* CanOverlap */ false, // SrcAddr & DstAddr may not overlap by spec.
         /* TargetTransformInfo */ TTI,
         /* AtomicCpySize */ AtomicMemcpy->getElementSizeInBytes());
   }
