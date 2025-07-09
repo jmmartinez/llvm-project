@@ -1059,6 +1059,137 @@ static void createMemSetLoopKnownSize(Instruction *InsertBefore, Value *DstAddr,
          "Bytes copied should match size in the call!");
 }
 
+static void createMemSetLoopUnknownSize(Instruction *InsertBefore,
+                                        Value *DstAddr, Value *CopyLen,
+                                        Value *SetValue, Align DstAlign,
+                                        bool IsVolatile,
+                                        const TargetTransformInfo &TTI) {
+  BasicBlock *PreLoopBB = InsertBefore->getParent();
+  BasicBlock *PostLoopBB =
+      PreLoopBB->splitBasicBlock(InsertBefore, "post-loop-memset-expansion");
+
+  Function *ParentFunc = PreLoopBB->getParent();
+  const DataLayout &DL = ParentFunc->getDataLayout();
+  LLVMContext &Ctx = PreLoopBB->getContext();
+
+  unsigned DstAS = cast<PointerType>(DstAddr->getType())->getAddressSpace();
+
+  // TODO
+  Type *LoopOpType = TTI.getMemcpyLoopLoweringType(Ctx, CopyLen, DstAS, DstAS,
+                                                   DstAlign, DstAlign);
+  unsigned LoopOpSize = DL.getTypeStoreSize(LoopOpType);
+
+  IRBuilder<> PLBuilder(PreLoopBB->getTerminator());
+
+  // Calculate the loop trip count, and remaining bytes to copy after the loop.
+  Type *CopyLenType = CopyLen->getType();
+  IntegerType *ILengthType = dyn_cast<IntegerType>(CopyLenType);
+  assert(ILengthType &&
+         "expected size argument to memcpy to be an integer type!");
+  Type *Int8Type = Type::getInt8Ty(Ctx);
+  bool LoopOpIsInt8 = LoopOpType == Int8Type;
+  ConstantInt *CILoopOpSize = ConstantInt::get(ILengthType, LoopOpSize);
+
+  Value *RuntimeLoopBytes = CopyLen;
+  Value *RuntimeResidualBytes = nullptr;
+
+  if (!LoopOpIsInt8) {
+    RuntimeResidualBytes = getRuntimeLoopRemainder(DL, PLBuilder, CopyLen,
+                                                   CILoopOpSize, LoopOpSize);
+    RuntimeLoopBytes = getRuntimeLoopBytes(DL, PLBuilder, CopyLen, CILoopOpSize,
+                                           LoopOpSize, RuntimeResidualBytes);
+  }
+
+  BasicBlock *LoopBB =
+      BasicBlock::Create(Ctx, "loop-memset-expansion", ParentFunc, PostLoopBB);
+  IRBuilder<> LoopBuilder(LoopBB);
+
+  Align PartDstAlign(commonAlignment(DstAlign, LoopOpSize));
+
+  PHINode *LoopIndex = LoopBuilder.CreatePHI(CopyLenType, 2, "loop-index");
+  LoopIndex->addIncoming(ConstantInt::get(CopyLenType, 0U), PreLoopBB);
+
+  Value *SetValueBroadcast = PLBuilder.CreateVectorSplat(LoopOpSize, SetValue);
+  Value *LoopSetValue = PLBuilder.CreateBitCast(SetValueBroadcast, LoopOpType);
+
+  Value *DstGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, DstAddr, LoopIndex);
+  LoopBuilder.CreateAlignedStore(LoopSetValue, DstGEP, PartDstAlign,
+                                 IsVolatile);
+
+  Value *NewIndex = LoopBuilder.CreateAdd(
+      LoopIndex, ConstantInt::get(CopyLenType, LoopOpSize));
+  LoopIndex->addIncoming(NewIndex, LoopBB);
+
+  bool RequiresResidual = !LoopOpIsInt8;
+  if (RequiresResidual) {
+    Type *ResLoopOpType = Int8Type;
+    unsigned ResLoopOpSize = DL.getTypeStoreSize(ResLoopOpType);
+
+    Align ResDstAlign(commonAlignment(PartDstAlign, ResLoopOpSize));
+
+    // Loop body for the residual copy.
+    BasicBlock *ResLoopBB = BasicBlock::Create(
+        Ctx, "loop-memset-residual", PreLoopBB->getParent(), PostLoopBB);
+    // Residual loop header.
+    BasicBlock *ResHeaderBB = BasicBlock::Create(
+        Ctx, "loop-memset-residual-header", PreLoopBB->getParent(), nullptr);
+
+    // Need to update the pre-loop basic block to branch to the correct place.
+    // branch to the main loop if the count is non-zero, branch to the residual
+    // loop if the copy size is smaller then 1 iteration of the main loop but
+    // non-zero and finally branch to after the residual loop if the memcpy
+    //  size is zero.
+    ConstantInt *Zero = ConstantInt::get(ILengthType, 0U);
+    PLBuilder.CreateCondBr(PLBuilder.CreateICmpNE(RuntimeLoopBytes, Zero),
+                           LoopBB, ResHeaderBB);
+    PreLoopBB->getTerminator()->eraseFromParent();
+
+    LoopBuilder.CreateCondBr(
+        LoopBuilder.CreateICmpULT(NewIndex, RuntimeLoopBytes), LoopBB,
+        ResHeaderBB);
+
+    // Determine if we need to branch to the residual loop or bypass it.
+    IRBuilder<> RHBuilder(ResHeaderBB);
+    RHBuilder.CreateCondBr(RHBuilder.CreateICmpNE(RuntimeResidualBytes, Zero),
+                           ResLoopBB, PostLoopBB);
+
+    // Copy the residual with single byte load/store loop.
+    IRBuilder<> ResBuilder(ResLoopBB);
+    PHINode *ResidualIndex =
+        ResBuilder.CreatePHI(CopyLenType, 2, "residual-loop-index");
+    ResidualIndex->addIncoming(Zero, ResHeaderBB);
+
+    Value *FullOffset = ResBuilder.CreateAdd(RuntimeLoopBytes, ResidualIndex);
+    Value *DstGEP = ResBuilder.CreateInBoundsGEP(Int8Type, DstAddr, FullOffset);
+
+    Value *SetValueBroadcast =
+        PLBuilder.CreateVectorSplat(ResLoopOpSize, SetValue);
+    Value *OpSetValue =
+        PLBuilder.CreateBitCast(SetValueBroadcast, ResLoopOpType);
+    ResBuilder.CreateAlignedStore(OpSetValue, DstGEP, ResDstAlign, IsVolatile);
+    Value *ResNewIndex = ResBuilder.CreateAdd(
+        ResidualIndex, ConstantInt::get(CopyLenType, ResLoopOpSize));
+    ResidualIndex->addIncoming(ResNewIndex, ResLoopBB);
+
+    // Create the loop branch condition.
+    ResBuilder.CreateCondBr(
+        ResBuilder.CreateICmpULT(ResNewIndex, RuntimeResidualBytes), ResLoopBB,
+        PostLoopBB);
+  } else {
+    // In this case the loop operand type was a byte, and there is no need for a
+    // residual loop to copy the remaining memory after the main loop.
+    // We do however need to patch up the control flow by creating the
+    // terminators for the preloop block and the memcpy loop.
+    ConstantInt *Zero = ConstantInt::get(ILengthType, 0U);
+    PLBuilder.CreateCondBr(PLBuilder.CreateICmpNE(RuntimeLoopBytes, Zero),
+                           LoopBB, PostLoopBB);
+    PreLoopBB->getTerminator()->eraseFromParent();
+    LoopBuilder.CreateCondBr(
+        LoopBuilder.CreateICmpULT(NewIndex, RuntimeLoopBytes), LoopBB,
+        PostLoopBB);
+  }
+}
+
 void llvm::expandMemSetAsLoop(MemSetInst *Memset,
                               const TargetTransformInfo &TTI) {
   if (ConstantInt *CI = dyn_cast<ConstantInt>(Memset->getLength())) {
@@ -1071,12 +1202,13 @@ void llvm::expandMemSetAsLoop(MemSetInst *Memset,
         Memset->isVolatile(), TTI);
 
   } else {
-    createMemSetLoop(/* InsertBefore */ Memset,
-                     /* DstAddr */ Memset->getRawDest(),
-                     /* CopyLen */ Memset->getLength(),
-                     /* SetValue */ Memset->getValue(),
-                     /* Alignment */ Memset->getDestAlign().valueOrOne(),
-                     Memset->isVolatile());
+    createMemSetLoopUnknownSize(
+        /* InsertBefore */ Memset,
+        /* DstAddr */ Memset->getRawDest(),
+        /* CopyLen */ Memset->getLength(),
+        /* SetValue */ Memset->getValue(),
+        /* Alignment */ Memset->getDestAlign().valueOrOne(),
+        Memset->isVolatile(), TTI);
   }
 }
 
