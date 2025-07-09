@@ -963,13 +963,121 @@ bool llvm::expandMemMoveAsLoop(MemMoveInst *Memmove,
   return true;
 }
 
-void llvm::expandMemSetAsLoop(MemSetInst *Memset) {
-  createMemSetLoop(/* InsertBefore */ Memset,
-                   /* DstAddr */ Memset->getRawDest(),
-                   /* CopyLen */ Memset->getLength(),
-                   /* SetValue */ Memset->getValue(),
-                   /* Alignment */ Memset->getDestAlign().valueOrOne(),
-                   Memset->isVolatile());
+static Value *createMemSetValueSplatToWiderType(const DataLayout &DL,
+                                                IRBuilder<> &B,
+                                                Type *TargetType, Value *Val) {
+  if (Val->getType() == TargetType)
+    return Val;
+  unsigned Bytes = DL.getTypeStoreSize(TargetType);
+  Value *Splat = B.CreateVectorSplat(Bytes, Val);
+  return B.CreateBitCast(Splat, TargetType);
+}
+
+static void createMemSetLoopKnownSize(Instruction *InsertBefore, Value *DstAddr,
+                                      ConstantInt *CopyLen, Value *SetValue,
+                                      Align DstAlign, bool IsVolatile,
+                                      const TargetTransformInfo &TTI) {
+  if (CopyLen->isZero())
+    return;
+
+  BasicBlock *PreLoopBB = InsertBefore->getParent();
+  BasicBlock *PostLoopBB = nullptr;
+  Function *ParentFunc = PreLoopBB->getParent();
+  LLVMContext &Ctx = PreLoopBB->getContext();
+  const DataLayout &DL = ParentFunc->getDataLayout();
+
+  unsigned DstAS = cast<PointerType>(DstAddr->getType())->getAddressSpace();
+
+  Type *TypeOfCopyLen = CopyLen->getType();
+
+  // TODO: put a specific function
+  Type *LoopOpType = TTI.getMemcpyLoopLoweringType(Ctx, CopyLen, DstAS, DstAS,
+                                                   DstAlign, DstAlign);
+
+  Type *Int8Type = Type::getInt8Ty(Ctx);
+  unsigned LoopOpSize = DL.getTypeStoreSize(LoopOpType);
+
+  uint64_t LoopEndCount = alignDown(CopyLen->getZExtValue(), LoopOpSize);
+  if (LoopEndCount != 0) {
+    PostLoopBB = PreLoopBB->splitBasicBlock(InsertBefore, "memset-split");
+    BasicBlock *LoopBB =
+        BasicBlock::Create(Ctx, "store-loop", ParentFunc, PostLoopBB);
+    PreLoopBB->getTerminator()->setSuccessor(0, LoopBB);
+
+    IRBuilder<> PLBuilder(PreLoopBB->getTerminator());
+
+    Value *LoopSetValue =
+        createMemSetValueSplatToWiderType(DL, PLBuilder, LoopOpType, SetValue);
+
+    Align PartDstAlign(commonAlignment(DstAlign, LoopOpSize));
+
+    IRBuilder<> LoopBuilder(LoopBB);
+    PHINode *LoopIndex = LoopBuilder.CreatePHI(TypeOfCopyLen, 2, "loop-index");
+    LoopIndex->addIncoming(ConstantInt::get(TypeOfCopyLen, 0U), PreLoopBB);
+
+    // Loop Body
+    Value *DstGEP = LoopBuilder.CreateInBoundsGEP(Int8Type, DstAddr, LoopIndex);
+    LoopBuilder.CreateAlignedStore(LoopSetValue, DstGEP, PartDstAlign,
+                                   IsVolatile);
+
+    Value *NewIndex = LoopBuilder.CreateAdd(
+        LoopIndex, ConstantInt::get(TypeOfCopyLen, LoopOpSize));
+    LoopIndex->addIncoming(NewIndex, LoopBB);
+
+    // Create the loop branch condition.
+    Constant *LoopEndCI = ConstantInt::get(TypeOfCopyLen, LoopEndCount);
+    LoopBuilder.CreateCondBr(LoopBuilder.CreateICmpULT(NewIndex, LoopEndCI),
+                             LoopBB, PostLoopBB);
+  }
+
+  uint64_t BytesCopied = LoopEndCount;
+  uint64_t RemainingBytes = CopyLen->getZExtValue() - BytesCopied;
+  if (RemainingBytes) {
+    BasicBlock::iterator InsertIt = PostLoopBB ? PostLoopBB->getFirstNonPHIIt()
+                                               : InsertBefore->getIterator();
+    IRBuilder<> RBuilder(InsertIt->getParent(), InsertIt);
+
+    SmallVector<Type *, 5> RemainingOps;
+    // TODO: put a specific function
+    TTI.getMemcpyLoopResidualLoweringType(RemainingOps, Ctx, RemainingBytes,
+                                          DstAS, DstAS, DstAlign, DstAlign);
+
+    for (auto *OpTy : RemainingOps) {
+      Align PartDstAlign(commonAlignment(DstAlign, BytesCopied));
+
+      unsigned OperandSize = DL.getTypeStoreSize(OpTy);
+
+      Value *OpSetValue =
+          createMemSetValueSplatToWiderType(DL, RBuilder, OpTy, SetValue);
+      Value *DstGEP = RBuilder.CreateInBoundsGEP(
+          Int8Type, DstAddr, ConstantInt::get(TypeOfCopyLen, BytesCopied));
+      RBuilder.CreateAlignedStore(OpSetValue, DstGEP, PartDstAlign, IsVolatile);
+      BytesCopied += OperandSize;
+    }
+  }
+  assert(BytesCopied == CopyLen->getZExtValue() &&
+         "Bytes copied should match size in the call!");
+}
+
+void llvm::expandMemSetAsLoop(MemSetInst *Memset,
+                              const TargetTransformInfo &TTI) {
+  if (ConstantInt *CI = dyn_cast<ConstantInt>(Memset->getLength())) {
+    createMemSetLoopKnownSize(
+        /* InsertBefore */ Memset,
+        /* DstAddr */ Memset->getRawDest(),
+        /* CopyLen */ CI,
+        /* SetValue */ Memset->getValue(),
+        /* Alignment */ Memset->getDestAlign().valueOrOne(),
+        Memset->isVolatile(), TTI);
+
+  } else {
+    createMemSetLoop(/* InsertBefore */ Memset,
+                     /* DstAddr */ Memset->getRawDest(),
+                     /* CopyLen */ Memset->getLength(),
+                     /* SetValue */ Memset->getValue(),
+                     /* Alignment */ Memset->getDestAlign().valueOrOne(),
+                     Memset->isVolatile());
+  }
 }
 
 void llvm::expandMemSetPatternAsLoop(MemSetPatternInst *Memset) {
