@@ -497,6 +497,9 @@ def warn_drv_pch_ignoring_gch_file : Warning<
 def warn_drv_pch_ignoring_gch_dir : Warning<
   "precompiled header directory '%0' was ignored because it contains no clang PCH files">,
   InGroup<IgnoredGCH>;
+def warn_drv_pch_ignoring_no_read_access: Warning<
+  "precompiled header '%0' was ignored because clang does not have read access to it"
+>;
 def warn_missing_sysroot : Warning<"no such sysroot directory: '%0'">,
   InGroup<DiagGroup<"missing-sysroot">>;
 def warn_incompatible_sysroot : Warning<"using sysroot for '%0' but targeting '%1'">,

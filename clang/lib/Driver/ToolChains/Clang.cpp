@@ -1001,8 +1001,14 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
       // so that replace_extension does the right thing.
       P += ".dummy";
       llvm::sys::path::replace_extension(P, "pch");
-      if (D.getVFS().exists(P))
-        FoundPCH = true;
+      llvm::vfs::FileSystem &VFS = D.getVFS();
+      if (VFS.exists(P)) {
+        if (VFS.openFileForRead(P)) {
+          FoundPCH = true;
+        } else {
+          D.Diag(diag::warn_drv_pch_ignoring_no_read_access) << P;
+        }
+      }
 
       if (!FoundPCH) {
         // For GCC compat, probe for a file or directory ending in .gch instead.
