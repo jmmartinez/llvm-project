@@ -112,6 +112,7 @@ struct ForcePassLinking {
     (void)llvm::createPostDomOnlyViewerWrapperPassPass();
     (void)llvm::createPostDomViewerWrapperPassPass();
     (void)llvm::createReassociatePass();
+    (void)llvm::createRedistributePass();
     (void)llvm::createRegionInfoPass();
     (void)llvm::createRegionOnlyPrinterPass();
     (void)llvm::createRegionOnlyViewerPass();

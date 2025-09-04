@@ -232,6 +232,7 @@ LLVM_ABI void initializeMergeICmpsLegacyPassPass(PassRegistry &);
 LLVM_ABI void initializeModuleSummaryIndexWrapperPassPass(PassRegistry &);
 LLVM_ABI void initializeModuloScheduleTestPass(PassRegistry &);
 LLVM_ABI void initializeNaryReassociateLegacyPassPass(PassRegistry &);
+LLVM_ABI void initializeRedistributeLegacyPassPass(PassRegistry &);
 LLVM_ABI void initializeObjCARCContractLegacyPassPass(PassRegistry &);
 LLVM_ABI void
 initializeOptimizationRemarkEmitterWrapperPassPass(PassRegistry &);
@@ -341,7 +342,6 @@ LLVM_ABI void initializeWindowsSecureHotPatchingPass(PassRegistry &);
 LLVM_ABI void initializeWinEHPreparePass(PassRegistry &);
 LLVM_ABI void initializeWriteBitcodePassPass(PassRegistry &);
 LLVM_ABI void initializeXRayInstrumentationLegacyPass(PassRegistry &);
-
 } // end namespace llvm
 
 #endif // LLVM_INITIALIZEPASSES_H
