@@ -104,6 +104,7 @@ struct ForcePassLinking {
     (void)llvm::createLowerInvokePass();
     (void)llvm::createLowerSwitchPass();
     (void)llvm::createNaryReassociatePass();
+    (void)llvm::createRedistributePass();
     (void)llvm::createObjCARCContractPass();
     (void)llvm::createPromoteMemoryToRegisterPass();
     (void)llvm::createRegToMemWrapperPass();

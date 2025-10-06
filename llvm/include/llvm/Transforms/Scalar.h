@@ -201,6 +201,12 @@ LLVM_ABI FunctionPass *createNaryReassociatePass();
 
 //===----------------------------------------------------------------------===//
 //
+// Redistribute - Distribute k*(a+b...b) like expressions
+//
+LLVM_ABI FunctionPass *createRedistributePass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoopDataPrefetch - Perform data prefetching in loops.
 //
 LLVM_ABI FunctionPass *createLoopDataPrefetchPass();

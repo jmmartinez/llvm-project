@@ -236,6 +236,7 @@ LLVM_ABI void initializeMergeICmpsLegacyPassPass(PassRegistry &);
 LLVM_ABI void initializeModuleSummaryIndexWrapperPassPass(PassRegistry &);
 LLVM_ABI void initializeModuloScheduleTestPass(PassRegistry &);
 LLVM_ABI void initializeNaryReassociateLegacyPassPass(PassRegistry &);
+LLVM_ABI void initializeRedistributeLegacyPassPass(PassRegistry &);
 LLVM_ABI void initializeObjCARCContractLegacyPassPass(PassRegistry &);
 LLVM_ABI void
 initializeOptimizationRemarkEmitterWrapperPassPass(PassRegistry &);
