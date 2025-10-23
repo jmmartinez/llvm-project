@@ -62,9 +62,9 @@ Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
   bool IsError =
       getDiagnostics().getDiagnosticIDs()->isDefaultMappingAsError(DiagID);
-  bool ShouldDefer = getLangOpts().CUDA && getLangOpts().GPUDeferDiag &&
-                     DiagnosticIDs::isDeferrable(DiagID) &&
-                     (SemaRef.DeferDiags || !IsError);
+  bool ShouldDefer =
+      getLangOpts().CUDA && DiagnosticIDs::isDeferrable(DiagID) &&
+      (SemaRef.DeferDiags || (getLangOpts().GPUDeferDiag && !IsError));
   auto SetIsLastErrorImmediate = [&](bool Flag) {
     if (IsError)
       SemaRef.IsLastErrorImmediate = Flag;

@@ -10021,7 +10021,8 @@ public:
   public:
     DeferDiagsRAII(Sema &S, bool DeferDiags)
         : S(S), SavedDeferDiags(S.DeferDiags) {
-      S.DeferDiags = SavedDeferDiags || DeferDiags;
+      S.DeferDiags =
+          S.getLangOpts().GPUDeferDiag && (SavedDeferDiags || DeferDiags);
     }
     ~DeferDiagsRAII() { S.DeferDiags = SavedDeferDiags; }
   };
