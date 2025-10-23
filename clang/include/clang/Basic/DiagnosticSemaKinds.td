@@ -2429,7 +2429,7 @@ def err_init_conversion_failed : Error<
   "|: type mismatch at %ordinal5 parameter%diff{ ($ vs $)|}6,7"
   "|: different return type%diff{ ($ vs $)|}5,6"
   "|: different qualifiers (%5 vs %6)"
-  "|: different exception specifications}4">;
+  "|: different exception specifications}4">, Deferrable;
 def note_forward_class_conversion : Note<"%0 is not defined, but forward "
   "declared here; conversion would be valid if it was derived from %1">;
 

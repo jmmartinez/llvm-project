@@ -10019,10 +10019,19 @@ public:
     bool SavedDeferDiags = false;
 
   public:
-    DeferDiagsRAII(Sema &S, bool DeferDiags)
+    enum GPUDeferDiagFlagBehavior {
+      OnlyWithGPUDeferDiagFlagEnabled,
+      AlwaysDefer
+    };
+    DeferDiagsRAII(
+        Sema &S, bool DeferDiags,
+        DeferDiagsRAII::GPUDeferDiagFlagBehavior B =
+            GPUDeferDiagFlagBehavior::OnlyWithGPUDeferDiagFlagEnabled)
         : S(S), SavedDeferDiags(S.DeferDiags) {
-      S.DeferDiags =
-          S.getLangOpts().GPUDeferDiag && (SavedDeferDiags || DeferDiags);
+
+      bool GPUDeferDiag = S.getLangOpts().GPUDeferDiag ||
+                          B == GPUDeferDiagFlagBehavior::AlwaysDefer;
+      S.DeferDiags = GPUDeferDiag && (SavedDeferDiags || DeferDiags);
     }
     ~DeferDiagsRAII() { S.DeferDiags = SavedDeferDiags; }
   };

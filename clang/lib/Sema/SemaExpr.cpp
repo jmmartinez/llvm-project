@@ -7005,6 +7005,16 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
   }
 
   if (Proto) {
+    // For CUDA/HIP, we want to always defer errors for builtin arguments
+    // (despite of -fgpu-defer-diags not being set). In the builtin signature
+    // description, pointers are described using their associated address-space.
+    // A __shared__ pointer in the language may not map to address-space(3), for
+    // example, when compiling host code (we still do semantic analysis of
+    // __device__ functions). The workaround that we currenly have for these
+    // situation is to defer error diagnositcs after code-generation; and emit
+    // them only if the function associated with the diagnostic was emited.
+    DeferDiagsRAII DeferDiags(*this, BuiltinID != 0,
+                              DeferDiagsRAII::AlwaysDefer);
     if (ConvertArgumentsForCall(TheCall, Fn, FDecl, Proto, Args, RParenLoc,
                                 IsExecConfig))
       return ExprError();
