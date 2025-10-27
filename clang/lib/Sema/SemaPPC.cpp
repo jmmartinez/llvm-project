@@ -330,7 +330,7 @@ static QualType DecodePPCMMATypeFromStr(ASTContext &Context, const char *&Str,
     return Type;
   }
   default:
-    return Context.DecodeTypeStr(--Str, Context, Error, RequireICE, true);
+    return Context.DecodeTypeStr(--Str, Error, RequireICE, true);
   }
 }
 

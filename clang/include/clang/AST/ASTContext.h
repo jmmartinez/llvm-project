@@ -2574,7 +2574,7 @@ public:
     GE_Missing_ucontext
   };
 
-  QualType DecodeTypeStr(const char *&Str, const ASTContext &Context,
+  QualType DecodeTypeStr(const char *&Str,
                          ASTContext::GetBuiltinTypeError &Error,
                          bool &RequireICE, bool AllowTypeModifiers) const;
 

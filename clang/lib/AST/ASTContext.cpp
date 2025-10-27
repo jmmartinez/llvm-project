@@ -12661,10 +12661,10 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
 // descriptor decoding to define builtins mixing target-dependent and target-
 // independent types. This function allows decoding one type descriptor with
 // default decoding.
-QualType ASTContext::DecodeTypeStr(const char *&Str, const ASTContext &Context,
-                                   GetBuiltinTypeError &Error, bool &RequireICE,
+QualType ASTContext::DecodeTypeStr(const char *&Str, GetBuiltinTypeError &Error,
+                                   bool &RequireICE,
                                    bool AllowTypeModifiers) const {
-  return DecodeTypeFromStr(Str, Context, Error, RequireICE, AllowTypeModifiers);
+  return DecodeTypeFromStr(Str, *this, Error, RequireICE, AllowTypeModifiers);
 }
 
 /// GetBuiltinType - Return the type for the specified builtin.
@@ -12681,15 +12681,14 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
 
   bool RequiresICE = false;
   Error = GE_None;
-  QualType ResType = DecodeTypeFromStr(TypeStr, *this, Error,
-                                       RequiresICE, true);
+  QualType ResType = DecodeTypeStr(TypeStr, Error, RequiresICE, true);
   if (Error != GE_None)
     return {};
 
   assert(!RequiresICE && "Result of intrinsic cannot be required to be an ICE");
 
   while (TypeStr[0] && TypeStr[0] != '.') {
-    QualType Ty = DecodeTypeFromStr(TypeStr, *this, Error, RequiresICE, true);
+    QualType Ty = DecodeTypeStr(TypeStr, Error, RequiresICE, true);
     if (Error != GE_None)
       return {};
 
