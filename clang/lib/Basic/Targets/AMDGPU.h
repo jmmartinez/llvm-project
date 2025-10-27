@@ -343,37 +343,8 @@ public:
     }
   }
 
-  LangAS getOpenCLBuiltinAddressSpace(unsigned AS) const override {
-    switch (AS) {
-    case 0:
-      return LangAS::opencl_generic;
-    case 1:
-      return LangAS::opencl_global;
-    case 3:
-      return LangAS::opencl_local;
-    case 4:
-      return LangAS::opencl_constant;
-    case 5:
-      return LangAS::opencl_private;
-    default:
-      return getLangASFromTargetAS(AS);
-    }
-  }
-
-  LangAS getCUDABuiltinAddressSpace(unsigned AS) const override {
-    switch (AS) {
-    case 0:
-      return LangAS::Default;
-    case 1:
-      return LangAS::cuda_device;
-    case 3:
-      return LangAS::cuda_shared;
-    case 4:
-      return LangAS::cuda_constant;
-    default:
-      return getLangASFromTargetAS(AS);
-    }
-  }
+  LangAS getLangASForBuiltinAddressSpace(const LangOptions &,
+                                         unsigned AS) const override;
 
   std::optional<LangAS> getConstantAddressSpace() const override {
     return getLangASFromTargetAS(llvm::AMDGPUAS::CONSTANT_ADDRESS);

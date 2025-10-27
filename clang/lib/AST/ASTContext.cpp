@@ -12309,8 +12309,8 @@ void ASTMutationListener::DeducedReturnType(const FunctionDecl *FD,
 /// with default decoding.
 QualType ASTContext::DecodeTypeStr(const char *&Str,
                                    ASTContext::GetBuiltinTypeError &Error,
-                                   bool &RequiresICE,
-                                   bool AllowTypeModifiers) const {
+                                   bool &RequiresICE, bool AllowTypeModifiers,
+                                   const TargetInfo *BuiltinTarget) const {
   // Modifiers.
   int HowLong = 0;
   bool Signed = false, Unsigned = false;
@@ -12521,7 +12521,8 @@ QualType ASTContext::DecodeTypeStr(const char *&Str,
     assert(End != Str && "Missing vector size");
     Str = End;
 
-    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
+    QualType ElementType =
+        DecodeTypeStr(Str, Error, RequiresICE, false, BuiltinTarget);
     assert(!RequiresICE && "Can't require vector ICE");
 
     Type = getScalableVectorType(ElementType, NumElements);
@@ -12552,7 +12553,8 @@ QualType ASTContext::DecodeTypeStr(const char *&Str,
     assert(End != Str && "Missing vector size");
     Str = End;
 
-    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
+    QualType ElementType =
+        DecodeTypeStr(Str, Error, RequiresICE, false, BuiltinTarget);
     assert(!RequiresICE && "Can't require vector ICE");
 
     // TODO: No way to make AltiVec vectors in builtins yet.
@@ -12567,12 +12569,14 @@ QualType ASTContext::DecodeTypeStr(const char *&Str,
 
     Str = End;
 
-    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
+    QualType ElementType =
+        DecodeTypeStr(Str, Error, RequiresICE, false, BuiltinTarget);
     Type = getExtVectorType(ElementType, NumElements);
     break;
   }
   case 'X': {
-    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
+    QualType ElementType =
+        DecodeTypeStr(Str, Error, RequiresICE, false, BuiltinTarget);
     assert(!RequiresICE && "Can't require complex ICE");
     Type = getComplexType(ElementType);
     break;
@@ -12628,8 +12632,9 @@ QualType ASTContext::DecodeTypeStr(const char *&Str,
       unsigned AddrSpace = strtoul(Str, &End, 10);
       if (End != Str) {
         // Note AddrSpace == 0 is not the same as an unspecified address space.
-        Type = getAddrSpaceQualType(Type,
-                                    getLangASForBuiltinAddressSpace(AddrSpace));
+        Type = getAddrSpaceQualType(
+            Type, BuiltinTarget->getLangASForBuiltinAddressSpace(LangOpts,
+                                                                 AddrSpace));
         Str = End;
       }
       if (c == '*')
@@ -12657,11 +12662,16 @@ QualType ASTContext::DecodeTypeStr(const char *&Str,
   return Type;
 }
 
+const TargetInfo *ASTContext::getTargetForBuiltin(unsigned BuiltinID) const {
+  return BuiltinInfo.isAuxBuiltinID(BuiltinID) ? AuxTarget : Target;
+}
+
 /// GetBuiltinType - Return the type for the specified builtin.
 QualType ASTContext::GetBuiltinType(unsigned Id,
                                     GetBuiltinTypeError &Error,
                                     unsigned *IntegerConstantArgs) const {
   const char *TypeStr = BuiltinInfo.getTypeString(Id);
+  const TargetInfo *BuiltinTarget = getTargetForBuiltin(Id);
   if (TypeStr[0] == '\0') {
     Error = GE_Missing_type;
     return {};
@@ -12671,14 +12681,16 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
 
   bool RequiresICE = false;
   Error = GE_None;
-  QualType ResType = DecodeTypeStr(TypeStr, Error, RequiresICE, true);
+  QualType ResType =
+      DecodeTypeStr(TypeStr, Error, RequiresICE, true, BuiltinTarget);
   if (Error != GE_None)
     return {};
 
   assert(!RequiresICE && "Result of intrinsic cannot be required to be an ICE");
 
   while (TypeStr[0] && TypeStr[0] != '.') {
-    QualType Ty = DecodeTypeStr(TypeStr, Error, RequiresICE, true);
+    QualType Ty =
+        DecodeTypeStr(TypeStr, Error, RequiresICE, true, BuiltinTarget);
     if (Error != GE_None)
       return {};
 
@@ -14640,16 +14652,6 @@ QualType ASTContext::getCorrespondingSaturatedType(QualType Ty) const {
     case BuiltinType::ULongFract:
       return SatUnsignedLongFractTy;
   }
-}
-
-LangAS ASTContext::getLangASForBuiltinAddressSpace(unsigned AS) const {
-  if (LangOpts.OpenCL)
-    return getTargetInfo().getOpenCLBuiltinAddressSpace(AS);
-
-  if (LangOpts.CUDA)
-    return getTargetInfo().getCUDABuiltinAddressSpace(AS);
-
-  return getLangASFromTargetAS(AS);
 }
 
 // Explicitly instantiate this in case a Redeclarable<T> is used from a TU that

@@ -2574,9 +2574,12 @@ public:
     GE_Missing_ucontext
   };
 
+  const TargetInfo *getTargetForBuiltin(unsigned BuiltinID) const;
+
   QualType DecodeTypeStr(const char *&Str,
                          ASTContext::GetBuiltinTypeError &Error,
-                         bool &RequireICE, bool AllowTypeModifiers) const;
+                         bool &RequireICE, bool AllowTypeModifiers,
+                         const TargetInfo *Target) const;
 
   /// Return the type for the specified builtin.
   ///
@@ -3167,8 +3170,6 @@ public:
   int getFloatingTypeSemanticOrder(QualType LHS, QualType RHS) const;
 
   unsigned getTargetAddressSpace(LangAS AS) const;
-
-  LangAS getLangASForBuiltinAddressSpace(unsigned AS) const;
 
   /// Get target-dependent integer value for null pointer which is used for
   /// constant folding.

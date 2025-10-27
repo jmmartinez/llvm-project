@@ -285,6 +285,50 @@ void AMDGPUTargetInfo::adjust(DiagnosticsEngine &Diags, LangOptions &Opts,
   AtomicOpts = AtomicOptions(Opts);
 }
 
+static LangAS getOpenCLBuiltinAddressSpace(unsigned AS) {
+  switch (AS) {
+  case 0:
+    return LangAS::opencl_generic;
+  case 1:
+    return LangAS::opencl_global;
+  case 3:
+    return LangAS::opencl_local;
+  case 4:
+    return LangAS::opencl_constant;
+  case 5:
+    return LangAS::opencl_private;
+  default:
+    return getLangASFromTargetAS(AS);
+  }
+}
+
+static LangAS getCUDABuiltinAddressSpace(unsigned AS) {
+  switch (AS) {
+  case 0:
+    return LangAS::Default;
+  case 1:
+    return LangAS::cuda_device;
+  case 3:
+    return LangAS::cuda_shared;
+  case 4:
+    return LangAS::cuda_constant;
+  default:
+    return getLangASFromTargetAS(AS);
+  }
+}
+
+LangAS
+AMDGPUTargetInfo::getLangASForBuiltinAddressSpace(const LangOptions &LangOpts,
+                                                  unsigned AS) const {
+  if (LangOpts.OpenCL)
+    return getOpenCLBuiltinAddressSpace(AS);
+
+  if (LangOpts.CUDA)
+    return getCUDABuiltinAddressSpace(AS);
+
+  return getLangASFromTargetAS(AS);
+}
+
 llvm::SmallVector<Builtin::InfosShard>
 AMDGPUTargetInfo::getTargetBuiltins() const {
   return {{&BuiltinStrings, BuiltinInfos}};

@@ -282,7 +282,8 @@ bool SemaPPC::CheckPPCMMAType(QualType Type, SourceLocation TypeLoc) {
 /// used in Str are specific to PPC MMA builtins and are documented in the file
 /// defining the PPC builtins.
 static QualType DecodePPCMMATypeFromStr(ASTContext &Context, const char *&Str,
-                                        unsigned &Mask) {
+                                        unsigned &Mask,
+                                        const TargetInfo *Target) {
   bool RequireICE = false;
   ASTContext::GetBuiltinTypeError Error = ASTContext::GE_None;
   switch (*Str++) {
@@ -330,7 +331,7 @@ static QualType DecodePPCMMATypeFromStr(ASTContext &Context, const char *&Str,
     return Type;
   }
   default:
-    return Context.DecodeTypeStr(--Str, Error, RequireICE, true);
+    return Context.DecodeTypeStr(--Str, Error, RequireICE, true, Target);
   }
 }
 
@@ -344,14 +345,18 @@ bool SemaPPC::BuiltinPPCMMACall(CallExpr *TheCall, unsigned BuiltinID,
   unsigned Mask = 0;
   unsigned ArgNum = 0;
 
+  const TargetInfo *BuiltinTarget = Context.getTargetForBuiltin(BuiltinID);
+
   // The first type in TypeStr is the type of the value returned by the
   // builtin. So we first read that type and change the type of TheCall.
-  QualType type = DecodePPCMMATypeFromStr(Context, TypeStr, Mask);
+  QualType type =
+      DecodePPCMMATypeFromStr(Context, TypeStr, Mask, BuiltinTarget);
   TheCall->setType(type);
 
   while (*TypeStr != '\0') {
     Mask = 0;
-    QualType ExpectedType = DecodePPCMMATypeFromStr(Context, TypeStr, Mask);
+    QualType ExpectedType =
+        DecodePPCMMATypeFromStr(Context, TypeStr, Mask, BuiltinTarget);
     if (ArgNum >= TheCall->getNumArgs()) {
       ArgNum++;
       break;
@@ -391,7 +396,7 @@ bool SemaPPC::BuiltinPPCMMACall(CallExpr *TheCall, unsigned BuiltinID,
   // number of arguments in TheCall and if it is not the case, to display a
   // better error message.
   while (*TypeStr != '\0') {
-    (void)DecodePPCMMATypeFromStr(Context, TypeStr, Mask);
+    (void)DecodePPCMMATypeFromStr(Context, TypeStr, Mask, BuiltinTarget);
     ArgNum++;
   }
   if (SemaRef.checkArgCount(TheCall, ArgNum))

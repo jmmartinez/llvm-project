@@ -1693,13 +1693,8 @@ public:
 
   /// Map from the address space field in builtin description strings to the
   /// language address space.
-  virtual LangAS getOpenCLBuiltinAddressSpace(unsigned AS) const {
-    return getLangASFromTargetAS(AS);
-  }
-
-  /// Map from the address space field in builtin description strings to the
-  /// language address space.
-  virtual LangAS getCUDABuiltinAddressSpace(unsigned AS) const {
+  virtual LangAS getLangASForBuiltinAddressSpace(const LangOptions &,
+                                                 unsigned AS) const {
     return getLangASFromTargetAS(AS);
   }
 
