@@ -12292,7 +12292,7 @@ void ASTMutationListener::DeducedReturnType(const FunctionDecl *FD,
 //                          Builtin Type Computation
 //===----------------------------------------------------------------------===//
 
-/// DecodeTypeFromStr - This decodes one type descriptor from Str, advancing the
+/// DecodeTypeStr - This decodes one type descriptor from Str, advancing the
 /// pointer over the consumed characters.  This returns the resultant type.  If
 /// AllowTypeModifiers is false then modifier like * are not parsed, just basic
 /// types.  This allows "v2i*" to be parsed as a pointer to a v2i instead of
@@ -12300,10 +12300,17 @@ void ASTMutationListener::DeducedReturnType(const FunctionDecl *FD,
 ///
 /// RequiresICE is filled in on return to indicate whether the value is required
 /// to be an Integer Constant Expression.
-static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
-                                  ASTContext::GetBuiltinTypeError &Error,
-                                  bool &RequiresICE,
-                                  bool AllowTypeModifiers) {
+///
+/// On some targets such as PowerPC, some of the builtins are defined with
+/// custom type descriptors for target-dependent types. These descriptors are
+/// decoded in other functions, but it may be useful to be able to fall back to
+/// default descriptor decoding to define builtins mixing target-dependent and
+/// target- independent types. This function allows decoding one type descriptor
+/// with default decoding.
+QualType ASTContext::DecodeTypeStr(const char *&Str,
+                                   ASTContext::GetBuiltinTypeError &Error,
+                                   bool &RequiresICE,
+                                   bool AllowTypeModifiers) const {
   // Modifiers.
   int HowLong = 0;
   bool Signed = false, Unsigned = false;
@@ -12342,7 +12349,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       #ifndef NDEBUG
       IsSpecial = true;
       #endif
-      if (Context.getTargetInfo().getLongWidth() == 32)
+      if (getTargetInfo().getLongWidth() == 32)
         ++HowLong;
       break;
     case 'W':
@@ -12352,7 +12359,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       #ifndef NDEBUG
       IsSpecial = true;
       #endif
-      switch (Context.getTargetInfo().getInt64Type()) {
+      switch (getTargetInfo().getInt64Type()) {
       default:
         llvm_unreachable("Unexpected integer type");
       case TargetInfo::SignedLong:
@@ -12370,7 +12377,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       #ifndef NDEBUG
       IsSpecial = true;
       #endif
-      switch (Context.getTargetInfo().getIntTypeByWidth(32, true)) {
+      switch (getTargetInfo().getIntTypeByWidth(32, true)) {
       default:
         llvm_unreachable("Unexpected integer type");
       case TargetInfo::SignedInt:
@@ -12390,7 +12397,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       #ifndef NDEBUG
       IsSpecial = true;
       #endif
-      if (Context.getLangOpts().OpenCL)
+      if (getLangOpts().OpenCL)
         HowLong = 1;
       else
         HowLong = 2;
@@ -12406,90 +12413,90 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
   case 'x':
     assert(HowLong == 0 && !Signed && !Unsigned &&
            "Bad modifiers used with 'x'!");
-    Type = Context.Float16Ty;
+    Type = Float16Ty;
     break;
   case 'y':
     assert(HowLong == 0 && !Signed && !Unsigned &&
            "Bad modifiers used with 'y'!");
-    Type = Context.BFloat16Ty;
+    Type = BFloat16Ty;
     break;
   case 'v':
     assert(HowLong == 0 && !Signed && !Unsigned &&
            "Bad modifiers used with 'v'!");
-    Type = Context.VoidTy;
+    Type = VoidTy;
     break;
   case 'h':
     assert(HowLong == 0 && !Signed && !Unsigned &&
            "Bad modifiers used with 'h'!");
-    Type = Context.HalfTy;
+    Type = HalfTy;
     break;
   case 'f':
     assert(HowLong == 0 && !Signed && !Unsigned &&
            "Bad modifiers used with 'f'!");
-    Type = Context.FloatTy;
+    Type = FloatTy;
     break;
   case 'd':
     assert(HowLong < 3 && !Signed && !Unsigned &&
            "Bad modifiers used with 'd'!");
     if (HowLong == 1)
-      Type = Context.LongDoubleTy;
+      Type = LongDoubleTy;
     else if (HowLong == 2)
-      Type = Context.Float128Ty;
+      Type = Float128Ty;
     else
-      Type = Context.DoubleTy;
+      Type = DoubleTy;
     break;
   case 's':
     assert(HowLong == 0 && "Bad modifiers used with 's'!");
     if (Unsigned)
-      Type = Context.UnsignedShortTy;
+      Type = UnsignedShortTy;
     else
-      Type = Context.ShortTy;
+      Type = ShortTy;
     break;
   case 'i':
     if (HowLong == 3)
-      Type = Unsigned ? Context.UnsignedInt128Ty : Context.Int128Ty;
+      Type = Unsigned ? UnsignedInt128Ty : Int128Ty;
     else if (HowLong == 2)
-      Type = Unsigned ? Context.UnsignedLongLongTy : Context.LongLongTy;
+      Type = Unsigned ? UnsignedLongLongTy : LongLongTy;
     else if (HowLong == 1)
-      Type = Unsigned ? Context.UnsignedLongTy : Context.LongTy;
+      Type = Unsigned ? UnsignedLongTy : LongTy;
     else
-      Type = Unsigned ? Context.UnsignedIntTy : Context.IntTy;
+      Type = Unsigned ? UnsignedIntTy : IntTy;
     break;
   case 'c':
     assert(HowLong == 0 && "Bad modifiers used with 'c'!");
     if (Signed)
-      Type = Context.SignedCharTy;
+      Type = SignedCharTy;
     else if (Unsigned)
-      Type = Context.UnsignedCharTy;
+      Type = UnsignedCharTy;
     else
-      Type = Context.CharTy;
+      Type = CharTy;
     break;
   case 'b': // boolean
     assert(HowLong == 0 && !Signed && !Unsigned && "Bad modifiers for 'b'!");
-    Type = Context.BoolTy;
+    Type = BoolTy;
     break;
   case 'z':  // size_t.
     assert(HowLong == 0 && !Signed && !Unsigned && "Bad modifiers for 'z'!");
-    Type = Context.getSizeType();
+    Type = getSizeType();
     break;
   case 'w':  // wchar_t.
     assert(HowLong == 0 && !Signed && !Unsigned && "Bad modifiers for 'w'!");
-    Type = Context.getWideCharType();
+    Type = getWideCharType();
     break;
   case 'F':
-    Type = Context.getCFConstantStringType();
+    Type = getCFConstantStringType();
     break;
   case 'G':
-    Type = Context.getObjCIdType();
+    Type = getObjCIdType();
     break;
   case 'H':
-    Type = Context.getObjCSelType();
+    Type = getObjCSelType();
     break;
   case 'M':
-    Type = Context.getObjCSuperType();
+    Type = getObjCSuperType();
     break;
   case 'a':
-    Type = Context.getBuiltinVaListType();
+    Type = getBuiltinVaListType();
     assert(!Type.isNull() && "builtin va list type not initialized!");
     break;
   case 'A':
@@ -12501,12 +12508,12 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     // is x86-64, where va_list is a __va_list_tag[1]. For x86,
     // we want this argument to be a char*&; for x86-64, we want
     // it to be a __va_list_tag*.
-    Type = Context.getBuiltinVaListType();
+    Type = getBuiltinVaListType();
     assert(!Type.isNull() && "builtin va list type not initialized!");
     if (Type->isArrayType())
-      Type = Context.getArrayDecayedType(Type);
+      Type = getArrayDecayedType(Type);
     else
-      Type = Context.getLValueReferenceType(Type);
+      Type = getLValueReferenceType(Type);
     break;
   case 'q': {
     char *End;
@@ -12514,25 +12521,24 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     assert(End != Str && "Missing vector size");
     Str = End;
 
-    QualType ElementType = DecodeTypeFromStr(Str, Context, Error,
-                                             RequiresICE, false);
+    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
     assert(!RequiresICE && "Can't require vector ICE");
 
-    Type = Context.getScalableVectorType(ElementType, NumElements);
+    Type = getScalableVectorType(ElementType, NumElements);
     break;
   }
   case 'Q': {
     switch (*Str++) {
     case 'a': {
-      Type = Context.SveCountTy;
+      Type = SveCountTy;
       break;
     }
     case 'b': {
-      Type = Context.AMDGPUBufferRsrcTy;
+      Type = AMDGPUBufferRsrcTy;
       break;
     }
     case 't': {
-      Type = Context.AMDGPUTextureTy;
+      Type = AMDGPUTextureTy;
       break;
     }
     default:
@@ -12546,12 +12552,11 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     assert(End != Str && "Missing vector size");
     Str = End;
 
-    QualType ElementType = DecodeTypeFromStr(Str, Context, Error,
-                                             RequiresICE, false);
+    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
     assert(!RequiresICE && "Can't require vector ICE");
 
     // TODO: No way to make AltiVec vectors in builtins yet.
-    Type = Context.getVectorType(ElementType, NumElements, VectorKind::Generic);
+    Type = getVectorType(ElementType, NumElements, VectorKind::Generic);
     break;
   }
   case 'E': {
@@ -12562,23 +12567,21 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
 
     Str = End;
 
-    QualType ElementType = DecodeTypeFromStr(Str, Context, Error, RequiresICE,
-                                             false);
-    Type = Context.getExtVectorType(ElementType, NumElements);
+    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
+    Type = getExtVectorType(ElementType, NumElements);
     break;
   }
   case 'X': {
-    QualType ElementType = DecodeTypeFromStr(Str, Context, Error, RequiresICE,
-                                             false);
+    QualType ElementType = DecodeTypeStr(Str, Error, RequiresICE, false);
     assert(!RequiresICE && "Can't require complex ICE");
-    Type = Context.getComplexType(ElementType);
+    Type = getComplexType(ElementType);
     break;
   }
   case 'Y':
-    Type = Context.getPointerDiffType();
+    Type = getPointerDiffType();
     break;
   case 'P':
-    Type = Context.getFILEType();
+    Type = getFILEType();
     if (Type.isNull()) {
       Error = ASTContext::GE_Missing_stdio;
       return {};
@@ -12586,9 +12589,9 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     break;
   case 'J':
     if (Signed)
-      Type = Context.getsigjmp_bufType();
+      Type = getsigjmp_bufType();
     else
-      Type = Context.getjmp_bufType();
+      Type = getjmp_bufType();
 
     if (Type.isNull()) {
       Error = ASTContext::GE_Missing_setjmp;
@@ -12597,7 +12600,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     break;
   case 'K':
     assert(HowLong == 0 && !Signed && !Unsigned && "Bad modifiers for 'K'!");
-    Type = Context.getucontext_tType();
+    Type = getucontext_tType();
 
     if (Type.isNull()) {
       Error = ASTContext::GE_Missing_ucontext;
@@ -12605,10 +12608,10 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
     }
     break;
   case 'p':
-    Type = Context.getProcessIDType();
+    Type = getProcessIDType();
     break;
   case 'm':
-    Type = Context.MFloat8Ty;
+    Type = MFloat8Ty;
     break;
   }
 
@@ -12625,15 +12628,14 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       unsigned AddrSpace = strtoul(Str, &End, 10);
       if (End != Str) {
         // Note AddrSpace == 0 is not the same as an unspecified address space.
-        Type = Context.getAddrSpaceQualType(
-          Type,
-          Context.getLangASForBuiltinAddressSpace(AddrSpace));
+        Type = getAddrSpaceQualType(Type,
+                                    getLangASForBuiltinAddressSpace(AddrSpace));
         Str = End;
       }
       if (c == '*')
-        Type = Context.getPointerType(Type);
+        Type = getPointerType(Type);
       else
-        Type = Context.getLValueReferenceType(Type);
+        Type = getLValueReferenceType(Type);
       break;
     }
     // FIXME: There's no way to have a built-in with an rvalue ref arg.
@@ -12641,7 +12643,7 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       Type = Type.withConst();
       break;
     case 'D':
-      Type = Context.getVolatileType(Type);
+      Type = getVolatileType(Type);
       break;
     case 'R':
       Type = Type.withRestrict();
@@ -12653,18 +12655,6 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
          "Integer constant 'I' type must be an integer");
 
   return Type;
-}
-
-// On some targets such as PowerPC, some of the builtins are defined with custom
-// type descriptors for target-dependent types. These descriptors are decoded in
-// other functions, but it may be useful to be able to fall back to default
-// descriptor decoding to define builtins mixing target-dependent and target-
-// independent types. This function allows decoding one type descriptor with
-// default decoding.
-QualType ASTContext::DecodeTypeStr(const char *&Str, GetBuiltinTypeError &Error,
-                                   bool &RequireICE,
-                                   bool AllowTypeModifiers) const {
-  return DecodeTypeFromStr(Str, *this, Error, RequireICE, AllowTypeModifiers);
 }
 
 /// GetBuiltinType - Return the type for the specified builtin.
