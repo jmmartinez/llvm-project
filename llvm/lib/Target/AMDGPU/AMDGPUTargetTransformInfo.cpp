@@ -527,6 +527,13 @@ bool GCNTTIImpl::getTgtMemIntrinsic(IntrinsicInst *Inst,
   }
 }
 
+static bool isMulWithOneUse(const Value *V) {
+  if (!V->hasOneUse())
+    return false;
+  const BinaryOperator *BO = dyn_cast<BinaryOperator>(V);
+  return BO && BO->getOpcode() == Instruction::Mul;
+}
+
 InstructionCost GCNTTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::TargetCostKind CostKind,
     TTI::OperandValueInfo Op1Info, TTI::OperandValueInfo Op2Info,
@@ -556,6 +563,22 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
     // i32
     return getFullRateInstrCost() * LT.first * NElts;
   case ISD::ADD:
+    if (CxtI) {
+      // Consider the cost of a 'mad' the same as the cost of a 'mul'.
+      // If we can fuse 'add(mul(x y) z)' into 'mad(x y z)', assume the add is
+      // free.
+      assert(CxtI->getOpcode() == Instruction::Add);
+      // Folding into V_MAD_U64_U32 is explicitely avoided before gfx9. Check
+      // IMAD32_Pats uses.
+      bool Is32AndHasMAD32 =
+          SLT == MVT::i32 &&
+          (ST->hasMad64_32() && ST->getGeneration() >= AMDGPUSubtarget::GFX9);
+      bool Is16AndHasMAD16 = SLT == MVT::i16 && ST->has16BitInsts();
+      if ((Is32AndHasMAD32 || Is16AndHasMAD16) &&
+          any_of(CxtI->operand_values(), isMulWithOneUse))
+        return TargetTransformInfo::TCC_Free;
+    }
+    [[fallthrough]];
   case ISD::SUB:
   case ISD::AND:
   case ISD::OR:

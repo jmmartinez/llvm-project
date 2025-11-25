@@ -252,11 +252,10 @@ define void @test_ab_arg_minimal_32(i32 %a, i32 %b, i32 %k, ptr %out) {
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    v_mov_b32_e32 v5, v4
 ; GFX9-NEXT:    v_mov_b32_e32 v4, v3
-; GFX9-NEXT:    v_mul_lo_u32 v3, v0, v2
-; GFX9-NEXT:    v_add_u32_e32 v0, v0, v1
 ; GFX9-NEXT:    v_mul_lo_u32 v0, v0, v2
-; GFX9-NEXT:    flat_store_dword v[4:5], v3
+; GFX9-NEXT:    flat_store_dword v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
+; GFX9-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v1, v2, v[0:1]
 ; GFX9-NEXT:    flat_store_dword v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
@@ -268,10 +267,9 @@ define void @test_ab_arg_minimal_32(i32 %a, i32 %b, i32 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_samplecnt 0x0
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
-; GFX12-NEXT:    v_add_nc_u32_e32 v1, v0, v1
 ; GFX12-NEXT:    v_mul_lo_u32 v0, v0, v2
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_2)
-; GFX12-NEXT:    v_mul_lo_u32 v1, v1, v2
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_1)
+; GFX12-NEXT:    v_mad_co_u64_u32 v[1:2], null, v1, v2, v[0:1]
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b32 v[3:4], v0 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
@@ -386,11 +384,11 @@ define void @test_ab_arg_minimal_16(i16 %a, i16 %b, i16 %k, ptr %out) {
 ; GFX9-LABEL: test_ab_arg_minimal_16:
 ; GFX9:       ; %bb.0:
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GFX9-NEXT:    v_mul_lo_u16_e32 v1, v1, v2
 ; GFX9-NEXT:    v_mov_b32_e32 v5, v4
 ; GFX9-NEXT:    v_mov_b32_e32 v4, v3
 ; GFX9-NEXT:    v_mul_lo_u16_e32 v3, v0, v2
-; GFX9-NEXT:    v_add_u16_e32 v0, v0, v1
-; GFX9-NEXT:    v_mul_lo_u16_e32 v0, v0, v2
+; GFX9-NEXT:    v_mad_legacy_u16 v0, v0, v2, v1
 ; GFX9-NEXT:    flat_store_short v[4:5], v3
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
 ; GFX9-NEXT:    flat_store_short v[4:5], v0
@@ -404,14 +402,14 @@ define void @test_ab_arg_minimal_16(i16 %a, i16 %b, i16 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_samplecnt 0x0
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
-; GFX12-NEXT:    v_add_nc_u16 v1, v0, v1
-; GFX12-NEXT:    v_mul_lo_u16 v0, v0, v2
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_2)
 ; GFX12-NEXT:    v_mul_lo_u16 v1, v1, v2
+; GFX12-NEXT:    v_mul_lo_u16 v5, v0, v2
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_2)
+; GFX12-NEXT:    v_mad_u16 v0, v0, v2, v1
+; GFX12-NEXT:    s_wait_storecnt 0x0
+; GFX12-NEXT:    flat_store_b16 v[3:4], v5 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b16 v[3:4], v0 scope:SCOPE_SYS
-; GFX12-NEXT:    s_wait_storecnt 0x0
-; GFX12-NEXT:    flat_store_b16 v[3:4], v1 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt_dscnt 0x0
 ; GFX12-NEXT:    s_setpc_b64 s[30:31]
   %ak = mul i16 %a, %k
