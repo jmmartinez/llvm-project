@@ -112,6 +112,7 @@
 #include "llvm/Transforms/Scalar/LoopDataPrefetch.h"
 #include "llvm/Transforms/Scalar/LoopPassManager.h"
 #include "llvm/Transforms/Scalar/NaryReassociate.h"
+#include "llvm/Transforms/Scalar/Redistribute.h"
 #include "llvm/Transforms/Scalar/SeparateConstOffsetFromGEP.h"
 #include "llvm/Transforms/Scalar/Sink.h"
 #include "llvm/Transforms/Scalar/StraightLineStrengthReduce.h"
@@ -1296,6 +1297,7 @@ void AMDGPUPassConfig::addStraightLineScalarOptimizationPasses() {
   addEarlyCSEOrGVNPass();
   // Run NaryReassociate after EarlyCSE/GVN to be more effective.
   addPass(createNaryReassociatePass());
+  addPass(createRedistributePass());
   // NaryReassociate on GEPs creates redundant common expressions, so run
   // EarlyCSE after it.
   addPass(createEarlyCSEPass());
@@ -2477,6 +2479,7 @@ void AMDGPUCodeGenPassBuilder::addStraightLineScalarOptimizationPasses(
 
   // Run NaryReassociate after EarlyCSE/GVN to be more effective.
   addFunctionPass(NaryReassociatePass(), PMW);
+  addFunctionPass(RedistributePass(), PMW);
 
   // NaryReassociate on GEPs creates redundant common expressions, so run
   // EarlyCSE after it.

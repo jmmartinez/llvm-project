@@ -7,15 +7,14 @@ define void @test_ab_arg_32(i32 %a, i32 %b, i32 %k, ptr %out) {
 ; GFX7-LABEL: test_ab_arg_32:
 ; GFX7:       ; %bb.0:
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX7-NEXT:    v_mul_lo_u32 v5, v0, v2
-; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
-; GFX7-NEXT:    v_mul_lo_u32 v6, v0, v2
-; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
 ; GFX7-NEXT:    v_mul_lo_u32 v0, v0, v2
-; GFX7-NEXT:    flat_store_dword v[3:4], v5
+; GFX7-NEXT:    v_mul_lo_u32 v1, v1, v2
+; GFX7-NEXT:    flat_store_dword v[3:4], v0
 ; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    flat_store_dword v[3:4], v6
+; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
+; GFX7-NEXT:    flat_store_dword v[3:4], v0
 ; GFX7-NEXT:    s_waitcnt vmcnt(0)
+; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
 ; GFX7-NEXT:    flat_store_dword v[3:4], v0
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX7-NEXT:    s_setpc_b64 s[30:31]
@@ -25,15 +24,14 @@ define void @test_ab_arg_32(i32 %a, i32 %b, i32 %k, ptr %out) {
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    v_mov_b32_e32 v5, v4
 ; GFX9-NEXT:    v_mov_b32_e32 v4, v3
-; GFX9-NEXT:    v_mul_lo_u32 v3, v0, v2
-; GFX9-NEXT:    v_add_u32_e32 v0, v0, v1
-; GFX9-NEXT:    flat_store_dword v[4:5], v3
-; GFX9-NEXT:    s_waitcnt vmcnt(0)
-; GFX9-NEXT:    v_mul_lo_u32 v3, v0, v2
-; GFX9-NEXT:    v_add_u32_e32 v0, v0, v1
+; GFX9-NEXT:    v_mul_lo_u32 v1, v1, v2
 ; GFX9-NEXT:    v_mul_lo_u32 v0, v0, v2
-; GFX9-NEXT:    flat_store_dword v[4:5], v3
+; GFX9-NEXT:    flat_store_dword v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
+; GFX9-NEXT:    v_add_u32_e32 v0, v0, v1
+; GFX9-NEXT:    flat_store_dword v[4:5], v0
+; GFX9-NEXT:    s_waitcnt vmcnt(0)
+; GFX9-NEXT:    v_add_u32_e32 v0, v0, v1
 ; GFX9-NEXT:    flat_store_dword v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
@@ -45,16 +43,15 @@ define void @test_ab_arg_32(i32 %a, i32 %b, i32 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_samplecnt 0x0
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
-; GFX12-NEXT:    v_add_nc_u32_e32 v5, v0, v1
-; GFX12-NEXT:    v_mul_lo_u32 v0, v0, v2
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_2) | instskip(SKIP_1) | instid1(VALU_DEP_2)
-; GFX12-NEXT:    v_add_nc_u32_e32 v1, v5, v1
-; GFX12-NEXT:    v_mul_lo_u32 v5, v5, v2
 ; GFX12-NEXT:    v_mul_lo_u32 v1, v1, v2
+; GFX12-NEXT:    v_mul_lo_u32 v0, v0, v2
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
+; GFX12-NEXT:    v_add_nc_u32_e32 v2, v0, v1
+; GFX12-NEXT:    v_add_nc_u32_e32 v1, v2, v1
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b32 v[3:4], v0 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
-; GFX12-NEXT:    flat_store_b32 v[3:4], v5 scope:SCOPE_SYS
+; GFX12-NEXT:    flat_store_b32 v[3:4], v2 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b32 v[3:4], v1 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt_dscnt 0x0
@@ -74,64 +71,56 @@ define void @test_ab_arg_64(i64 %a, i64 %b, i64 %k, ptr %out) {
 ; GFX7-LABEL: test_ab_arg_64:
 ; GFX7:       ; %bb.0:
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX7-NEXT:    v_mul_lo_u32 v10, v0, v5
-; GFX7-NEXT:    v_mad_u64_u32 v[8:9], s[4:5], v0, v4, 0
-; GFX7-NEXT:    v_mul_lo_u32 v11, v1, v4
-; GFX7-NEXT:    v_add_i32_e32 v9, vcc, v9, v10
-; GFX7-NEXT:    v_add_i32_e32 v10, vcc, v9, v11
+; GFX7-NEXT:    v_mul_lo_u32 v11, v2, v5
+; GFX7-NEXT:    v_mad_u64_u32 v[8:9], s[4:5], v2, v4, 0
+; GFX7-NEXT:    v_mul_lo_u32 v13, v3, v4
+; GFX7-NEXT:    v_mul_lo_u32 v3, v0, v5
+; GFX7-NEXT:    v_add_i32_e32 v12, vcc, v9, v11
+; GFX7-NEXT:    v_mad_u64_u32 v[9:10], s[4:5], v0, v4, 0
+; GFX7-NEXT:    v_mul_lo_u32 v0, v1, v4
+; GFX7-NEXT:    v_add_i32_e32 v5, vcc, v12, v13
+; GFX7-NEXT:    v_add_i32_e32 v1, vcc, v10, v3
+; GFX7-NEXT:    v_add_i32_e32 v3, vcc, v1, v0
+; GFX7-NEXT:    v_add_i32_e32 v0, vcc, 4, v6
+; GFX7-NEXT:    v_addc_u32_e32 v1, vcc, 0, v7, vcc
+; GFX7-NEXT:    v_add_i32_e32 v8, vcc, v9, v8
+; GFX7-NEXT:    flat_store_dword v[6:7], v9
+; GFX7-NEXT:    s_waitcnt vmcnt(0)
+; GFX7-NEXT:    v_addc_u32_e32 v9, vcc, v3, v5, vcc
+; GFX7-NEXT:    flat_store_dword v[0:1], v3
+; GFX7-NEXT:    s_waitcnt vmcnt(0)
+; GFX7-NEXT:    v_mad_u64_u32 v[2:3], s[4:5], v2, v4, v[8:9]
+; GFX7-NEXT:    flat_store_dword v[0:1], v9
+; GFX7-NEXT:    s_waitcnt vmcnt(0)
 ; GFX7-NEXT:    flat_store_dword v[6:7], v8
 ; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    v_add_i32_e32 v8, vcc, 4, v6
-; GFX7-NEXT:    v_addc_u32_e32 v9, vcc, 0, v7, vcc
-; GFX7-NEXT:    v_add_i32_e32 v11, vcc, v0, v2
-; GFX7-NEXT:    v_addc_u32_e32 v12, vcc, v1, v3, vcc
-; GFX7-NEXT:    v_mul_lo_u32 v13, v11, v5
-; GFX7-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v11, v4, 0
-; GFX7-NEXT:    flat_store_dword v[8:9], v10
+; GFX7-NEXT:    v_add_i32_e32 v3, vcc, v13, v3
+; GFX7-NEXT:    v_add_i32_e32 v3, vcc, v11, v3
+; GFX7-NEXT:    flat_store_dword v[6:7], v2
 ; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    v_mul_lo_u32 v10, v12, v4
-; GFX7-NEXT:    v_add_i32_e32 v1, vcc, v1, v13
-; GFX7-NEXT:    v_add_i32_e32 v1, vcc, v1, v10
-; GFX7-NEXT:    flat_store_dword v[8:9], v1
-; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    v_add_i32_e32 v1, vcc, v11, v2
-; GFX7-NEXT:    v_addc_u32_e32 v3, vcc, v12, v3, vcc
-; GFX7-NEXT:    v_mul_lo_u32 v5, v1, v5
-; GFX7-NEXT:    v_mad_u64_u32 v[1:2], s[4:5], v1, v4, 0
-; GFX7-NEXT:    flat_store_dword v[6:7], v0
-; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    v_mul_lo_u32 v0, v3, v4
-; GFX7-NEXT:    v_add_i32_e32 v2, vcc, v2, v5
-; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v2, v0
-; GFX7-NEXT:    flat_store_dword v[8:9], v0
-; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    flat_store_dword v[6:7], v1
+; GFX7-NEXT:    flat_store_dword v[0:1], v3
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX7-NEXT:    s_setpc_b64 s[30:31]
 ;
 ; GFX9-LABEL: test_ab_arg_64:
 ; GFX9:       ; %bb.0:
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX9-NEXT:    v_mul_lo_u32 v10, v1, v4
-; GFX9-NEXT:    v_mul_lo_u32 v11, v0, v5
-; GFX9-NEXT:    v_mad_u64_u32 v[8:9], s[4:5], v0, v4, 0
-; GFX9-NEXT:    v_add3_u32 v9, v9, v11, v10
-; GFX9-NEXT:    flat_store_dwordx2 v[6:7], v[8:9]
+; GFX9-NEXT:    v_mul_lo_u32 v3, v3, v4
+; GFX9-NEXT:    v_mul_lo_u32 v12, v2, v5
+; GFX9-NEXT:    v_mad_u64_u32 v[8:9], s[4:5], v2, v4, 0
+; GFX9-NEXT:    v_add3_u32 v9, v9, v12, v3
+; GFX9-NEXT:    v_mul_lo_u32 v13, v1, v4
+; GFX9-NEXT:    v_mul_lo_u32 v5, v0, v5
+; GFX9-NEXT:    v_mad_u64_u32 v[10:11], s[4:5], v0, v4, 0
+; GFX9-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v0, v4, v[8:9]
+; GFX9-NEXT:    v_add3_u32 v11, v11, v5, v13
+; GFX9-NEXT:    v_add3_u32 v1, v13, v1, v5
+; GFX9-NEXT:    flat_store_dwordx2 v[6:7], v[10:11]
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
-; GFX9-NEXT:    v_add_co_u32_e32 v8, vcc, v0, v2
-; GFX9-NEXT:    v_addc_co_u32_e32 v9, vcc, v1, v3, vcc
-; GFX9-NEXT:    v_mul_lo_u32 v10, v9, v4
-; GFX9-NEXT:    v_mul_lo_u32 v11, v8, v5
-; GFX9-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v8, v4, 0
-; GFX9-NEXT:    v_add3_u32 v1, v1, v11, v10
 ; GFX9-NEXT:    flat_store_dwordx2 v[6:7], v[0:1]
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
-; GFX9-NEXT:    v_add_co_u32_e32 v0, vcc, v8, v2
-; GFX9-NEXT:    v_addc_co_u32_e32 v1, vcc, v9, v3, vcc
-; GFX9-NEXT:    v_mul_lo_u32 v2, v1, v4
-; GFX9-NEXT:    v_mul_lo_u32 v3, v0, v5
-; GFX9-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v0, v4, 0
-; GFX9-NEXT:    v_add3_u32 v1, v1, v3, v2
+; GFX9-NEXT:    v_mad_u64_u32 v[0:1], s[4:5], v2, v4, v[0:1]
+; GFX9-NEXT:    v_add3_u32 v1, v3, v1, v12
 ; GFX9-NEXT:    flat_store_dwordx2 v[6:7], v[0:1]
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
@@ -143,32 +132,28 @@ define void @test_ab_arg_64(i64 %a, i64 %b, i64 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_samplecnt 0x0
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
-; GFX12-NEXT:    v_add_co_u32 v10, vcc_lo, v0, v2
-; GFX12-NEXT:    s_wait_alu 0xfffd
-; GFX12-NEXT:    v_add_co_ci_u32_e64 v11, null, v1, v3, vcc_lo
-; GFX12-NEXT:    v_mul_lo_u32 v8, v1, v4
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(SKIP_1) | instid1(VALU_DEP_3)
-; GFX12-NEXT:    v_add_co_u32 v12, vcc_lo, v10, v2
-; GFX12-NEXT:    s_wait_alu 0xfffd
-; GFX12-NEXT:    v_add_co_ci_u32_e64 v13, null, v11, v3, vcc_lo
-; GFX12-NEXT:    v_mul_lo_u32 v9, v0, v5
+; GFX12-NEXT:    v_mul_lo_u32 v10, v3, v4
+; GFX12-NEXT:    v_mul_lo_u32 v11, v2, v5
+; GFX12-NEXT:    v_mad_co_u64_u32 v[8:9], null, v2, v4, 0
+; GFX12-NEXT:    v_mul_lo_u32 v3, v1, v4
+; GFX12-NEXT:    v_mul_lo_u32 v5, v0, v5
 ; GFX12-NEXT:    v_mad_co_u64_u32 v[0:1], null, v0, v4, 0
-; GFX12-NEXT:    v_mul_lo_u32 v11, v11, v4
-; GFX12-NEXT:    v_mul_lo_u32 v14, v10, v5
-; GFX12-NEXT:    v_mad_co_u64_u32 v[2:3], null, v10, v4, 0
-; GFX12-NEXT:    v_mul_lo_u32 v10, v13, v4
-; GFX12-NEXT:    v_mul_lo_u32 v13, v12, v5
-; GFX12-NEXT:    v_mad_co_u64_u32 v[4:5], null, v12, v4, 0
-; GFX12-NEXT:    v_add3_u32 v1, v1, v9, v8
-; GFX12-NEXT:    v_add3_u32 v3, v3, v14, v11
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_3)
-; GFX12-NEXT:    v_add3_u32 v5, v5, v13, v10
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_2)
+; GFX12-NEXT:    v_add3_u32 v9, v9, v11, v10
+; GFX12-NEXT:    v_add3_u32 v1, v1, v5, v3
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(SKIP_1) | instid1(VALU_DEP_2)
+; GFX12-NEXT:    v_add_co_u32 v8, vcc_lo, v0, v8
+; GFX12-NEXT:    s_wait_alu depctr_va_vcc(0)
+; GFX12-NEXT:    v_add_co_ci_u32_e64 v9, null, v1, v9, vcc_lo
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
+; GFX12-NEXT:    v_mad_co_u64_u32 v[2:3], null, v2, v4, v[8:9]
+; GFX12-NEXT:    v_add3_u32 v3, v10, v3, v11
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b64 v[6:7], v[0:1] scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
-; GFX12-NEXT:    flat_store_b64 v[6:7], v[2:3] scope:SCOPE_SYS
+; GFX12-NEXT:    flat_store_b64 v[6:7], v[8:9] scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
-; GFX12-NEXT:    flat_store_b64 v[6:7], v[4:5] scope:SCOPE_SYS
+; GFX12-NEXT:    flat_store_b64 v[6:7], v[2:3] scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt_dscnt 0x0
 ; GFX12-NEXT:    s_setpc_b64 s[30:31]
   %ak = mul i64 %a, %k
@@ -186,19 +171,17 @@ define void @test_ab_arg_16(i16 %a, i16 %b, i16 %k, ptr %out) {
 ; GFX7-LABEL: test_ab_arg_16:
 ; GFX7:       ; %bb.0:
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX7-NEXT:    v_and_b32_e32 v5, 0xffff, v0
+; GFX7-NEXT:    v_and_b32_e32 v1, 0xffff, v1
 ; GFX7-NEXT:    v_and_b32_e32 v2, 0xffff, v2
-; GFX7-NEXT:    v_mul_u32_u24_e32 v5, v5, v2
-; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
-; GFX7-NEXT:    flat_store_short v[3:4], v5
-; GFX7-NEXT:    s_waitcnt vmcnt(0)
-; GFX7-NEXT:    v_and_b32_e32 v5, 0xffff, v0
-; GFX7-NEXT:    v_add_i32_e32 v0, vcc, v0, v1
+; GFX7-NEXT:    v_mul_u32_u24_e32 v5, v1, v2
 ; GFX7-NEXT:    v_and_b32_e32 v0, 0xffff, v0
-; GFX7-NEXT:    v_mul_u32_u24_e32 v5, v5, v2
-; GFX7-NEXT:    v_mul_u32_u24_e32 v0, v0, v2
-; GFX7-NEXT:    flat_store_short v[3:4], v5
+; GFX7-NEXT:    v_mul_u32_u24_e32 v6, v0, v2
+; GFX7-NEXT:    v_mad_u32_u24 v0, v0, v2, v5
+; GFX7-NEXT:    flat_store_short v[3:4], v6
 ; GFX7-NEXT:    s_waitcnt vmcnt(0)
+; GFX7-NEXT:    flat_store_short v[3:4], v0
+; GFX7-NEXT:    s_waitcnt vmcnt(0)
+; GFX7-NEXT:    v_mad_u32_u24 v0, v1, v2, v0
 ; GFX7-NEXT:    flat_store_short v[3:4], v0
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX7-NEXT:    s_setpc_b64 s[30:31]
@@ -208,15 +191,14 @@ define void @test_ab_arg_16(i16 %a, i16 %b, i16 %k, ptr %out) {
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    v_mov_b32_e32 v5, v4
 ; GFX9-NEXT:    v_mov_b32_e32 v4, v3
-; GFX9-NEXT:    v_mul_lo_u16_e32 v3, v0, v2
-; GFX9-NEXT:    v_add_u16_e32 v0, v0, v1
-; GFX9-NEXT:    flat_store_short v[4:5], v3
+; GFX9-NEXT:    v_mul_lo_u16_e32 v3, v1, v2
+; GFX9-NEXT:    v_mul_lo_u16_e32 v6, v0, v2
+; GFX9-NEXT:    v_mad_legacy_u16 v0, v0, v2, v3
+; GFX9-NEXT:    flat_store_short v[4:5], v6
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
-; GFX9-NEXT:    v_mul_lo_u16_e32 v3, v0, v2
-; GFX9-NEXT:    v_add_u16_e32 v0, v0, v1
-; GFX9-NEXT:    v_mul_lo_u16_e32 v0, v0, v2
-; GFX9-NEXT:    flat_store_short v[4:5], v3
+; GFX9-NEXT:    flat_store_short v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0)
+; GFX9-NEXT:    v_mad_legacy_u16 v0, v1, v2, v0
 ; GFX9-NEXT:    flat_store_short v[4:5], v0
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
@@ -228,12 +210,11 @@ define void @test_ab_arg_16(i16 %a, i16 %b, i16 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_samplecnt 0x0
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
-; GFX12-NEXT:    v_add_nc_u16 v5, v0, v1
+; GFX12-NEXT:    v_mul_lo_u16 v5, v1, v2
+; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_2)
+; GFX12-NEXT:    v_mad_u16 v5, v0, v2, v5
 ; GFX12-NEXT:    v_mul_lo_u16 v0, v0, v2
-; GFX12-NEXT:    s_delay_alu instid0(VALU_DEP_2) | instskip(SKIP_1) | instid1(VALU_DEP_2)
-; GFX12-NEXT:    v_add_nc_u16 v1, v5, v1
-; GFX12-NEXT:    v_mul_lo_u16 v5, v5, v2
-; GFX12-NEXT:    v_mul_lo_u16 v1, v1, v2
+; GFX12-NEXT:    v_mad_u16 v1, v1, v2, v5
 ; GFX12-NEXT:    s_wait_storecnt 0x0
 ; GFX12-NEXT:    flat_store_b16 v[3:4], v0 scope:SCOPE_SYS
 ; GFX12-NEXT:    s_wait_storecnt 0x0
@@ -360,7 +341,7 @@ define void @test_ab_arg_minimal_64(i64 %a, i64 %b, i64 %k, ptr %out) {
 ; GFX12-NEXT:    s_wait_bvhcnt 0x0
 ; GFX12-NEXT:    s_wait_kmcnt 0x0
 ; GFX12-NEXT:    v_add_co_u32 v2, vcc_lo, v0, v2
-; GFX12-NEXT:    s_wait_alu 0xfffd
+; GFX12-NEXT:    s_wait_alu depctr_va_vcc(0)
 ; GFX12-NEXT:    v_add_co_ci_u32_e64 v3, null, v1, v3, vcc_lo
 ; GFX12-NEXT:    v_mul_lo_u32 v8, v1, v4
 ; GFX12-NEXT:    v_mul_lo_u32 v9, v0, v5
