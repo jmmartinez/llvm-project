@@ -11,9 +11,9 @@ define void @test_ab_diamond(i32 %a, i32 %b, i32 %k) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
 ; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul i32 [[B]], [[K_FREEZE]]
-; CHECK-NEXT:    [[AK3:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    br i1 true, label %[[IF_THEN:.*]], label %[[IF_ELSE:.*]]
 ; CHECK:       [[IF_THEN]]:
+; CHECK-NEXT:    [[AK3:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK1:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK1:%.*]] = add i32 [[ABK1]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK3]])
@@ -21,16 +21,18 @@ define void @test_ab_diamond(i32 %a, i32 %b, i32 %k) {
 ; CHECK-NEXT:    call void @f(i32 [[ABBK1]])
 ; CHECK-NEXT:    br label %[[EXIT:.*]]
 ; CHECK:       [[IF_ELSE]]:
-; CHECK-NEXT:    [[ABK2:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
+; CHECK-NEXT:    [[AK2:%.*]] = mul i32 [[A]], [[K_FREEZE]]
+; CHECK-NEXT:    [[ABK2:%.*]] = add i32 [[AK2]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK2]], [[B_DISTR_OP]]
-; CHECK-NEXT:    call void @f(i32 [[AK3]])
+; CHECK-NEXT:    call void @f(i32 [[AK2]])
 ; CHECK-NEXT:    call void @f(i32 [[ABK2]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK2]])
 ; CHECK-NEXT:    br label %[[EXIT]]
 ; CHECK:       [[EXIT]]:
-; CHECK-NEXT:    [[ABK3:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
+; CHECK-NEXT:    [[AK4:%.*]] = mul i32 [[A]], [[K_FREEZE]]
+; CHECK-NEXT:    [[ABK3:%.*]] = add i32 [[AK4]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK3:%.*]] = add i32 [[ABK3]], [[B_DISTR_OP]]
-; CHECK-NEXT:    call void @f(i32 [[AK3]])
+; CHECK-NEXT:    call void @f(i32 [[AK4]])
 ; CHECK-NEXT:    call void @f(i32 [[ABK3]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK3]])
 ; CHECK-NEXT:    ret void
@@ -77,11 +79,11 @@ define void @test_ab_cross_block(i32 %a, i32 %b, i32 %k) {
 ; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_DISTR_OP]]
-; CHECK-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK]])
 ; CHECK-NEXT:    br label %[[NEXT:.*]]
 ; CHECK:       [[NEXT]]:
 ; CHECK-NEXT:    call void @f(i32 [[ABK]])
+; CHECK-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[ABBK]])
 ; CHECK-NEXT:    [[ABBBK:%.*]] = add i32 [[ABBK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[ABBBK]])
@@ -111,7 +113,6 @@ define void @test_ab_diamond_load(i32 %a, i32 %b, ptr %p) {
 ; CHECK-NEXT:    [[K:%.*]] = load i32, ptr [[P]], align 4
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
 ; CHECK-NEXT:    [[B_DISTR_OP4:%.*]] = mul i32 [[B]], [[K_FREEZE]]
-; CHECK-NEXT:    [[AK2:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    br i1 true, label %[[IF_THEN:.*]], label %[[IF_ELSE:.*]]
 ; CHECK:       [[IF_THEN]]:
 ; CHECK-NEXT:    [[K1:%.*]] = load i32, ptr [[P]], align 4
@@ -125,6 +126,7 @@ define void @test_ab_diamond_load(i32 %a, i32 %b, ptr %p) {
 ; CHECK-NEXT:    call void @f(i32 [[ABBK1]])
 ; CHECK-NEXT:    br label %[[EXIT:.*]]
 ; CHECK:       [[IF_ELSE]]:
+; CHECK-NEXT:    [[AK2:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK2:%.*]] = add i32 [[AK2]], [[B_DISTR_OP4]]
 ; CHECK-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK2]], [[B_DISTR_OP4]]
 ; CHECK-NEXT:    call void @f(i32 [[AK2]])
@@ -189,11 +191,11 @@ define void @test_ab_cross_block_load(i32 %a, i32 %b, ptr %p) {
 ; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_DISTR_OP]]
-; CHECK-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK]])
 ; CHECK-NEXT:    br label %[[NEXT:.*]]
 ; CHECK:       [[NEXT]]:
 ; CHECK-NEXT:    call void @f(i32 [[ABK]])
+; CHECK-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[ABBK]])
 ; CHECK-NEXT:    [[ABBBK:%.*]] = add i32 [[ABBK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[ABBBK]])
@@ -223,18 +225,19 @@ define void @test_repetead_ab_use(i32 %a, i32 %b, i32 %k) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
 ; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul i32 [[B]], [[K_FREEZE]]
-; CHECK-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[AK1:%.*]] = mul i32 [[A]], [[K]]
-; CHECK-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_DISTR_OP]]
-; CHECK-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
+; CHECK-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
+; CHECK-NEXT:    [[ABK:%.*]] = mul i32 [[AB]], [[K_FREEZE]]
 ; CHECK-NEXT:    br i1 true, label %[[IF_THEN:.*]], label %[[IF_ELSE:.*]]
 ; CHECK:       [[IF_THEN]]:
+; CHECK-NEXT:    [[ABK1:%.*]] = mul i32 [[AB]], [[K]]
 ; CHECK-NEXT:    [[ABBK1:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK1]])
-; CHECK-NEXT:    call void @f(i32 [[ABK]])
+; CHECK-NEXT:    call void @f(i32 [[ABK1]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK1]])
 ; CHECK-NEXT:    ret void
 ; CHECK:       [[IF_ELSE]]:
+; CHECK-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK1]])
 ; CHECK-NEXT:    call void @f(i32 [[ABK]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK2]])
@@ -283,9 +286,10 @@ define void @test_ab_invoke_k(i32 %a, i32 %b) personality ptr @__gxx_personality
 ; CHECK-NEXT:            cleanup
 ; CHECK-NEXT:    resume { ptr, i32 } [[TMP0]]
 ; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    [[AK4:%.*]] = mul i32 [[A]], [[K]]
 ; CHECK-NEXT:    [[ABK3:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK3:%.*]] = add i32 [[ABK3]], [[B_DISTR_OP]]
-; CHECK-NEXT:    call void @f(i32 [[AK3]])
+; CHECK-NEXT:    call void @f(i32 [[AK4]])
 ; CHECK-NEXT:    call void @f(i32 [[ABK3]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK3]])
 ; CHECK-NEXT:    ret void
@@ -324,11 +328,11 @@ define void @test_ab_invoke_b(i32 %a, i32 %k) personality ptr @__gxx_personality
 ; CHECK-SAME: i32 [[A:%.*]], i32 [[K:%.*]]) personality ptr @__gxx_personality_v0 {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; CHECK-NEXT:    [[AK3:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[B:%.*]] = invoke i32 @boo()
 ; CHECK-NEXT:            to label %[[INVOKE_CONT:.*]] unwind label %[[LPAD:.*]]
 ; CHECK:       [[INVOKE_CONT]]:
 ; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul i32 [[B]], [[K_FREEZE]]
+; CHECK-NEXT:    [[AK3:%.*]] = mul i32 [[A]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK1:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK1:%.*]] = add i32 [[ABK1]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(i32 [[AK3]])
@@ -340,9 +344,10 @@ define void @test_ab_invoke_b(i32 %a, i32 %k) personality ptr @__gxx_personality
 ; CHECK-NEXT:            cleanup
 ; CHECK-NEXT:    resume { ptr, i32 } [[TMP0]]
 ; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    [[AK4:%.*]] = mul i32 [[A]], [[K]]
 ; CHECK-NEXT:    [[ABK3:%.*]] = add i32 [[AK3]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK3:%.*]] = add i32 [[ABK3]], [[B_DISTR_OP]]
-; CHECK-NEXT:    call void @f(i32 [[AK3]])
+; CHECK-NEXT:    call void @f(i32 [[AK4]])
 ; CHECK-NEXT:    call void @f(i32 [[ABK3]])
 ; CHECK-NEXT:    call void @f(i32 [[ABBK3]])
 ; CHECK-NEXT:    ret void

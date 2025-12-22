@@ -10,13 +10,13 @@ define void @test_ab_arg(i32 %a, i32 %b, i32 %k) {
 ; COMMON-LABEL: define void @test_ab_arg(
 ; COMMON-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[K:%.*]]) {
 ; COMMON-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; COMMON-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
+; COMMON-NEXT:    [[B_K_FREEZE:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; COMMON-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
-; COMMON-NEXT:    [[ABK1:%.*]] = add i32 [[AK]], [[TMP1]]
-; COMMON-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK1]], [[TMP1]]
+; COMMON-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_K_FREEZE]]
+; COMMON-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_K_FREEZE]]
 ; COMMON-NEXT:    call void @f(i32 [[AK]])
-; COMMON-NEXT:    call void @f(i32 [[ABK1]])
-; COMMON-NEXT:    call void @f(i32 [[ABBK2]])
+; COMMON-NEXT:    call void @f(i32 [[ABK]])
+; COMMON-NEXT:    call void @f(i32 [[ABBK]])
 ; COMMON-NEXT:    ret void
 ;
   %ak = mul i32 %a, %k
@@ -34,13 +34,13 @@ define void @test_ab_commutative_arg(i32 %a, i32 %b, i32 %k) {
 ; COMMON-LABEL: define void @test_ab_commutative_arg(
 ; COMMON-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[K:%.*]]) {
 ; COMMON-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; COMMON-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
+; COMMON-NEXT:    [[B_K_FREEZE:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; COMMON-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
-; COMMON-NEXT:    [[ABK1:%.*]] = add i32 [[AK]], [[TMP1]]
-; COMMON-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK1]], [[TMP1]]
+; COMMON-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_K_FREEZE]]
+; COMMON-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_K_FREEZE]]
 ; COMMON-NEXT:    call void @f(i32 [[AK]])
-; COMMON-NEXT:    call void @f(i32 [[ABK1]])
-; COMMON-NEXT:    call void @f(i32 [[ABBK2]])
+; COMMON-NEXT:    call void @f(i32 [[ABK]])
+; COMMON-NEXT:    call void @f(i32 [[ABBK]])
 ; COMMON-NEXT:    ret void
 ;
   %ak = mul i32 %a, %k
@@ -80,13 +80,13 @@ define void @test_aa_arg(i32 %a, i32 %k) {
 define void @test_ab_arg_noundef(i32 %a, i32 %b, i32 noundef %k) {
 ; COMMON-LABEL: define void @test_ab_arg_noundef(
 ; COMMON-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 noundef [[K:%.*]]) {
-; COMMON-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K]]
+; COMMON-NEXT:    [[B_K:%.*]] = mul i32 [[B]], [[K]]
 ; COMMON-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K]]
-; COMMON-NEXT:    [[ABK1:%.*]] = add i32 [[AK]], [[TMP1]]
-; COMMON-NEXT:    [[ABBK2:%.*]] = add i32 [[ABK1]], [[TMP1]]
+; COMMON-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_K]]
+; COMMON-NEXT:    [[ABBK:%.*]] = add i32 [[ABK]], [[B_K]]
 ; COMMON-NEXT:    call void @f(i32 [[AK]])
-; COMMON-NEXT:    call void @f(i32 [[ABK1]])
-; COMMON-NEXT:    call void @f(i32 [[ABBK2]])
+; COMMON-NEXT:    call void @f(i32 [[ABK]])
+; COMMON-NEXT:    call void @f(i32 [[ABBK]])
 ; COMMON-NEXT:    ret void
 ;
   %ak = mul i32 %a, %k
@@ -109,35 +109,35 @@ define void @test_ab_cd_arg(i32 %a, i32 %b, i32 %c, i32 %d) {
 ; FORCE-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; FORCE-NEXT:    [[ABCD:%.*]] = mul i32 [[AB]], [[CD_FREEZE]]
 ; FORCE-NEXT:    [[AB_FREEZE:%.*]] = freeze i32 [[AB]]
-; FORCE-NEXT:    [[TMP2:%.*]] = mul i32 [[D]], [[AB_FREEZE]]
-; FORCE-NEXT:    [[TMP3:%.*]] = mul i32 [[CD]], [[AB_FREEZE]]
+; FORCE-NEXT:    [[TMP6:%.*]] = mul i32 [[D]], [[AB_FREEZE]]
 ; FORCE-NEXT:    [[ACD:%.*]] = mul i32 [[A]], [[CD]]
 ; FORCE-NEXT:    [[CAB:%.*]] = mul i32 [[C]], [[AB]]
-; FORCE-NEXT:    [[CDDAB1:%.*]] = add i32 [[TMP3]], [[TMP2]]
+; FORCE-NEXT:    [[TMP4:%.*]] = mul i32 [[CD]], [[AB_FREEZE]]
 ; FORCE-NEXT:    [[ABBCD2:%.*]] = add i32 [[ABCD]], [[TMP1]]
-; FORCE-NEXT:    [[ABBBCD3:%.*]] = add i32 [[ABBCD2]], [[TMP1]]
+; FORCE-NEXT:    [[ABBBCD3:%.*]] = add i32 [[TMP4]], [[TMP6]]
+; FORCE-NEXT:    [[ABBBCD:%.*]] = add i32 [[ABBCD2]], [[TMP1]]
 ; FORCE-NEXT:    call void @f(i32 [[ACD]])
-; FORCE-NEXT:    call void @f(i32 [[TMP3]])
+; FORCE-NEXT:    call void @f(i32 [[TMP4]])
 ; FORCE-NEXT:    call void @f(i32 [[ABBCD2]])
-; FORCE-NEXT:    call void @f(i32 [[ABBBCD3]])
+; FORCE-NEXT:    call void @f(i32 [[ABBBCD]])
 ; FORCE-NEXT:    call void @f(i32 [[CAB]])
-; FORCE-NEXT:    call void @f(i32 [[TMP3]])
-; FORCE-NEXT:    call void @f(i32 [[CDDAB1]])
+; FORCE-NEXT:    call void @f(i32 [[TMP4]])
+; FORCE-NEXT:    call void @f(i32 [[ABBBCD3]])
 ; FORCE-NEXT:    ret void
 ;
 ; DEFAULT-LABEL: define void @test_ab_cd_arg(
 ; DEFAULT-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]], i32 [[D:%.*]]) {
 ; DEFAULT-NEXT:    [[CD:%.*]] = add i32 [[C]], [[D]]
 ; DEFAULT-NEXT:    [[CD_FREEZE:%.*]] = freeze i32 [[CD]]
-; DEFAULT-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[CD_FREEZE]]
+; DEFAULT-NEXT:    [[B_CD_FREEZE:%.*]] = mul i32 [[B]], [[CD_FREEZE]]
 ; DEFAULT-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
-; DEFAULT-NEXT:    [[ABCD:%.*]] = mul i32 [[AB]], [[CD_FREEZE]]
 ; DEFAULT-NEXT:    [[ACD:%.*]] = mul i32 [[A]], [[CD]]
 ; DEFAULT-NEXT:    [[CAB:%.*]] = mul i32 [[C]], [[AB]]
+; DEFAULT-NEXT:    [[ABCD:%.*]] = mul i32 [[AB]], [[CD_FREEZE]]
 ; DEFAULT-NEXT:    [[CDD:%.*]] = add i32 [[CD]], [[D]]
-; DEFAULT-NEXT:    [[ABBCD:%.*]] = add i32 [[ABCD]], [[TMP1]]
+; DEFAULT-NEXT:    [[ABBCD:%.*]] = add i32 [[ABCD]], [[B_CD_FREEZE]]
 ; DEFAULT-NEXT:    [[CDDAB:%.*]] = mul i32 [[CDD]], [[AB]]
-; DEFAULT-NEXT:    [[ABBBCD:%.*]] = add i32 [[ABBCD]], [[TMP1]]
+; DEFAULT-NEXT:    [[ABBBCD:%.*]] = add i32 [[ABBCD]], [[B_CD_FREEZE]]
 ; DEFAULT-NEXT:    call void @f(i32 [[ACD]])
 ; DEFAULT-NEXT:    call void @f(i32 [[ABCD]])
 ; DEFAULT-NEXT:    call void @f(i32 [[ABBCD]])
@@ -227,14 +227,14 @@ define void @test_ab_ab_arg(i32 %a, i32 %b) {
 ; FORCE-SAME: i32 [[A:%.*]], i32 [[B:%.*]]) {
 ; FORCE-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; FORCE-NEXT:    [[AB_FREEZE:%.*]] = freeze i32 [[AB]]
+; FORCE-NEXT:    [[ABBB_AB1:%.*]] = mul i32 [[AB]], [[AB_FREEZE]]
 ; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[AB_FREEZE]]
-; FORCE-NEXT:    [[ABB_AB:%.*]] = mul i32 [[AB]], [[AB_FREEZE]]
 ; FORCE-NEXT:    [[AB_AB:%.*]] = mul i32 [[AB]], [[AB]]
-; FORCE-NEXT:    [[ABBB_AB1:%.*]] = add i32 [[ABB_AB]], [[TMP1]]
 ; FORCE-NEXT:    [[ABBB_AB2:%.*]] = add i32 [[ABBB_AB1]], [[TMP1]]
+; FORCE-NEXT:    [[ABBB_AB:%.*]] = add i32 [[ABBB_AB2]], [[TMP1]]
 ; FORCE-NEXT:    call void @f(i32 [[AB_AB]])
-; FORCE-NEXT:    call void @f(i32 [[ABBB_AB1]])
 ; FORCE-NEXT:    call void @f(i32 [[ABBB_AB2]])
+; FORCE-NEXT:    call void @f(i32 [[ABBB_AB]])
 ; FORCE-NEXT:    ret void
 ;
 ; DEFAULT-LABEL: define void @test_ab_ab_arg(
@@ -267,13 +267,13 @@ define void @test_ab_ac_arg(i32 %a, i32 %b, i32 %c) {
 ; FORCE-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]]) {
 ; FORCE-NEXT:    [[AC:%.*]] = add i32 [[A]], [[C]]
 ; FORCE-NEXT:    [[AC_FREEZE:%.*]] = freeze i32 [[AC]]
+; FORCE-NEXT:    [[AB_AC3:%.*]] = mul i32 [[A]], [[AC_FREEZE]]
 ; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[AC_FREEZE]]
-; FORCE-NEXT:    [[TMP2:%.*]] = mul i32 [[A]], [[AC_FREEZE]]
-; FORCE-NEXT:    [[AB_AC3:%.*]] = add i32 [[TMP2]], [[TMP1]]
 ; FORCE-NEXT:    [[ABB_AC1:%.*]] = add i32 [[AB_AC3]], [[TMP1]]
-; FORCE-NEXT:    [[ABBB_AC2:%.*]] = add i32 [[ABB_AC1]], [[TMP1]]
-; FORCE-NEXT:    call void @f(i32 [[AB_AC3]])
+; FORCE-NEXT:    [[TMP3:%.*]] = add i32 [[ABB_AC1]], [[TMP1]]
+; FORCE-NEXT:    [[ABBB_AC2:%.*]] = add i32 [[TMP3]], [[TMP1]]
 ; FORCE-NEXT:    call void @f(i32 [[ABB_AC1]])
+; FORCE-NEXT:    call void @f(i32 [[TMP3]])
 ; FORCE-NEXT:    call void @f(i32 [[ABBB_AC2]])
 ; FORCE-NEXT:    ret void
 ;
@@ -282,10 +282,10 @@ define void @test_ab_ac_arg(i32 %a, i32 %b, i32 %c) {
 ; DEFAULT-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; DEFAULT-NEXT:    [[AC:%.*]] = add i32 [[A]], [[C]]
 ; DEFAULT-NEXT:    [[AC_FREEZE:%.*]] = freeze i32 [[AC]]
-; DEFAULT-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[AC_FREEZE]]
+; DEFAULT-NEXT:    [[B_AC_FREEZE:%.*]] = mul i32 [[B]], [[AC_FREEZE]]
 ; DEFAULT-NEXT:    [[AB_AC:%.*]] = mul i32 [[AB]], [[AC_FREEZE]]
-; DEFAULT-NEXT:    [[ABB_AC1:%.*]] = add i32 [[AB_AC]], [[TMP1]]
-; DEFAULT-NEXT:    [[ABBB_AC2:%.*]] = add i32 [[ABB_AC1]], [[TMP1]]
+; DEFAULT-NEXT:    [[ABB_AC1:%.*]] = add i32 [[AB_AC]], [[B_AC_FREEZE]]
+; DEFAULT-NEXT:    [[ABBB_AC2:%.*]] = add i32 [[ABB_AC1]], [[B_AC_FREEZE]]
 ; DEFAULT-NEXT:    call void @f(i32 [[AB_AC]])
 ; DEFAULT-NEXT:    call void @f(i32 [[ABB_AC1]])
 ; DEFAULT-NEXT:    call void @f(i32 [[ABBB_AC2]])
@@ -344,13 +344,13 @@ define void @test_ab_arg_i1(i1 %a, i1 %b, i1 %k) {
 ; COMMON-LABEL: define void @test_ab_arg_i1(
 ; COMMON-SAME: i1 [[A:%.*]], i1 [[B:%.*]], i1 [[K:%.*]]) {
 ; COMMON-NEXT:    [[K_FREEZE:%.*]] = freeze i1 [[K]]
-; COMMON-NEXT:    [[TMP1:%.*]] = mul i1 [[B]], [[K_FREEZE]]
+; COMMON-NEXT:    [[B_K_FREEZE:%.*]] = mul i1 [[B]], [[K_FREEZE]]
 ; COMMON-NEXT:    [[AK:%.*]] = mul i1 [[A]], [[K_FREEZE]]
-; COMMON-NEXT:    [[ABK1:%.*]] = add i1 [[AK]], [[TMP1]]
-; COMMON-NEXT:    [[ABBK2:%.*]] = add i1 [[ABK1]], [[TMP1]]
+; COMMON-NEXT:    [[ABK:%.*]] = add i1 [[AK]], [[B_K_FREEZE]]
+; COMMON-NEXT:    [[ABBK:%.*]] = add i1 [[ABK]], [[B_K_FREEZE]]
 ; COMMON-NEXT:    call void @f1(i1 [[AK]])
-; COMMON-NEXT:    call void @f1(i1 [[ABK1]])
-; COMMON-NEXT:    call void @f1(i1 [[ABBK2]])
+; COMMON-NEXT:    call void @f1(i1 [[ABK]])
+; COMMON-NEXT:    call void @f1(i1 [[ABBK]])
 ; COMMON-NEXT:    ret void
 ;
   %ak = mul i1 %a, %k
@@ -368,13 +368,13 @@ define void @test_ab_arg_i8(i8 %a, i8 %b, i8 %k) {
 ; COMMON-LABEL: define void @test_ab_arg_i8(
 ; COMMON-SAME: i8 [[A:%.*]], i8 [[B:%.*]], i8 [[K:%.*]]) {
 ; COMMON-NEXT:    [[K_FREEZE:%.*]] = freeze i8 [[K]]
-; COMMON-NEXT:    [[TMP1:%.*]] = mul i8 [[B]], [[K_FREEZE]]
+; COMMON-NEXT:    [[B_K_FREEZE:%.*]] = mul i8 [[B]], [[K_FREEZE]]
 ; COMMON-NEXT:    [[AK:%.*]] = mul i8 [[A]], [[K_FREEZE]]
-; COMMON-NEXT:    [[ABK1:%.*]] = add i8 [[AK]], [[TMP1]]
-; COMMON-NEXT:    [[ABBK2:%.*]] = add i8 [[ABK1]], [[TMP1]]
+; COMMON-NEXT:    [[ABK:%.*]] = add i8 [[AK]], [[B_K_FREEZE]]
+; COMMON-NEXT:    [[ABBK:%.*]] = add i8 [[ABK]], [[B_K_FREEZE]]
 ; COMMON-NEXT:    call void @f1(i8 [[AK]])
-; COMMON-NEXT:    call void @f1(i8 [[ABK1]])
-; COMMON-NEXT:    call void @f1(i8 [[ABBK2]])
+; COMMON-NEXT:    call void @f1(i8 [[ABK]])
+; COMMON-NEXT:    call void @f1(i8 [[ABBK]])
 ; COMMON-NEXT:    ret void
 ;
   %ak = mul i8 %a, %k

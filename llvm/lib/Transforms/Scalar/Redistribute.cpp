@@ -42,6 +42,21 @@ static cl::opt<bool>
 namespace {
 using BinaryOps = Instruction::BinaryOps;
 
+BasicBlock::iterator getInsertionPointAfterDefs(ArrayRef<Value *> Values, DominatorTree &DT) {
+  Value* LastDef = Values.front();
+  for (Value *V : drop_begin(Values)) {
+    Instruction *I = dyn_cast<Instruction>(V);
+    if(!I)
+      continue;
+
+    if(DT.dominates(LastDef, I))
+      LastDef = I;
+  }
+  if(Instruction *I = dyn_cast<Instruction>(LastDef))
+    return *I->getInsertionPointAfterDef();
+  return DT.getRoot()->getFirstNonPHIOrDbgOrAlloca();
+}
+
 // This class keeps track of the instruction created or deleted by this
 // transformation, but where the modification has not been accepted yet. In some
 // platforms it is profitable to fold some instructions, like add(mul(a, b) c)
@@ -122,47 +137,6 @@ static Value *createDistributedBinOp(Sandbox::IRBuilder &B,
     break;
   }
   llvm_unreachable("Unexpected opcode to distribute over binary operator.");
-}
-
-static BasicBlock::iterator getNextInsertPt(Instruction *I) {
-  BasicBlock::iterator It = I->getIterator();
-  do {
-    if (InvokeInst *II = dyn_cast<InvokeInst>(I)) {
-      It = II->getNormalDest()->begin();
-      continue;
-    }
-    ++It;
-  } while (isa<PHINode>(*It));
-  return It;
-}
-
-static Instruction *getDominatedInst(DominatorTree &DT, Instruction &I1,
-                                     Instruction &I2) {
-  BasicBlock *BB1 = I1.getParent();
-  BasicBlock *BB2 = I2.getParent();
-  if (BB1 == BB2)
-    return I1.comesBefore(&I2) ? &I2 : &I1;
-  return DT.dominates(BB1, BB2) ? &I2 : &I1;
-}
-
-static BasicBlock::iterator findInsertPoint(DominatorTree &DT,
-                                            ArrayRef<Value *> Vals) {
-
-  Instruction *IP = nullptr;
-  for (Value *V : Vals) {
-    Instruction *I = dyn_cast<Instruction>(V);
-    if (!I)
-      continue;
-    if (!IP) {
-      IP = I;
-      continue;
-    }
-    IP = getDominatedInst(DT, *IP, *I);
-  }
-
-  if (IP)
-    return getNextInsertPt(IP);
-  return DT.getRoot()->getFirstNonPHIOrDbgOrAlloca();
 }
 
 // This class represents the (a+b)*k relationship, where the * is the operation
@@ -277,6 +251,25 @@ private:
     return false;
   }
 
+  BinaryOperator* getTermReuse(const CandidateOp &C, Value* Term) const {
+    // Check that for (a+b)*k, a*k or b*k is also computed
+    for (Use *Other : All) {
+      if (Other->get() != Term)
+        continue;
+      // Not any a*k works, it must be in a path such that (a+b)*k is also
+      // executed.
+      // This condition is too restrictive, it doesn't consider that after
+      // executing (a+b)*k we may always be executing a*k. However, this
+      // simplifies the algorithm.
+      // TODO: if a*k is post-dominated by (a+b)*k, we can hoist a*k; this
+      // requires generating code in the order in which the `over`
+      // instructions appear. This risks increasing the register-pressure.
+      if (DT->dominates(Other->getUser(), C.getUser()))
+        return cast<BinaryOperator>(Other->getUser());
+    }
+    return nullptr;
+  }
+
   bool canEraseOverAfterDistribution(const CandidateOp &C) const {
     // For candidate (a+b)*k, we want to ensure that (a+b) can be removed after
     // it gets transformed into a*k + b*k. Reject the candidate if there is an
@@ -317,16 +310,12 @@ public:
     } while (Changed);
   }
 
-  using DistributedOp = std::tuple<Value *, Value *, BinaryOps>;
-
 public:
   bool tryToRedistribute(const TargetTransformInfo &TTI) {
     LLVMContext &C = DT->getRoot()->getContext();
 
-    DenseMap<Value *, Value *> FrozenK;
-
-    // group distributed operands by Over, K, Opcode
-    DenseMap<DistributedOp, Value *> AlreadyDistributed;
+    DenseMap<Value *, Value *> AlreadyDistributed;
+    DenseMap<Value *, Value *> NewlyDistributed;
 
     auto GetInstCost = [&TTI](const Instruction &I) {
       return TTI.getInstructionCost(&I,
@@ -335,62 +324,54 @@ public:
     Sandbox S(GetInstCost);
     Sandbox::IRBuilder B = S.getIRBuilder(C);
 
+    Value *K = Candidates.front().getValueToDistribute();
+    // If rhs can be undef, we have to freeze it to preserve the semantics.
+    if (!isGuaranteedNotToBeUndef(K, nullptr, nullptr, DT)) {
+      B.SetInsertPoint(getInsertionPointAfterDefs(K, *DT));
+      K = B.CreateFreeze(K, K->getName() + ".freeze");
+    }
+
     for (CandidateOp &C : Candidates) {
-      Value *K = C.getValueToDistribute();
       BinaryOperator *ToDistribute = C.getUser();
       BinaryOps ToDistributeOpcode = ToDistribute->getOpcode();
       BinaryOperator *Over = C.getOver();
       BinaryOps OverOpcode = Over->getOpcode();
 
-      auto [It, Inserted] = AlreadyDistributed.try_emplace(
-          {Over, K, ToDistributeOpcode}, nullptr);
-      if (!Inserted) {
-        Value *Distributed = It->second;
-        S.replaceAndErase(ToDistribute, Distributed);
-        continue;
-      }
-
-      // If rhs can be undef, we have to freeze it to preserve the semantics.
-      auto [FrozenKEntry, FrozenKInserted] = FrozenK.try_emplace(K, K);
-      if (FrozenKInserted) {
-        if (!isGuaranteedNotToBeUndef(K, nullptr, nullptr, DT)) {
-          B.SetInsertPoint(findInsertPoint(*DT, {K}));
-          FrozenKEntry->second = B.CreateFreeze(K, K->getName() + ".freeze");
-        }
-      }
-
-      Value *FrozenK = FrozenKEntry->second;
-
       // For lhs=a+b, get a*k and b*k, then create the distributed operation.
       Value *NewDistributedOperands[2];
       for (unsigned OpIdx = 0; OpIdx != 2; ++OpIdx) {
         Value *Op = Over->getOperand(OpIdx);
-        auto [Iterator, Inserted] = AlreadyDistributed.try_emplace(
-            {Op, K, ToDistributeOpcode}, nullptr);
-        if (Inserted) {
-          B.SetInsertPoint(findInsertPoint(*DT, {Op, FrozenK}));
-          Iterator->second = B.CreateBinOp(ToDistributeOpcode, Op, FrozenK);
+        if(BinaryOperator *Reuse = getTermReuse(C, Op)) {
+          auto [Iterator, Inserted] = AlreadyDistributed.try_emplace(Reuse, nullptr);
+          if(Inserted) {
+            // We pick a a*k that hasn't been distributed (one of the base values). We have to recompute it using the forzen K
+            B.SetInsertPoint(Reuse);
+            Value *OpK = B.CreateBinOp(ToDistributeOpcode, Op, K);
+            Iterator->second = OpK;
+            S.replaceAndErase(Reuse, OpK);
+          }
+          NewDistributedOperands[OpIdx] = Iterator->second;
+        } else {
+          auto [Iterator, Inserted] = NewlyDistributed.try_emplace(Op, nullptr);
+          if(Inserted) {
+            B.SetInsertPoint(getInsertionPointAfterDefs({Op, K}, *DT));
+            Value *OpK = B.CreateBinOp(ToDistributeOpcode, Op, K);
+            OpK->setName(Op->getName() + "." + K->getName());
+            Iterator->second = OpK;
+          }
+          NewDistributedOperands[OpIdx] = Iterator->second;
         }
-        NewDistributedOperands[OpIdx] = Iterator->second;
       }
 
-      // Insert in the highest point possible, such that any other use of lhs*k
-      // by another instruction to distribute is dominated.
-      B.SetInsertPoint(
-          findInsertPoint(*DT, {Over, FrozenK, NewDistributedOperands[0],
-                                NewDistributedOperands[1]}));
+      B.SetInsertPoint(ToDistribute);
       Value *Distributed = createDistributedBinOp(
           B, ToDistributeOpcode, OverOpcode, NewDistributedOperands[0],
           NewDistributedOperands[1]);
 
-      AlreadyDistributed[{Over, K, ToDistributeOpcode}] =
-          Distributed; // Do not reuse `It`, it may be invalid now.
-      Distributed->setName(ToDistribute->getName());
+      AlreadyDistributed[ToDistribute] = Distributed;
       S.replaceAndErase(ToDistribute, Distributed);
       S.erase(Over);
     }
-
-    removeRedundantOperands(AlreadyDistributed, S);
 
     const InstructionCost Before = S.getCostBefore();
     const InstructionCost After = S.getCostAfter();
@@ -409,44 +390,6 @@ public:
 
     Sandbox::reject(std::move(S));
     return false;
-  }
-
-private:
-  void
-  removeRedundantOperands(DenseMap<DistributedOp, Value *> &AlreadyDistributed,
-                          Sandbox &S) {
-    // Scan the instructions looking for operands that were distributed and
-    // that are now redundant.
-    //
-    // For:
-    //   f(a*k)
-    //   f((a+b)*k)
-    //
-    // We now have:
-    //   ak = a*freeze(k)
-    //   bk = b*freeze(k)
-    //   f(a*k)
-    //   f(ak + bk)
-    //
-    // We can replace a*k with ak, even if ak is "less undefined" than a*k.
-
-    for (Use *U : All) {
-      BinaryOperator &B = cast<BinaryOperator>(*U->getUser());
-      unsigned N = B.isCommutative() ? 2 : 1;
-      for (unsigned i = 0; i != N; ++i) {
-        Value *Op = B.getOperand(i);
-        Value *K = B.getOperand((i + 1) % 2);
-        auto It = AlreadyDistributed.find(DistributedOp{Op, K, B.getOpcode()});
-        if (It == AlreadyDistributed.end())
-          continue;
-        Value *ReplaceWith = It->second;
-        if (ReplaceWith == &B)
-          break;
-
-        S.replaceAndErase(&B, ReplaceWith);
-        break;
-      }
-    }
   }
 };
 
