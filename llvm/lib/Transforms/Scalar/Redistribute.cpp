@@ -21,7 +21,6 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
@@ -41,21 +40,6 @@ static cl::opt<bool>
 
 namespace {
 using BinaryOps = Instruction::BinaryOps;
-
-BasicBlock::iterator getInsertionPointAfterDefs(ArrayRef<Value *> Values, DominatorTree &DT) {
-  Value* LastDef = Values.front();
-  for (Value *V : drop_begin(Values)) {
-    Instruction *I = dyn_cast<Instruction>(V);
-    if(!I)
-      continue;
-
-    if(DT.dominates(LastDef, I))
-      LastDef = I;
-  }
-  if(Instruction *I = dyn_cast<Instruction>(LastDef))
-    return *I->getInsertionPointAfterDef();
-  return DT.getRoot()->getFirstNonPHIOrDbgOrAlloca();
-}
 
 // This class keeps track of the instruction created or deleted by this
 // transformation, but where the modification has not been accepted yet. In some
@@ -309,8 +293,7 @@ public:
   bool tryToRedistribute(const TargetTransformInfo &TTI) {
     LLVMContext &C = DT->getRoot()->getContext();
 
-    DenseMap<Value *, Value *> AlreadyDistributed;
-    DenseMap<Value *, Value *> NewlyDistributed;
+    DenseMap<std::pair<BasicBlock *, Value *>, Value *> AlreadyDistributed;
 
     auto GetInstCost = [&TTI](const Instruction &I) {
       return TTI.getInstructionCost(&I,
@@ -322,7 +305,11 @@ public:
     Value *K = Candidates.front().getValueToDistribute();
     // If rhs can be undef, we have to freeze it to preserve the semantics.
     if (!isGuaranteedNotToBeUndef(K, nullptr, nullptr, DT)) {
-      B.SetInsertPoint(getInsertionPointAfterDefs(K, *DT));
+      if (Instruction *KI = dyn_cast<Instruction>(K)) {
+        B.SetInsertPoint(*KI->getInsertionPointAfterDef());
+      } else {
+        B.SetInsertPointPastAllocas(DT->getRoot()->getParent());
+      }
       K = B.CreateFreeze(K, K->getName() + ".freeze");
     }
 
@@ -336,24 +323,28 @@ public:
       Value *NewDistributedOperands[2];
       for (unsigned OpIdx = 0; OpIdx != 2; ++OpIdx) {
         Value *Op = Over->getOperand(OpIdx);
-        if(BinaryOperator *Reuse = getTermReuse(C, Op)) {
-          auto [Iterator, Inserted] = AlreadyDistributed.try_emplace(Reuse, nullptr);
-          if(Inserted) {
-            // We pick a a*k that hasn't been distributed (one of the base values). We have to recompute it using the forzen K
-            B.SetInsertPoint(Reuse);
-            Value *OpK = B.CreateBinOp(ToDistributeOpcode, Op, K);
-            Iterator->second = OpK;
+        auto Iterator = AlreadyDistributed.find({Over->getParent(), Op});
+        if (Iterator == AlreadyDistributed.end()) {
+          BinaryOperator *Reuse = getTermReuse(C, Op);
+          Instruction *InsertPoint = Reuse ? Reuse : ToDistribute;
+
+          B.SetInsertPoint(InsertPoint);
+          // We pick a a*k that hasn't been distributed (one of the base
+          // values). We have to recompute it using the frozen K
+          Value *OpK = B.CreateBinOp(ToDistributeOpcode, Op, K);
+
+          SmallVector<BasicBlock *> Descendants;
+          DT->getDescendants(InsertPoint->getParent(), Descendants);
+          for (BasicBlock *Descendant : Descendants)
+            AlreadyDistributed[{Descendant, Op}] = OpK;
+
+          if (Reuse) {
             S.replaceAndErase(Reuse, OpK);
-          }
-          NewDistributedOperands[OpIdx] = Iterator->second;
-        } else {
-          auto [Iterator, Inserted] = NewlyDistributed.try_emplace(Op, nullptr);
-          if(Inserted) {
-            B.SetInsertPoint(getInsertionPointAfterDefs({Op, K}, *DT));
-            Value *OpK = B.CreateBinOp(ToDistributeOpcode, Op, K);
+          } else {
             OpK->setName(Op->getName() + "." + K->getName());
-            Iterator->second = OpK;
           }
+          NewDistributedOperands[OpIdx] = OpK;
+        } else {
           NewDistributedOperands[OpIdx] = Iterator->second;
         }
       }
@@ -363,7 +354,11 @@ public:
           B, ToDistributeOpcode, OverOpcode, NewDistributedOperands[0],
           NewDistributedOperands[1]);
 
-      AlreadyDistributed[ToDistribute] = Distributed;
+      SmallVector<BasicBlock *> Descendants;
+      DT->getDescendants(ToDistribute->getParent(), Descendants);
+      for (BasicBlock *Descendant : Descendants)
+        AlreadyDistributed[{Descendant, Over}] = Distributed;
+
       S.replaceAndErase(ToDistribute, Distributed);
       S.erase(Over);
     }

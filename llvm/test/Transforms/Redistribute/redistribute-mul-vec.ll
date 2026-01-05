@@ -8,8 +8,8 @@ define void @test_ab_arg(<2 x i32> %a, <2 x i32> %b, <2 x i32> %k) {
 ; CHECK-LABEL: define void @test_ab_arg(
 ; CHECK-SAME: <2 x i32> [[A:%.*]], <2 x i32> [[B:%.*]], <2 x i32> [[K:%.*]]) {
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze <2 x i32> [[K]]
-; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul <2 x i32> [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[AK:%.*]] = mul <2 x i32> [[A]], [[K_FREEZE]]
+; CHECK-NEXT:    [[B_DISTR_OP:%.*]] = mul <2 x i32> [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK:%.*]] = add <2 x i32> [[AK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    [[ABBK:%.*]] = add <2 x i32> [[ABK]], [[B_DISTR_OP]]
 ; CHECK-NEXT:    call void @f(<2 x i32> [[AK]])
@@ -33,8 +33,8 @@ define void @test_ab_arg_1(<1 x i32> %a, <1 x i32> %b, <1 x i32> %k) {
 ; CHECK-LABEL: define void @test_ab_arg_1(
 ; CHECK-SAME: <1 x i32> [[A:%.*]], <1 x i32> [[B:%.*]], <1 x i32> [[K:%.*]]) {
 ; CHECK-NEXT:    [[K_FREEZE:%.*]] = freeze <1 x i32> [[K]]
-; CHECK-NEXT:    [[TMP1:%.*]] = mul <1 x i32> [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[AK:%.*]] = mul <1 x i32> [[A]], [[K_FREEZE]]
+; CHECK-NEXT:    [[TMP1:%.*]] = mul <1 x i32> [[B]], [[K_FREEZE]]
 ; CHECK-NEXT:    [[ABK1:%.*]] = add <1 x i32> [[AK]], [[TMP1]]
 ; CHECK-NEXT:    [[ABBK2:%.*]] = add <1 x i32> [[ABK1]], [[TMP1]]
 ; CHECK-NEXT:    call void @f1(<1 x i32> [[AK]])
@@ -79,8 +79,8 @@ define void @test_constant_undef(<2 x i32> %a) {
 ; CHECK-LABEL: define void @test_constant_undef(
 ; CHECK-SAME: <2 x i32> [[A:%.*]]) {
 ; CHECK-NEXT:    [[DOTFREEZE:%.*]] = freeze <2 x i32> <i32 7, i32 undef>
-; CHECK-NEXT:    [[DOTDISTR_OP:%.*]] = mul <2 x i32> <i32 11, i32 10>, [[DOTFREEZE]]
 ; CHECK-NEXT:    [[AK:%.*]] = mul <2 x i32> [[A]], [[DOTFREEZE]]
+; CHECK-NEXT:    [[DOTDISTR_OP:%.*]] = mul <2 x i32> <i32 11, i32 10>, [[DOTFREEZE]]
 ; CHECK-NEXT:    [[ABK:%.*]] = add <2 x i32> [[AK]], [[DOTDISTR_OP]]
 ; CHECK-NEXT:    [[ABBK:%.*]] = add <2 x i32> [[ABK]], [[DOTDISTR_OP]]
 ; CHECK-NEXT:    call void @f(<2 x i32> [[AK]])

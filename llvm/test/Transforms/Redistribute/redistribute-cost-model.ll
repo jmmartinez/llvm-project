@@ -10,8 +10,8 @@ define void @test_ab_arg(i32 %a, i32 %b, i32 %k) {
 ; FORCE-LABEL: define void @test_ab_arg(
 ; FORCE-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[K:%.*]]) {
 ; FORCE-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; FORCE-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
+; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; FORCE-NEXT:    [[ABK1:%.*]] = add i32 [[AK]], [[TMP1]]
 ; FORCE-NEXT:    call void @f(i32 [[AK]])
 ; FORCE-NEXT:    call void @f(i32 [[ABK1]])
@@ -29,8 +29,8 @@ define void @test_ab_arg(i32 %a, i32 %b, i32 %k) {
 ; HAS_MAD-LABEL: define void @test_ab_arg(
 ; HAS_MAD-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[K:%.*]]) #[[ATTR0:[0-9]+]] {
 ; HAS_MAD-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; HAS_MAD-NEXT:    [[B_K_FREEZE:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; HAS_MAD-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K_FREEZE]]
+; HAS_MAD-NEXT:    [[B_K_FREEZE:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; HAS_MAD-NEXT:    [[ABK:%.*]] = add i32 [[AK]], [[B_K_FREEZE]]
 ; HAS_MAD-NEXT:    call void @f(i32 [[AK]])
 ; HAS_MAD-NEXT:    call void @f(i32 [[ABK]])

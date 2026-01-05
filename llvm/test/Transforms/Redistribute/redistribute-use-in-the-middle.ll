@@ -9,10 +9,10 @@ define void @test_ab_use_intermediate_first(i32 %a, i32 %b, i32 %k) {
 ; FORCE-LABEL: define void @test_ab_use_intermediate_first(
 ; FORCE-SAME: i32 [[A:%.*]], i32 [[B:%.*]], i32 [[K:%.*]]) {
 ; FORCE-NEXT:    [[K_FREEZE:%.*]] = freeze i32 [[K]]
-; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; FORCE-NEXT:    [[AK:%.*]] = mul i32 [[A]], [[K]]
 ; FORCE-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; FORCE-NEXT:    [[ABK:%.*]] = mul i32 [[AB]], [[K_FREEZE]]
+; FORCE-NEXT:    [[TMP1:%.*]] = mul i32 [[B]], [[K_FREEZE]]
 ; FORCE-NEXT:    [[ABBK1:%.*]] = add i32 [[ABK]], [[TMP1]]
 ; FORCE-NEXT:    call void @f(i32 [[AK]])
 ; FORCE-NEXT:    call void @f(i32 [[ABK]])
