@@ -209,7 +209,7 @@ class RedistributeCandidates {
   SmallVector<CandidateOp> Candidates;
 
   // All uses that participate in similar operations, even if not distributed
-  SmallVector<Use *> All;
+  DenseMap<Value*, SmallVector<Use*, 1>> All;
 
   DominatorTree *DT;
 
@@ -222,7 +222,7 @@ public:
   void add(Use &Over) {
     if (auto C = CandidateOp::tryToGetCandidate(Over))
       Candidates.emplace_back(*C);
-    All.push_back(&Over);
+    All[Over.get()].push_back(&Over);
   }
 
   size_t size() const { return Candidates.size(); }
@@ -232,10 +232,12 @@ public:
 private:
   bool reusesTerm(const CandidateOp &C) const {
     // Check that for (a+b)*k, a*k or b*k is also computed
-    for (Use *Other : All) {
-      for (Value *Term : C.getTerms()) {
-        if (Other->get() != Term)
-          continue;
+    for (Value *Term : C.getTerms()) {
+      auto It = All.find(Term);
+      if(It == All.end())
+        continue;
+
+      for (Use *Other : It->second) {
         // Not any a*k works, it must be in a path such that (a+b)*k is also
         // executed.
         // This condition is too restrictive, it doesn't consider that after
@@ -252,21 +254,14 @@ private:
   }
 
   BinaryOperator* getTermReuse(const CandidateOp &C, Value* Term) const {
-    // Check that for (a+b)*k, a*k or b*k is also computed
-    for (Use *Other : All) {
-      if (Other->get() != Term)
-        continue;
-      // Not any a*k works, it must be in a path such that (a+b)*k is also
-      // executed.
-      // This condition is too restrictive, it doesn't consider that after
-      // executing (a+b)*k we may always be executing a*k. However, this
-      // simplifies the algorithm.
-      // TODO: if a*k is post-dominated by (a+b)*k, we can hoist a*k; this
-      // requires generating code in the order in which the `over`
-      // instructions appear. This risks increasing the register-pressure.
+    auto It = All.find(Term);
+    if(It == All.end())
+      return nullptr;
+
+    for (Use *Other : It->second)
       if (DT->dominates(Other->getUser(), C.getUser()))
         return cast<BinaryOperator>(Other->getUser());
-    }
+
     return nullptr;
   }
 
