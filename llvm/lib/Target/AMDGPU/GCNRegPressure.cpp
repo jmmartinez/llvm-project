@@ -131,17 +131,15 @@ struct RegExcess {
                                      VGPRForSGPRSpills - MaxVGPRs),
                     0);
 
+    unsigned ArchVGPRLimit = ST.hasGFX90AInsts() ? MaxArchVGPRs : MaxVGPRs;
     // Arch VGPR excess pressure conditions, accounting for VGPRs used for SGPR
     // spills
-    ArchVGPR = std::max(static_cast<int>(RP.getVGPRNum(false) +
-                                         VGPRForSGPRSpills - MaxArchVGPRs),
+    ArchVGPR = std::max(static_cast<int>(RP.getArchVGPRNum() +
+                                         VGPRForSGPRSpills - ArchVGPRLimit),
                         0);
 
     // AGPR excess pressure conditions
-    AGPR = std::max(static_cast<int>(ST.hasGFX90AInsts()
-                                         ? (RP.getAGPRNum() - MaxArchVGPRs)
-                                         : (RP.getAGPRNum() - MaxVGPRs)),
-                    0);
+    AGPR = std::max(static_cast<int>(RP.getAGPRNum() - ArchVGPRLimit), 0);
   }
 };
 } // namespace
@@ -423,9 +421,9 @@ bool GCNRPTarget::isSaveBeneficial(Register Reg) const {
     return Excess.SGPR;
 
   if (SRI->isAGPRClass(RC))
-    return Excess.AGPR;
+    return (UnifiedRF && Excess.VGPR) || Excess.AGPR;
 
-  return Excess.VGPR || Excess.ArchVGPR;
+  return (UnifiedRF && Excess.VGPR) || Excess.ArchVGPR;
 }
 
 bool GCNRPTarget::satisfied() const {
