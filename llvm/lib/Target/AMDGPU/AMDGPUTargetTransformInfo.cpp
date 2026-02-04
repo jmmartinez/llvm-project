@@ -225,7 +225,7 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
     auto isSmallerThanUnrollMaxBlockToAnalyze = [](const BasicBlock *BB) {
       return BB->size() < UnrollMaxBlockToAnalyze;
     };
-    if (any_of(BlocksInLoop, isSmallerThanUnrollMaxBlockToAnalyze))
+    if (all_of(BlocksInLoop, isSmallerThanUnrollMaxBlockToAnalyze))
       UP.MaxIterationsCountToAnalyze = std::max(UP.MaxIterationsCountToAnalyze, 32u);
   }
 
