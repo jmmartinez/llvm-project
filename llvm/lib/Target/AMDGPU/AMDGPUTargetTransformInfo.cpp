@@ -117,6 +117,28 @@ static bool hasOperandDefinedByLoop(const Instruction *I, const Loop *L) {
   return false;
 }
 
+static unsigned getUnrollThresholdCondBranch(const Loop *L, const BasicBlock &BB) {
+  // Unroll a loop which contains an "if" statement whose condition
+  // defined by a PHI belonging to the loop. This may help to eliminate
+  // if region and potentially even PHI itself, saving on both divergence
+  // and registers used for the PHI.
+  // Add a small bonus for each of such "if" statements.
+  const BranchInst *Br = dyn_cast<BranchInst>(BB.getTerminator());
+  if(!Br || Br->isUnconditional())
+    return 0;
+
+  BasicBlock *Succ0 = Br->getSuccessor(0);
+  BasicBlock *Succ1 = Br->getSuccessor(1);
+  if ((L->contains(Succ0) && L->isLoopExiting(Succ0)) ||
+      (L->contains(Succ1) && L->isLoopExiting(Succ1)))
+    return 0;
+  if (!dependsOnLocalPhi(L, Br->getCondition())) 
+  return 0;
+          LLVM_DEBUG(dbgs() << "Inrease unroll threshold by " << UnrollThresholdIf << " for loop:\n"
+                            << *L << " due to " << *Br << '\n');
+  return UnrollThresholdIf;
+}
+
 AMDGPUTTIImpl::AMDGPUTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
     : BaseT(TM, F.getDataLayout()),
       TargetTriple(TM->getTargetTriple()),
@@ -179,29 +201,6 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
     unsigned LocalGEPsSeen = 0;
 
     for (const Instruction &I : *BB) {
-      // Unroll a loop which contains an "if" statement whose condition
-      // defined by a PHI belonging to the loop. This may help to eliminate
-      // if region and potentially even PHI itself, saving on both divergence
-      // and registers used for the PHI.
-      // Add a small bonus for each of such "if" statements.
-      if (const BranchInst *Br = dyn_cast<BranchInst>(&I)) {
-        if (UP.Threshold < MaxBoost && Br->isConditional()) {
-          BasicBlock *Succ0 = Br->getSuccessor(0);
-          BasicBlock *Succ1 = Br->getSuccessor(1);
-          if ((L->contains(Succ0) && L->isLoopExiting(Succ0)) ||
-              (L->contains(Succ1) && L->isLoopExiting(Succ1)))
-            continue;
-          if (dependsOnLocalPhi(L, Br->getCondition())) {
-            UP.Threshold += UnrollThresholdIf;
-            LLVM_DEBUG(dbgs() << "Set unroll threshold " << UP.Threshold
-                              << " for loop:\n"
-                              << *L << " due to " << *Br << '\n');
-            if (UP.Threshold >= MaxBoost)
-              return;
-          }
-        }
-        continue;
-      }
 
       const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
       if (!GEP)
@@ -274,6 +273,16 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
                         << *L << " due to " << *GEP << '\n');
       if (UP.Threshold >= MaxBoost)
         return;
+    }
+
+    auto addThreshold = [&UP, MaxBoost](unsigned Addend) {
+      UP.Threshold = std::min(UP.Threshold + Addend, MaxBoost);
+    };
+
+    for (const BasicBlock *BB : BlocksInLoop) {
+      if (UP.Threshold >= MaxBoost)
+        break;
+      addThreshold(getUnrollThresholdCondBranch(L, *BB));
     }
   }
 }
