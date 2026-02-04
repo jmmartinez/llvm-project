@@ -117,14 +117,15 @@ static bool hasOperandDefinedByLoop(const Instruction *I, const Loop *L) {
   return false;
 }
 
-static unsigned getUnrollThresholdCondBranch(const Loop *L, const BasicBlock &BB) {
+static unsigned getUnrollThresholdCondBranch(const Loop *L,
+                                             const BasicBlock &BB) {
   // Unroll a loop which contains an "if" statement whose condition
   // defined by a PHI belonging to the loop. This may help to eliminate
   // if region and potentially even PHI itself, saving on both divergence
   // and registers used for the PHI.
   // Add a small bonus for each of such "if" statements.
   const BranchInst *Br = dyn_cast<BranchInst>(BB.getTerminator());
-  if(!Br || Br->isUnconditional())
+  if (!Br || Br->isUnconditional())
     return 0;
 
   BasicBlock *Succ0 = Br->getSuccessor(0);
@@ -132,10 +133,11 @@ static unsigned getUnrollThresholdCondBranch(const Loop *L, const BasicBlock &BB
   if ((L->contains(Succ0) && L->isLoopExiting(Succ0)) ||
       (L->contains(Succ1) && L->isLoopExiting(Succ1)))
     return 0;
-  if (!dependsOnLocalPhi(L, Br->getCondition())) 
-  return 0;
-          LLVM_DEBUG(dbgs() << "Inrease unroll threshold by " << UnrollThresholdIf << " for loop:\n"
-                            << *L << " due to " << *Br << '\n');
+  if (!dependsOnLocalPhi(L, Br->getCondition()))
+    return 0;
+  LLVM_DEBUG(dbgs() << "Inrease unroll threshold by " << UnrollThresholdIf
+                    << " for loop:\n"
+                    << *L << " due to " << *Br << '\n');
   return UnrollThresholdIf;
 }
 
@@ -189,60 +191,58 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
   }
 
   unsigned MaxBoost = std::max(ThresholdPrivate, ThresholdLocal);
-  SmallVector<const BasicBlock*> BlocksInLoop;
+  SmallVector<const BasicBlock *> BlocksInLoop;
   for (const BasicBlock *BB : L->getBlocks()) {
     if (llvm::any_of(L->getSubLoops(), [BB](const Loop* SubLoop) {
                return SubLoop->contains(BB); }))
         continue; // Block belongs to an inner loop.
-      BlocksInLoop.push_back(BB);
+    BlocksInLoop.push_back(BB);
   }
 
-  SmallVector<const GetElementPtrInst*> PrivateGEPs;
-  SmallVector<const GetElementPtrInst*> LocalGEPs;
-  for(const BasicBlock *BB : BlocksInLoop) {
-    for(const Instruction &I : *BB) {
-      const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
-      if (!GEP)
+  SmallVector<const GetElementPtrInst *> PrivateGEPs;
+  SmallVector<const GetElementPtrInst *> LocalGEPs;
+  for (const BasicBlock *BB : BlocksInLoop) {
+    for (const Instruction &I : *BB) {
+        const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
+        if (!GEP)
         continue;
-      unsigned AS = GEP->getAddressSpace();
-      switch (AS) {
+        unsigned AS = GEP->getAddressSpace();
+        switch (AS) {
         case AMDGPUAS::PRIVATE_ADDRESS:
-          PrivateGEPs.push_back(GEP);
-          break;
+        PrivateGEPs.push_back(GEP);
+        break;
         case AMDGPUAS::LOCAL_ADDRESS:
         case AMDGPUAS::REGION_ADDRESS:
-          LocalGEPs.push_back(GEP);
-          break;
+        LocalGEPs.push_back(GEP);
+        break;
         default:
-          continue;
-      }
+        continue;
+        }
     }
   }
 
-  if((!PrivateGEPs.empty() || !LocalGEPs.empty()) && L->isInnermost()) {
+  if ((!PrivateGEPs.empty() || !LocalGEPs.empty()) && L->isInnermost()) {
     // If we got a GEP in a small BB from inner loop then increase max trip
     // count to analyze for better estimation cost in unroll
     auto isSmallerThanUnrollMaxBlockToAnalyze = [](const BasicBlock *BB) {
       return BB->size() < UnrollMaxBlockToAnalyze;
     };
     if (all_of(BlocksInLoop, isSmallerThanUnrollMaxBlockToAnalyze))
-      UP.MaxIterationsCountToAnalyze = std::max(UP.MaxIterationsCountToAnalyze, 32u);
+        UP.MaxIterationsCountToAnalyze =
+            std::max(UP.MaxIterationsCountToAnalyze, 32u);
   }
 
   for (const GetElementPtrInst *GEP : PrivateGEPs) {
-    if (UP.Threshold >= ThresholdPrivate)
-      break;
-    const AllocaInst *Alloca =
-        dyn_cast<AllocaInst>(getUnderlyingObject(GEP));
+    const AllocaInst *Alloca = dyn_cast<AllocaInst>(getUnderlyingObject(GEP));
     if (!Alloca || !Alloca->isStaticAlloca())
-      continue;
+        continue;
     Type *Ty = Alloca->getAllocatedType();
     unsigned AllocaSize = Ty->isSized() ? DL.getTypeAllocSize(Ty) : 0;
     if (AllocaSize > MaxAlloca)
-      continue;
+        continue;
 
     if (!hasOperandDefinedByLoop(GEP, L))
-      continue;
+        continue;
 
     // We want to do whatever we can to limit the number of alloca
     // instructions that make it through to the code generator.  allocas
@@ -252,71 +252,77 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
     // threshold. This will give SROA a better chance to eliminate these
     // allocas.
     UP.Threshold = std::max(UP.Threshold, ThresholdPrivate);
-    LLVM_DEBUG(dbgs() << "Set unroll threshold "
-                      << ThresholdPrivate << " for loop:\n"
+    LLVM_DEBUG(dbgs() << "Set unroll threshold " << ThresholdPrivate
+                      << " for loop:\n"
                       << *L << " due to " << *GEP << '\n');
   }
 
-  for (const BasicBlock *BB : BlocksInLoop) {
-    unsigned LocalGEPsSeen = 0;
-
-    for (const Instruction &I : *BB) {
-      const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
-      if (!GEP)
-        continue;
-
-      unsigned AS = GEP->getAddressSpace();
-      if (AS != AMDGPUAS::LOCAL_ADDRESS && AS != AMDGPUAS::REGION_ADDRESS)
-        continue;
-
-      if (UP.Threshold >= ThresholdLocal)
-        continue;
-
-      if (AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS) {
-        LocalGEPsSeen++;
+  DenseMap<const Value *, unsigned> LocalGEPsByUnderlyingObject;
+  bool AllowRuntimeUnroll = !LocalGEPs.empty() && UnrollRuntimeLocal;
+  for (const GetElementPtrInst *GEP : LocalGEPs) {
+    const Value *UnderlyingObject = getUnderlyingObject(GEP);
+    if (!isa<GlobalVariable>(UnderlyingObject) &&
+        !isa<Argument>(UnderlyingObject)) {
         // Inhibit unroll for local memory if we have seen addressing not to
         // a variable, most likely we will be unable to combine it.
-        // Do not unroll too deep inner loops for local memory to give a chance
-        // to unroll an outer loop for a more important reason.
-        if (LocalGEPsSeen > 1 || L->getLoopDepth() > 2)
-          continue;
-
-        const Value *V = getUnderlyingObject(GEP->getPointerOperand());
-        if (!isa<GlobalVariable>(V) && !isa<Argument>(V))
-          continue;
-
-        LLVM_DEBUG(dbgs() << "Allow unroll runtime for loop:\n"
-                          << *L << " due to LDS use.\n");
-        UP.Runtime = UnrollRuntimeLocal;
-      }
-
-      //
-      // We also want to have more unrolling for local memory to let ds
-      // instructions with different offsets combine.
-      //
-      // Don't use the maximum allowed value here as it will make some
-      // programs way too big.
-
-      if (!hasOperandDefinedByLoop(GEP, L))
+        AllowRuntimeUnroll = false;
         continue;
-      UP.Threshold = ThresholdLocal;
-      LLVM_DEBUG(dbgs() << "Set unroll threshold " << ThresholdLocal
-                        << " for loop:\n"
-                        << *L << " due to " << *GEP << '\n');
-      if (UP.Threshold >= MaxBoost)
-        return;
     }
 
-    auto addThreshold = [&UP, MaxBoost](unsigned Addend) {
-      UP.Threshold = std::min(UP.Threshold + Addend, MaxBoost);
-    };
+    if (!hasOperandDefinedByLoop(GEP, L))
+        continue;
 
-    for (const BasicBlock *BB : BlocksInLoop) {
-      if (UP.Threshold >= MaxBoost)
-        break;
-      addThreshold(getUnrollThresholdCondBranch(L, *BB));
-    }
+    ++LocalGEPsByUnderlyingObject[UnderlyingObject];
   }
+
+  // We want to have more unrolling for local memory to let ds
+  // instructions with different offsets combine.
+  // But we do not want to unroll if the loops was unrolled by manually (there
+  // are already other ds instructions to the same object, but different
+  // offsets). We consider a ds access as sparse if its underlying memory object
+  // is used by less than the cutoff.
+  constexpr unsigned SparseCutoff = 2;
+  unsigned SparseCount = 0;
+  for (auto [_, Count] : LocalGEPsByUnderlyingObject) {
+    if (Count <= SparseCutoff)
+        SparseCount += Count;
+  }
+
+  // If we have a majority of sparse accesses, we increase the threshold.
+  bool SparseLDSAccessesAreMajority = LocalGEPs.size() < 2 * SparseCount;
+  if (SparseLDSAccessesAreMajority) {
+    LLVM_DEBUG(
+        dbgs() << "Set unroll threshold " << ThresholdLocal << " for loop:\n"
+               << *L << " due to " << SparseCount
+               << " accesses that could benefit from unrolling over a total of "
+               << LocalGEPs.size() << "\n");
+    UP.Threshold = std::max(UP.Threshold, ThresholdLocal);
+  }
+
+  if (AllowRuntimeUnroll) {
+    LLVM_DEBUG(dbgs() << "Allow unroll runtime for loop:\n"
+                      << *L << " due to LDS use.\n");
+    UP.Runtime = UnrollRuntimeLocal;
+  }
+
+  auto addThreshold = [&UP, MaxBoost](unsigned Addend) {
+    UP.Threshold = std::min(UP.Threshold + Addend, MaxBoost);
+  };
+
+  for (const BasicBlock *BB : BlocksInLoop) {
+    if (UP.Threshold >= MaxBoost)
+        break;
+    addThreshold(getUnrollThresholdCondBranch(L, *BB));
+  }
+
+  // If we got a GEP in a small BB from inner loop then increase max trip
+  // count to analyze for better estimation cost in unroll
+  auto SizeSmallerThanUnrollMaxBlockToAnalyze = [](const BasicBlock *BB) {
+    return BB->size() < UnrollMaxBlockToAnalyze;
+  };
+  if (L->isInnermost() &&
+      all_of(BlocksInLoop, SizeSmallerThanUnrollMaxBlockToAnalyze))
+    UP.MaxIterationsCountToAnalyze = 32;
 }
 
 void AMDGPUTTIImpl::getPeelingPreferences(Loop *L, ScalarEvolution &SE,
