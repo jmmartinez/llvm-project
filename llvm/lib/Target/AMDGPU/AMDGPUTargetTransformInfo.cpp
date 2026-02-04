@@ -102,6 +102,21 @@ static bool dependsOnLocalPhi(const Loop *L, const Value *Cond,
   return false;
 }
 
+static bool hasOperandDefinedByLoop(const Instruction *I, const Loop *L) {
+  // Check if GEP depends on a value defined by this loop itself.
+  for (const Value *Op : I->operands()) {
+    if (L->isLoopInvariant(Op))
+      continue;
+
+    const Instruction *Inst = cast<Instruction>(Op);
+    if (llvm::any_of(L->getSubLoops(), [Inst](const Loop* SubLoop) {
+          return SubLoop->contains(Inst); }))
+      continue;
+    return true;
+  }
+  return false;
+}
+
 AMDGPUTTIImpl::AMDGPUTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
     : BaseT(TM, F.getDataLayout()),
       TargetTriple(TM->getTargetTriple()),
@@ -228,22 +243,6 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
         UP.Runtime = UnrollRuntimeLocal;
       }
 
-      // Check if GEP depends on a value defined by this loop itself.
-      bool HasLoopDef = false;
-      for (const Value *Op : GEP->operands()) {
-        const Instruction *Inst = dyn_cast<Instruction>(Op);
-        if (!Inst || L->isLoopInvariant(Op))
-          continue;
-
-        if (llvm::any_of(L->getSubLoops(), [Inst](const Loop* SubLoop) {
-             return SubLoop->contains(Inst); }))
-          continue;
-        HasLoopDef = true;
-        break;
-      }
-      if (!HasLoopDef)
-        continue;
-
       // We want to do whatever we can to limit the number of alloca
       // instructions that make it through to the code generator.  allocas
       // require us to use indirect addressing, which is slow and prone to
@@ -257,6 +256,9 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
       //
       // Don't use the maximum allowed value here as it will make some
       // programs way too big.
+
+      if (!hasOperandDefinedByLoop(GEP, L))
+        continue;
       UP.Threshold = Threshold;
       LLVM_DEBUG(dbgs() << "Set unroll threshold " << Threshold
                         << " for loop:\n"
