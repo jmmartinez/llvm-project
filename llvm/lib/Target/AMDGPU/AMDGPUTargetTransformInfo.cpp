@@ -266,26 +266,13 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
         continue;
 
       unsigned AS = GEP->getAddressSpace();
-      unsigned Threshold = 0;
-      if (AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS)
-        Threshold = ThresholdLocal;
-      else
+      if (AS != AMDGPUAS::LOCAL_ADDRESS && AS != AMDGPUAS::REGION_ADDRESS)
         continue;
 
-      if (UP.Threshold >= Threshold)
+      if (UP.Threshold >= ThresholdLocal)
         continue;
 
-      if (AS == AMDGPUAS::PRIVATE_ADDRESS) {
-        const Value *Ptr = GEP->getPointerOperand();
-        const AllocaInst *Alloca =
-            dyn_cast<AllocaInst>(getUnderlyingObject(Ptr));
-        if (!Alloca || !Alloca->isStaticAlloca())
-          continue;
-        auto AllocaSize = Alloca->getAllocationSize(DL);
-        if (!AllocaSize || AllocaSize->getFixedValue() > MaxAlloca)
-          continue;
-      } else if (AS == AMDGPUAS::LOCAL_ADDRESS ||
-                 AS == AMDGPUAS::REGION_ADDRESS) {
+      if (AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS) {
         LocalGEPsSeen++;
         // Inhibit unroll for local memory if we have seen addressing not to
         // a variable, most likely we will be unable to combine it.
@@ -303,7 +290,6 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
         UP.Runtime = UnrollRuntimeLocal;
       }
 
-
       //
       // We also want to have more unrolling for local memory to let ds
       // instructions with different offsets combine.
@@ -313,8 +299,8 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
 
       if (!hasOperandDefinedByLoop(GEP, L))
         continue;
-      UP.Threshold = Threshold;
-      LLVM_DEBUG(dbgs() << "Set unroll threshold " << Threshold
+      UP.Threshold = ThresholdLocal;
+      LLVM_DEBUG(dbgs() << "Set unroll threshold " << ThresholdLocal
                         << " for loop:\n"
                         << *L << " due to " << *GEP << '\n');
       if (UP.Threshold >= MaxBoost)
