@@ -197,25 +197,77 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
       BlocksInLoop.push_back(BB);
   }
 
+  SmallVector<const GetElementPtrInst*> PrivateGEPs;
+  SmallVector<const GetElementPtrInst*> LocalGEPs;
+  for(const BasicBlock *BB : BlocksInLoop) {
+    for(const Instruction &I : *BB) {
+      const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
+      if (!GEP)
+        continue;
+      unsigned AS = GEP->getAddressSpace();
+      switch (AS) {
+        case AMDGPUAS::PRIVATE_ADDRESS:
+          PrivateGEPs.push_back(GEP);
+          break;
+        case AMDGPUAS::LOCAL_ADDRESS:
+        case AMDGPUAS::REGION_ADDRESS:
+          LocalGEPs.push_back(GEP);
+          break;
+        default:
+          continue;
+      }
+    }
+  }
+
+  if((!PrivateGEPs.empty() || !LocalGEPs.empty()) && L->isInnermost()) {
+    // If we got a GEP in a small BB from inner loop then increase max trip
+    // count to analyze for better estimation cost in unroll
+    auto isSmallerThanUnrollMaxBlockToAnalyze = [](const BasicBlock *BB) {
+      return BB->size() < UnrollMaxBlockToAnalyze;
+    };
+    if (any_of(BlocksInLoop, isSmallerThanUnrollMaxBlockToAnalyze))
+      UP.MaxIterationsCountToAnalyze = std::max(UP.MaxIterationsCountToAnalyze, 32u);
+  }
+
+  for (const GetElementPtrInst *GEP : PrivateGEPs) {
+    if (UP.Threshold >= ThresholdPrivate)
+      break;
+    const AllocaInst *Alloca =
+        dyn_cast<AllocaInst>(getUnderlyingObject(GEP));
+    if (!Alloca || !Alloca->isStaticAlloca())
+      continue;
+    Type *Ty = Alloca->getAllocatedType();
+    unsigned AllocaSize = Ty->isSized() ? DL.getTypeAllocSize(Ty) : 0;
+    if (AllocaSize > MaxAlloca)
+      continue;
+
+    if (!hasOperandDefinedByLoop(GEP, L))
+      continue;
+
+    // We want to do whatever we can to limit the number of alloca
+    // instructions that make it through to the code generator.  allocas
+    // require us to use indirect addressing, which is slow and prone to
+    // compiler bugs.  If this loop does an address calculation on an
+    // alloca ptr, then we want to use a higher than normal loop unroll
+    // threshold. This will give SROA a better chance to eliminate these
+    // allocas.
+    UP.Threshold = std::max(UP.Threshold, ThresholdPrivate);
+    LLVM_DEBUG(dbgs() << "Set unroll threshold "
+                      << ThresholdPrivate << " for loop:\n"
+                      << *L << " due to " << *GEP << '\n');
+  }
+
   for (const BasicBlock *BB : BlocksInLoop) {
     unsigned LocalGEPsSeen = 0;
 
     for (const Instruction &I : *BB) {
-
       const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
       if (!GEP)
         continue;
 
-      // If we got a GEP in a small BB from inner loop then increase max trip
-      // count to analyze for better estimation cost in unroll
-      if (L->isInnermost() && BB->size() < UnrollMaxBlockToAnalyze)
-        UP.MaxIterationsCountToAnalyze = std::max(UP.MaxIterationsCountToAnalyze, 32);
-
       unsigned AS = GEP->getAddressSpace();
       unsigned Threshold = 0;
-      if (AS == AMDGPUAS::PRIVATE_ADDRESS)
-        Threshold = ThresholdPrivate;
-      else if (AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS)
+      if (AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS)
         Threshold = ThresholdLocal;
       else
         continue;
@@ -251,13 +303,7 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
         UP.Runtime = UnrollRuntimeLocal;
       }
 
-      // We want to do whatever we can to limit the number of alloca
-      // instructions that make it through to the code generator.  allocas
-      // require us to use indirect addressing, which is slow and prone to
-      // compiler bugs.  If this loop does an address calculation on an
-      // alloca ptr, then we want to use a higher than normal loop unroll
-      // threshold. This will give SROA a better chance to eliminate these
-      // allocas.
+
       //
       // We also want to have more unrolling for local memory to let ds
       // instructions with different offsets combine.
