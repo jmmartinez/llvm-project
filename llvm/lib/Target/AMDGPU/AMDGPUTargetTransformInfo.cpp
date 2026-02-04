@@ -203,6 +203,11 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
       if (!GEP)
         continue;
 
+      // If we got a GEP in a small BB from inner loop then increase max trip
+      // count to analyze for better estimation cost in unroll
+      if (L->isInnermost() && BB->size() < UnrollMaxBlockToAnalyze)
+        UP.MaxIterationsCountToAnalyze = std::max(UP.MaxIterationsCountToAnalyze, 32);
+
       unsigned AS = GEP->getAddressSpace();
       unsigned Threshold = 0;
       if (AS == AMDGPUAS::PRIVATE_ADDRESS)
@@ -266,11 +271,6 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
       if (UP.Threshold >= MaxBoost)
         return;
     }
-
-    // If we got a GEP in a small BB from inner loop then increase max trip
-    // count to analyze for better estimation cost in unroll
-    if (L->isInnermost() && BB->size() < UnrollMaxBlockToAnalyze)
-      UP.MaxIterationsCountToAnalyze = 32;
   }
 }
 
