@@ -167,12 +167,16 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
   }
 
   unsigned MaxBoost = std::max(ThresholdPrivate, ThresholdLocal);
+  SmallVector<const BasicBlock*> BlocksInLoop;
   for (const BasicBlock *BB : L->getBlocks()) {
-    unsigned LocalGEPsSeen = 0;
-
     if (llvm::any_of(L->getSubLoops(), [BB](const Loop* SubLoop) {
                return SubLoop->contains(BB); }))
         continue; // Block belongs to an inner loop.
+      BlocksInLoop.push_back(BB);
+  }
+
+  for (const BasicBlock *BB : BlocksInLoop) {
+    unsigned LocalGEPsSeen = 0;
 
     for (const Instruction &I : *BB) {
       // Unroll a loop which contains an "if" statement whose condition
