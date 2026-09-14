@@ -13,6 +13,7 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfoImpl.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -1521,6 +1522,12 @@ unsigned TargetTransformInfo::getMaxNumArgs() const {
 
 bool TargetTransformInfo::shouldExpandReduction(const IntrinsicInst *II) const {
   return TTIImpl->shouldExpandReduction(II);
+}
+
+bool TargetTransformInfo::insertEntryExitInstrumentationCall(
+    Function &F, StringRef Func, Instruction *InsertBefore,
+    const DebugLoc &DL) const {
+  return TTIImpl->insertEntryExitInstrumentationCall(F, Func, InsertBefore, DL);
 }
 
 TargetTransformInfo::ReductionShuffle

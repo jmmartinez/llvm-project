@@ -70,6 +70,8 @@ class SwitchInst;
 class TargetLibraryInfo;
 class Type;
 class VPIntrinsic;
+class Instruction;
+class DebugLoc;
 struct KnownBits;
 
 /// Information about a load/store intrinsic defined by the target.
@@ -1978,6 +1980,14 @@ public:
   /// \returns True if the target wants to expand the given reduction intrinsic
   /// into a shuffle sequence.
   LLVM_ABI bool shouldExpandReduction(const IntrinsicInst *II) const;
+
+  /// Hook for custom entry/exit instrumentation callbacks. For the callback
+  /// named \p Func,
+  // insert it before \p InsertBefore. Return true if handled, return false if
+  // fallback to the generic lowering.
+  LLVM_ABI bool insertEntryExitInstrumentationCall(Function &F, StringRef Func,
+                                                   Instruction *InsertBefore,
+                                                   const DebugLoc &DL) const;
 
   enum struct ReductionShuffle { SplitHalf, Pairwise };
 
