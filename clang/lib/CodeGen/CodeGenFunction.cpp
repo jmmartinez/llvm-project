@@ -58,6 +58,11 @@
 using namespace clang;
 using namespace CodeGen;
 
+static std::string getInstrumentFunctionName(const CodeGenOptions &Opts,
+                                             llvm::StringRef Suffix) {
+  return (llvm::StringRef(Opts.InstrumentFunctionPrefix) + Suffix).str();
+}
+
 /// shouldEmitLifetimeMarkers - Decide whether we need emit the life-time
 /// markers.
 static bool shouldEmitLifetimeMarkers(const CodeGenOptions &CGOpts,
@@ -430,11 +435,13 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   llvm::DebugLoc Loc = EmitReturnBlock();
 
   if (ShouldInstrumentFunction()) {
-    if (CGM.getCodeGenOpts().InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-exit", "__cyg_profile_func_exit");
-    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
+    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
+    if (Opts.InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-exit",
+                       getInstrumentFunctionName(Opts, "_func_exit"));
+    if (Opts.InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-exit-inlined",
-                       "__cyg_profile_func_exit");
+                       getInstrumentFunctionName(Opts, "_func_exit"));
   }
 
   // Emit debug descriptor for function end.
@@ -1163,14 +1170,16 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   }
 
   if (ShouldInstrumentFunction()) {
-    if (CGM.getCodeGenOpts().InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-entry", "__cyg_profile_func_enter");
-    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
+    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
+    if (Opts.InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-entry",
+                       getInstrumentFunctionName(Opts, "_func_enter"));
+    if (Opts.InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       "__cyg_profile_func_enter");
-    if (CGM.getCodeGenOpts().InstrumentFunctionEntryBare)
+                       getInstrumentFunctionName(Opts, "_func_enter"));
+    if (Opts.InstrumentFunctionEntryBare)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       "__cyg_profile_func_enter_bare");
+                       getInstrumentFunctionName(Opts, "_func_enter_bare"));
   }
 
   // Since emitting the mcount call here impacts optimizations such as function
