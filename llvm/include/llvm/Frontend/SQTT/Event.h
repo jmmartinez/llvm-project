@@ -9,6 +9,8 @@ class Value;
 
 namespace sqtt {
 
+const char EventsTableMetadata[] = "llvm.sqtt.events";
+
 enum class EventType {
   FunctionEntry,
   FunctionExit,
