@@ -24,6 +24,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
@@ -294,6 +295,24 @@ GCNTTIImpl::GCNTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
 
 bool GCNTTIImpl::hasBranchDivergence(const Function *F) const {
   return !F || !ST->isSingleLaneExecution(*F);
+}
+
+bool GCNTTIImpl::insertEntryExitInstrumentationCall(Function &F, StringRef Func,
+                                                    Instruction *InsertBefore,
+                                                    const DebugLoc &DL) const {
+
+  if (!is_contained({"sqtt_func_enter", "sqtt_func_exit"}, Func))
+    return false;
+
+  sqtt::Event Event = Func == "sqtt_func_enter" ? sqtt::Event::functionEntry(F)
+                                                : sqtt::Event::functionExit(F);
+
+  LLVMContext &C = F.getContext();
+  Value *EventMD = MetadataAsValue::get(C, Event.toMetadata(C));
+  IRBuilder<> Builder(InsertBefore);
+  Builder.SetCurrentDebugLocation(DL);
+  Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event, {EventMD});
+  return true;
 }
 
 unsigned GCNTTIImpl::getNumberOfRegisters(unsigned RCID) const {

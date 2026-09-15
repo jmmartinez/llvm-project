@@ -202,6 +202,7 @@ add_llvm_target(AMDGPUCodeGen
   CodeGen
   CodeGenTypes
   Core
+  FrontendSQTT
   GlobalISel
   HipStdPar
   IPO

@@ -341,6 +341,10 @@ public:
 
   bool isUniform(const Instruction *I,
                  const SmallBitVector &UniformArgs) const override;
+
+  bool insertEntryExitInstrumentationCall(Function &F, StringRef Func,
+                                          Instruction *InsertBefore,
+                                          const DebugLoc &DL) const override;
 };
 
 } // end namespace llvm
