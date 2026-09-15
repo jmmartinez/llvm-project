@@ -37,6 +37,7 @@
 ; GCN-O0-NEXT:   expand-reductions
 ; GCN-O0-NEXT:   amdgpu-lower-kernel-arguments
 ; GCN-O0-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O0-NEXT: amdgpu-sqtt-lower
 ; GCN-O0-NEXT: amdgpu-lower-intrinsics
 ; GCN-O0-NEXT: cgscc
 ; GCN-O0-NEXT:   function
@@ -160,6 +161,7 @@
 ; GCN-O2-NEXT:   codegenprepare
 ; GCN-O2-NEXT:   load-store-vectorizer
 ; GCN-O2-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O2-NEXT: amdgpu-sqtt-lower
 ; GCN-O2-NEXT: amdgpu-lower-intrinsics
 ; GCN-O2-NEXT: cgscc
 ; GCN-O2-NEXT:   function
@@ -348,6 +350,7 @@
 ; GCN-O3-NEXT:   codegenprepare
 ; GCN-O3-NEXT:   load-store-vectorizer
 ; GCN-O3-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O3-NEXT: amdgpu-sqtt-lower
 ; GCN-O3-NEXT: amdgpu-lower-intrinsics
 ; GCN-O3-NEXT: cgscc
 ; GCN-O3-NEXT:   function
