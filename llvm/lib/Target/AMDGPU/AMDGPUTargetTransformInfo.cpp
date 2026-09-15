@@ -311,7 +311,8 @@ bool GCNTTIImpl::insertEntryExitInstrumentationCall(Function &F, StringRef Func,
   Value *EventMD = MetadataAsValue::get(C, Event.toMetadata(C));
   IRBuilder<> Builder(InsertBefore);
   Builder.SetCurrentDebugLocation(DL);
-  Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event, {EventMD});
+  Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event,
+                          {EventMD, PoisonValue::get(Builder.getInt32Ty())});
   return true;
 }
 

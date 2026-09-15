@@ -2295,7 +2295,7 @@ def int_amdgcn_s_ttracedata_imm :
                         [IntrNoMem, IntrHasSideEffects, ImmArg<ArgIndex<0>>]>;
 
 def int_amdgcn_sqtt_event :
-  DefaultAttrsIntrinsic<[], [llvm_metadata_ty],
+  DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty],
                         [IntrNoMem, IntrHasSideEffects]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
