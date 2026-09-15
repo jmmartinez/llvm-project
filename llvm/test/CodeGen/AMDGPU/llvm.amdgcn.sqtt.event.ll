@@ -6,12 +6,12 @@
 ; GISEL: LLVM ERROR: No AMDGPU RegBankLegalize rules defined for opcode: G_INTRINSIC_W_SIDE_EFFECTS intrinsic(@llvm.amdgcn.sqtt.event)
 
 define void @sqtt_events() {
-  call void @llvm.amdgcn.sqtt.event(metadata !0)
-  call void @llvm.amdgcn.sqtt.event(metadata !1)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32)
 
 !0 = !{i32 0, ptr @sqtt_events}
 !1 = !{i32 1, ptr @sqtt_events}

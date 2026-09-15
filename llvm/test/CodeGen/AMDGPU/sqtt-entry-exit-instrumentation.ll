@@ -5,9 +5,9 @@
 define void @instrumented() #0 {
 ; PRE-LABEL: define void @instrumented() {
 ; PRE-NEXT:  [[ENTRY:.*:]]
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]])
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison)
 ; PRE-NEXT:    call void @body()
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]])
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison)
 ; PRE-NEXT:    ret void
 ;
 ; POST-LABEL: define void @instrumented(
@@ -30,9 +30,9 @@ define void @instrumented_inlined() #1 {
 ;
 ; POST-LABEL: define void @instrumented_inlined() {
 ; POST-NEXT:  [[ENTRY:.*:]]
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]])
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison)
 ; POST-NEXT:    call void @body()
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]])
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison)
 ; POST-NEXT:    ret void
 ;
 entry:
