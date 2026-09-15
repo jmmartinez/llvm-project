@@ -724,6 +724,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPURemoveIncompatibleFunctionsLegacyPass(*PR);
   initializeAMDGPULowerModuleLDSLegacyPass(*PR);
   initializeAMDGPULowerBufferFatPointersPass(*PR);
+  initializeAMDGPUSQTTLowerLegacyPass(*PR);
   initializeAMDGPULowerIntrinsicsLegacyPass(*PR);
   initializeAMDGPUReserveWWMRegsLegacyPass(*PR);
   initializeAMDGPURewriteAGPRCopyMFMALegacyPass(*PR);
@@ -1679,6 +1680,7 @@ void AMDGPUPassConfig::addCodeGenPrepare() {
     // passes can run on the more optimized control flow this pass creates in
     // many cases.
     addPass(createAMDGPULowerBufferFatPointersPass());
+    addPass(createAMDGPUSQTTLowerLegacyPass());
     addPass(createAMDGPULowerIntrinsicsLegacyPass());
   }
 
@@ -2461,6 +2463,7 @@ void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(PassManagerWrapper &PMW) {
   flushFPMsToMPM(PMW);
   requireCGSCCOrder(PMW);
 
+  addModulePass(AMDGPUSQTTLowerPass(), PMW);
   addModulePass(AMDGPULowerIntrinsicsPass(getTM()), PMW);
 
   // LowerSwitch pass may introduce unreachable blocks that can cause unexpected
