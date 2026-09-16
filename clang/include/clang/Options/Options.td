@@ -3320,6 +3320,14 @@ def finstrument_function_prefix_EQ
       MetaVarName<"<name>">,
       MarshallingInfoString<CodeGenOpts<"InstrumentFunctionPrefix">,
                             [{"__cyg_profile"}]>;
+def fsqtt_instrument_EQ : Joined<["-"], "fsqtt-instrument=">,
+  Group<f_Group>, Visibility<[ClangOption]>,
+  HelpText<"Instrument functions for SQTT tracing (HIP device, C, C++, OpenCL)">,
+  Values<"before-inlining,after-inlining">;
+def fsqtt_instrument : Flag<["-"], "fsqtt-instrument">,
+  Group<f_Group>, Visibility<[ClangOption]>,
+  Alias<fsqtt_instrument_EQ>, AliasArgs<["before-inlining"]>,
+  HelpText<"Instrument functions for SQTT tracing before inlining">;
 def fcf_protection_EQ : Joined<["-"], "fcf-protection=">,
   Visibility<[ClangOption, CLOption, CC1Option]>, Group<f_Group>,
   HelpText<"Instrument control-flow architecture protection">, Values<"return,branch,full,none">;
