@@ -90,6 +90,7 @@ private:
   void initTargetStreamer(Module &M);
 
   void emitAMDGPUInfo(Module &M);
+  void emitSQTTEventTable(Module &M);
   void collectCallEdge(const MachineInstr &MI);
 
   SetVector<std::pair<MCSymbol *, MCSymbol *>> DirectCallEdges;
