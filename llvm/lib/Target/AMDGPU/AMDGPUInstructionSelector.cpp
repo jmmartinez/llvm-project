@@ -1749,6 +1749,30 @@ bool AMDGPUInstructionSelector::selectRelocConstant(MachineInstr &I) const {
   return true;
 }
 
+bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
+  std::optional<ValueAndVReg> EventID =
+      getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), *MRI);
+  if (!EventID)
+    return false;
+
+  MachineBasicBlock &BB = *I.getParent();
+  const DebugLoc &DL = I.getDebugLoc();
+  int64_t Id = EventID->Value.getZExtValue();
+
+  // Emit the m0 setup outside the barriers so it can be scheduled
+  // independently. Pin the trace instruction to the event site so the
+  // recorded event matches the program point it was emitted for.
+  BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0).addImm(Id);
+  BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
+  BuildMI(BB, &I, DL, TII.get(AMDGPU::SQTT_EVENT))
+      .addImm(Id)
+      .addReg(AMDGPU::M0);
+  BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
+
+  I.eraseFromParent();
+  return true;
+}
+
 bool AMDGPUInstructionSelector::selectGroupStaticSize(MachineInstr &I) const {
   Triple::OSType OS = MF->getTarget().getTargetTriple().getOS();
 
@@ -2416,6 +2440,8 @@ bool AMDGPUInstructionSelector::selectG_INTRINSIC_W_SIDE_EFFECTS(
     return selectDSAppendConsume(I, false);
   case Intrinsic::amdgcn_init_whole_wave:
     return selectInitWholeWave(I);
+  case Intrinsic::amdgcn_sqtt_event:
+    return selectSQTTEvent(I);
   case Intrinsic::amdgcn_raw_buffer_load_lds:
   case Intrinsic::amdgcn_raw_buffer_load_async_lds:
   case Intrinsic::amdgcn_raw_ptr_buffer_load_lds:

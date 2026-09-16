@@ -110,6 +110,16 @@ def SIMULATED_TRAP : SPseudoInstSI<(outs), (ins), [(AMDGPUsimulated_trap)],
   let usesCustomInserter = 1;
 }
 
+// Expanded into an s_ttracedata pointed by a block label "sqtt_event.{label_id}",
+// so that the address of the s_ttracedata address can be recovered.
+// The m0 write is emitted separately during instruction selection,
+// so that it can be optimized on its own.
+def SQTT_EVENT : SPseudoInstSI<(outs), (ins i32imm:$label_id, SReg_32:$m0), [],
+                               "SQTT_EVENT $label_id, $m0"> {
+  let hasSideEffects = 1;
+  let usesCustomInserter = 1;
+}
+
 def ATOMIC_FENCE : SPseudoInstSI<
   (outs), (ins i32imm:$ordering, i32imm:$scope),
   [(atomic_fence (i32 timm:$ordering), (i32 timm:$scope))],

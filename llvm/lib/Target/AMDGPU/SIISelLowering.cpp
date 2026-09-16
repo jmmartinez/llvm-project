@@ -7352,6 +7352,26 @@ SITargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     MI.eraseFromParent();
     return SplitBB;
   }
+  case AMDGPU::SQTT_EVENT: {
+    MachineOperand &LabelID = MI.getOperand(0);
+    assert(LabelID.isImm());
+    assert(MI.getOperand(1).isReg() &&
+           MI.getOperand(1).getReg() == AMDGPU::M0 &&
+           "SQTT_EVENT expects an explicit m0 operand");
+
+    // m0 is implicitely used by s_ttracedata.
+    MachineInstr *TraceData =
+        BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
+
+    // Keep the label on the instruction so it stays on s_ttracedata even if
+    // hazard nops or waitcnts are inserted in front of it.
+    MCSymbol *Label = MF->getContext().createBlockSymbol(
+        "sqtt_event." + Twine(LabelID.getImm()), /*AlwaysEmit=*/true);
+    TraceData->setPreInstrSymbol(*MF, Label);
+
+    MI.eraseFromParent();
+    return BB;
+  }
   case AMDGPU::SIMULATED_TRAP: {
     assert(Subtarget->hasPrivEnabledTrap2NopBug());
     MachineBasicBlock *SplitBB =
@@ -12566,6 +12586,28 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
 
     unsigned Opc = Done->isZero() ? AMDGPU::EXP : AMDGPU::EXP_DONE;
     return SDValue(DAG.getMachineNode(Opc, DL, Op->getVTList(), Ops), 0);
+  }
+
+  case Intrinsic::amdgcn_sqtt_event: {
+    const ConstantSDNode *EventID = dyn_cast<ConstantSDNode>(Op.getOperand(3));
+    if (!EventID)
+      return SDValue();
+    SDValue EventIDTgt =
+        DAG.getTargetConstant(EventID->getZExtValue(), DL, MVT::i32);
+    SDValue BarrierMask = DAG.getTargetConstant(0, DL, MVT::i32);
+    SDValue M0Chain = copyToM0(DAG, Chain, DL, EventIDTgt);
+    SDValue M0Reg = DAG.getRegister(AMDGPU::M0, MVT::i32);
+
+    SDValue EventChain =
+        SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                   {BarrierMask, M0Chain}),
+                0);
+    EventChain = SDValue(DAG.getMachineNode(AMDGPU::SQTT_EVENT, DL, MVT::Other,
+                                            {EventIDTgt, M0Reg, EventChain}),
+                         0);
+    return SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                      {BarrierMask, EventChain}),
+                   0);
   }
 
   case Intrinsic::amdgcn_struct_tbuffer_store:
