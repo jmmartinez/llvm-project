@@ -39,6 +39,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
+#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
@@ -186,6 +187,35 @@ void AMDGPUAsmPrinter::emitEndOfAsmFile(Module &M) {
     (void)Success;
     assert(Success && "Malformed HSA Metadata");
   }
+
+  emitSQTTEventTable(M);
+}
+
+void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
+  NamedMDNode *Events = M.getNamedMetadata(sqtt::EventsTableMetadata);
+  if (!Events)
+    return;
+
+  OutStreamer->pushSection();
+  OutStreamer->switchSection(OutContext.getELFSection(
+      sqtt::EventsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+
+  const unsigned PtrSize = getPointerSize();
+  for (unsigned I = 0, E = Events->getNumOperands(); I != E; ++I) {
+    sqtt::Event Ev = sqtt::Event::fromMetadata(Events->getOperand(I));
+    GlobalValue *Payload = Ev.getPayloadAsGlobalValue();
+
+    // {ptr label, i16 type, ptr payload}
+    MCSymbol *PC = OutContext.lookupSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        "sqtt_event." + Twine(I));
+    assert(PC && "SQTT event PC label should already exist");
+    OutStreamer->emitSymbolValue(PC, PtrSize);
+    OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
+    OutStreamer->emitSymbolValue(getSymbol(Payload), PtrSize);
+  }
+
+  OutStreamer->popSection();
 }
 
 void AMDGPUAsmPrinter::emitFunctionBodyStart() {
