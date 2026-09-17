@@ -24,16 +24,14 @@ define void @sqtt_events() {
 ;
 ; GFX10-LABEL: sqtt_events:
 ; GFX10:       ; %bb.0:
+; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX10-NEXT:    s_mov_b32 m0, 0
-; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:  .Lsqtt_event.0:
-; GFX10-NEXT:    s_ttracedata
+; GFX10-NEXT:    s_ttracedata_imm 0x0
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
-; GFX10-NEXT:    s_mov_b32 m0, 1
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:  .Lsqtt_event.1:
-; GFX10-NEXT:    s_ttracedata
+; GFX10-NEXT:    s_ttracedata_imm 0x1
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
   call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
