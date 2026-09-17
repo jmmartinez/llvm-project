@@ -79,5 +79,5 @@ define void @event_in_between_arith(ptr addrspace(1) %p, i32 %a, i32 %b) {
 declare void @llvm.amdgcn.sqtt.event(metadata, i32)
 
 !0 = !{i32 0, !"event_after_arith"}
-!1 = !{i32 1, !"event_before_arith"}
-!2 = !{i32 2, !"event_in_between_arith"}
+!1 = !{i32 0, !"event_before_arith"}
+!2 = !{i32 0, !"event_in_between_arith"}
