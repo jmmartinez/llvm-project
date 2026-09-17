@@ -11,17 +11,34 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPU.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/CommandLine.h"
 
 #define DEBUG_TYPE "amdgpu-sqtt-lower"
 
 using namespace llvm;
 
 namespace {
+static cl::opt<bool> CombineEvents("amdgpu-sqtt-combine-events", cl::init(true),
+                                   cl::Hidden,
+                                   cl::desc("Combine consecutive SQTT events"));
+
+static bool isEvent(const Instruction &I) {
+  const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
+  return II && II->getIntrinsicID() == Intrinsic::amdgcn_sqtt_event;
+}
+
+static MDNode *getEventMetadata(IntrinsicInst *II) {
+  assert(isEvent(*II));
+  return cast<MDNode>(
+      cast<MetadataAsValue>(II->getArgOperand(0))->getMetadata());
+}
 
 static void assignEventIDs(Module &M, Function &SQTTEventFun) {
   FunctionType *FT = SQTTEventFun.getFunctionType();
@@ -36,9 +53,57 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
 
     Use &EventIdOperand = II->getArgOperandUse(1);
     EventIdOperand.set(ConstantInt::get(IdTy, EventsMD->getNumOperands()));
+    EventsMD->addOperand(getEventMetadata(II));
+  }
+}
 
-    MetadataAsValue *EventMD = cast<MetadataAsValue>(II->getArgOperand(0));
-    EventsMD->addOperand(cast<MDNode>(EventMD->getMetadata()));
+static auto findEventRange(Instruction &I) {
+  auto FirstNotEvent =
+      std::find_if_not(I.getReverseIterator(), I.getParent()->rend(), isEvent);
+  auto FirstEvent = std::prev(FirstNotEvent);
+  auto FirstEventIt = FirstEvent->getIterator();
+  auto End = std::find_if_not(I.getIterator(), I.getParent()->end(), isEvent);
+  auto AsIntrinsic = [](Instruction &I) -> IntrinsicInst * {
+    return cast<IntrinsicInst>(&I);
+  };
+  return map_range(make_range(FirstEventIt, End), AsIntrinsic);
+}
+
+static void combineEvents(Module &M, Function &SQTTEventFun) {
+  LLVMContext &C = M.getContext();
+  MapVector<BasicBlock *, SmallVector<IntrinsicInst *, 4>> IntrinsicBlocks;
+  for (User *U : SQTTEventFun.users()) {
+    IntrinsicInst *II = cast<IntrinsicInst>(U);
+    IntrinsicBlocks[II->getParent()].push_back(II);
+  }
+
+  for (auto &[BB, Intrinsics] : IntrinsicBlocks) {
+    if (Intrinsics.size() < 2)
+      continue;
+
+    SmallPtrSet<IntrinsicInst *, 4> Seen;
+    for (IntrinsicInst *II : Intrinsics) {
+      if (!Seen.insert(II).second)
+        continue;
+
+      auto Range = findEventRange(*II);
+      if (std::distance(std::begin(Range), std::end(Range)) < 2)
+        continue;
+      Seen.insert_range(Range);
+
+      SmallVector<Metadata *> EventMDs{map_range(Range, getEventMetadata)};
+      SmallVector<sqtt::Event> Events{
+          map_range(EventMDs, sqtt::Event::fromMetadata)};
+
+      Metadata *MergedEventMD = sqtt::MergedEvent{Events}.toMetadata(C);
+
+      IntrinsicInst *First = (*std::begin(Range));
+      First->setArgOperand(0, MetadataAsValue::get(C, MergedEventMD));
+
+      auto ToRemove = drop_begin(Range);
+      for_each(make_early_inc_range(ToRemove),
+               std::mem_fn(&IntrinsicInst::eraseFromParent));
+    }
   }
 }
 
@@ -47,6 +112,8 @@ static bool run(Module &M) {
       M.getFunction(Intrinsic::getName(Intrinsic::amdgcn_sqtt_event));
   if (!Intrinsic)
     return false;
+  if (CombineEvents)
+    combineEvents(M, *Intrinsic);
   assignEventIDs(M, *Intrinsic);
   return true;
 }
