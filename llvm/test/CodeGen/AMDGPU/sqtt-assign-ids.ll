@@ -14,11 +14,11 @@ define void @foo() {
 
 declare void @llvm.amdgcn.sqtt.event(metadata, i32)
 
-!0 = !{i32 0, ptr @foo}
-!1 = !{i32 1, ptr @foo}
+!0 = !{i32 0, !"foo"}
+!1 = !{i32 1, !"foo"}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
-; CHECK: [[META0]] = !{i32 0, ptr @foo}
-; CHECK: [[META1]] = !{i32 1, ptr @foo}
+; CHECK: [[META0]] = !{i32 0, !"foo"}
+; CHECK: [[META1]] = !{i32 1, !"foo"}
 ;.
