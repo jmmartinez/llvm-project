@@ -34,3 +34,28 @@ Event Event::fromMetadata(Metadata *MD) {
   StringRef Payload = cast<MDString>(Node->getOperand(1))->getString();
   return {Type, Payload};
 }
+
+MergedEvent MergedEvent::fromMetadata(Metadata *MD) {
+  auto *Node = cast<MDNode>(MD);
+  Metadata *Op0 = Node->getOperand(0);
+  if (isa<ConstantAsMetadata>(Op0)) {
+    return {{Event::fromMetadata(MD)}};
+  }
+
+  SmallVector<Event, 4> Events;
+  for (unsigned I = 0; I != Node->getNumOperands(); ++I) {
+    Events.push_back(Event::fromMetadata(Node->getOperand(I)));
+  }
+  return {Events};
+}
+
+Metadata *MergedEvent::toMetadata(LLVMContext &Ctx) const {
+  SmallVector<Metadata *, 4> Ops;
+  for (const Event &Ev : Events)
+    Ops.push_back(Ev.toMetadata(Ctx));
+
+  if (Ops.size() == 1)
+    return Ops.front();
+
+  return MDNode::get(Ctx, Ops);
+}
