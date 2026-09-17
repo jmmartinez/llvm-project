@@ -203,32 +203,51 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   const unsigned PtrSize = getPointerSize();
   const unsigned NumEvents = Events->getNumOperands();
 
-  // {ptr label, i16 type, ptr payload_string}
-  MapVector<StringRef, MCSymbol *> StrSet;
+  // {ptr event_list}
+  unsigned DataEntries = 0;
+  SmallVector<std::pair<sqtt::MergedEvent, MCSymbol *>> EventList;
   for (unsigned I = 0; I != NumEvents; ++I) {
-    sqtt::Event Ev = sqtt::Event::fromMetadata(Events->getOperand(I));
-    StringRef Payload = Ev.getPayload();
-
-    auto [It, Inserted] = StrSet.try_emplace(Payload);
-    if (Inserted) {
-      It->second = OutContext.getOrCreateSymbol(
-          Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
-          "sqtt_event_str." + Twine(StrSet.size() - 1));
-    }
-    MCSymbol *StrSym = It->second;
-
-    MCSymbol *PC = OutContext.lookupSymbol(
+    sqtt::MergedEvent MergedEv =
+        sqtt::MergedEvent::fromMetadata(Events->getOperand(I));
+    MCSymbol *EventListSym = OutContext.getOrCreateSymbol(
         Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
-        "sqtt_event." + Twine(I));
-    assert(PC && "SQTT event PC label should already exist");
-    OutStreamer->emitSymbolValue(PC, PtrSize);
-    OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
-    OutStreamer->emitSymbolValue(StrSym, PtrSize);
+        "sqtt_data." + Twine(DataEntries++));
+    EventList.emplace_back(std::move(MergedEv), EventListSym);
+    OutStreamer->emitSymbolValue(EventListSym, PtrSize);
   }
   OutStreamer->popSection();
 
   OutStreamer->switchSection(OutContext.getELFSection(
-      sqtt::StringsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+      sqtt::DataTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+
+  // emit {ptr to label, i16 count, [type, payload_string]+}
+  unsigned Id = 0;
+  MapVector<StringRef, MCSymbol *> StrSet;
+  for (auto &[MergedEv, DataSym] : EventList) {
+    OutStreamer->emitLabel(DataSym);
+
+    MCSymbol *PC = OutContext.lookupSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        "sqtt_event." + Twine(Id++));
+    assert(PC && "SQTT event PC label should already exist");
+    OutStreamer->emitSymbolValue(PC, PtrSize);
+
+    OutStreamer->emitInt16(MergedEv.size());
+    for (const sqtt::Event &Ev : MergedEv.events()) {
+      OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
+      StringRef Payload = Ev.getPayload();
+      auto [It, Inserted] = StrSet.try_emplace(Payload);
+      if (Inserted) {
+        It->second = OutContext.getOrCreateSymbol(
+            Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+            "sqtt_data." + Twine(DataEntries++));
+      }
+      MCSymbol *StrSym = It->second;
+      OutStreamer->emitSymbolValue(StrSym, PtrSize);
+    }
+  }
+
+  // emit the zero terminated strings
   for (auto &[Payload, StrSym] : StrSet) {
     OutStreamer->emitLabel(StrSym);
     OutStreamer->emitBytes(Payload);
