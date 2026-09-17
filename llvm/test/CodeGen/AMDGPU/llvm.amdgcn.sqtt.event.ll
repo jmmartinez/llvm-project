@@ -43,5 +43,5 @@ define void @sqtt_events() {
 
 declare void @llvm.amdgcn.sqtt.event(metadata, i32)
 
-!0 = !{i32 0, ptr @sqtt_events}
-!1 = !{i32 1, ptr @sqtt_events}
+!0 = !{i32 0, !"sqtt_events"}
+!1 = !{i32 1, !"sqtt_events"}
