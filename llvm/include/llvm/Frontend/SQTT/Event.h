@@ -1,8 +1,8 @@
 #ifndef LLVM_FRONTEND_SQTT_EVENT_H
 #define LLVM_FRONTEND_SQTT_EVENT_H
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-
 #include <cstdint>
 
 namespace llvm {
@@ -14,7 +14,7 @@ namespace sqtt {
 
 const char EventsTableMetadata[] = "llvm.sqtt.events";
 const char EventsTableSection[] = "__sqtt_events";
-const char StringsTableSection[] = "__sqtt_strings";
+const char DataTableSection[] = "__sqtt_data";
 
 enum class EventType : uint16_t {
   FunctionEntry,
@@ -36,6 +36,18 @@ public:
 
   Metadata *toMetadata(LLVMContext &Ctx) const;
   static Event fromMetadata(Metadata *MD);
+};
+
+class MergedEvent {
+  SmallVector<Event, 4> Events;
+
+public:
+  MergedEvent(ArrayRef<Event> Events) : Events(Events) {}
+  ArrayRef<Event> events() const { return Events; }
+  size_t size() const { return Events.size(); }
+
+  Metadata *toMetadata(LLVMContext &Ctx) const;
+  static MergedEvent fromMetadata(Metadata *MD);
 };
 
 } // namespace sqtt
