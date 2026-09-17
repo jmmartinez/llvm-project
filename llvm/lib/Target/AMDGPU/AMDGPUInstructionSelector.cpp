@@ -1759,14 +1759,12 @@ bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
   const DebugLoc &DL = I.getDebugLoc();
   int64_t Id = EventID->Value.getZExtValue();
 
-  // Emit the m0 setup outside the barriers so it can be scheduled
-  // independently. Pin the trace instruction to the event site so the
-  // recorded event matches the program point it was emitted for.
-  BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0).addImm(Id);
+  bool UseImm = Subtarget->canTraceSQTTEventWithImm(Id);
+  if (!UseImm)
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0).addImm(Id);
   BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
-  BuildMI(BB, &I, DL, TII.get(AMDGPU::SQTT_EVENT))
-      .addImm(Id)
-      .addReg(AMDGPU::M0);
+  unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
+  BuildMI(BB, &I, DL, TII.get(Opc)).addImm(Id);
   BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
 
   I.eraseFromParent();

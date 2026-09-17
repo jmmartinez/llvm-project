@@ -7352,21 +7352,23 @@ SITargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     MI.eraseFromParent();
     return SplitBB;
   }
-  case AMDGPU::SQTT_EVENT: {
-    MachineOperand &LabelID = MI.getOperand(0);
-    assert(LabelID.isImm());
-    assert(MI.getOperand(1).isReg() &&
-           MI.getOperand(1).getReg() == AMDGPU::M0 &&
-           "SQTT_EVENT expects an explicit m0 operand");
+  case AMDGPU::SQTT_EVENT:
+  case AMDGPU::SQTT_EVENT_IMM: {
+    MachineOperand &EventID = MI.getOperand(0);
+    assert(EventID.isImm());
 
-    // m0 is implicitely used by s_ttracedata.
-    MachineInstr *TraceData =
-        BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
+    // m0 is implicitely used by s_ttracedata. s_ttracedata_imm encodes the
+    // event id instead.
+    MachineInstr *TraceData;
+    if (MI.getOpcode() == AMDGPU::SQTT_EVENT_IMM) {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA_IMM))
+                      .addImm(EventID.getImm());
+    } else {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
+    }
 
-    // Keep the label on the instruction so it stays on s_ttracedata even if
-    // hazard nops or waitcnts are inserted in front of it.
     MCSymbol *Label = MF->getContext().createBlockSymbol(
-        "sqtt_event." + Twine(LabelID.getImm()), /*AlwaysEmit=*/true);
+        "sqtt_event." + Twine(EventID.getImm()), /*AlwaysEmit=*/true);
     TraceData->setPreInstrSymbol(*MF, Label);
 
     MI.eraseFromParent();
@@ -12595,16 +12597,17 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
     SDValue EventIDTgt =
         DAG.getTargetConstant(EventID->getZExtValue(), DL, MVT::i32);
     SDValue BarrierMask = DAG.getTargetConstant(0, DL, MVT::i32);
-    SDValue M0Chain = copyToM0(DAG, Chain, DL, EventIDTgt);
-    SDValue M0Reg = DAG.getRegister(AMDGPU::M0, MVT::i32);
+    bool UseImm = Subtarget->canTraceSQTTEventWithImm(EventID->getZExtValue());
+    // SQTT_EVENT_IMM encodes the event id, it doesn't need the m0 write.
+    SDValue M0Chain = UseImm ? Chain : copyToM0(DAG, Chain, DL, EventIDTgt);
 
     SDValue EventChain =
         SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
                                    {BarrierMask, M0Chain}),
                 0);
-    EventChain = SDValue(DAG.getMachineNode(AMDGPU::SQTT_EVENT, DL, MVT::Other,
-                                            {EventIDTgt, M0Reg, EventChain}),
-                         0);
+    unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
+    EventChain = SDValue(
+        DAG.getMachineNode(Opc, DL, MVT::Other, {EventIDTgt, EventChain}), 0);
     return SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
                                       {BarrierMask, EventChain}),
                    0);

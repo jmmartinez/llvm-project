@@ -1033,6 +1033,14 @@ public:
     return 3;
   }
 
+  /// \returns true if the SQTT event \p EventId can be traced with
+  /// s_ttracedata_imm.
+  bool canTraceSQTTEventWithImm(uint64_t EventId) const {
+    // The immediate is encoded on 16 bits, but only its low 8 bits are
+    // recorded.
+    return hasGFX10Insts() && isUInt<8>(EventId);
+  }
+
   bool supportsBPermute() const {
     return getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
   }
