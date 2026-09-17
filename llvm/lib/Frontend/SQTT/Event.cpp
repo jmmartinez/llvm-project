@@ -1,16 +1,25 @@
 #include "llvm/Frontend/SQTT/Event.h"
 
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Metadata.h"
 
 using namespace llvm;
 using namespace llvm::sqtt;
 
+Event Event::functionEntry(const Function &F) {
+  return Event(EventType::FunctionEntry, F.getName());
+}
+
+Event Event::functionExit(const Function &F) {
+  return Event(EventType::FunctionExit, F.getName());
+}
+
 Metadata *Event::toMetadata(LLVMContext &Ctx) const {
   auto *IntTy = Type::getInt32Ty(Ctx);
   Metadata *TypeMD = ConstantAsMetadata::get(
       ConstantInt::get(IntTy, static_cast<uint32_t>(Type)));
-  Metadata *PayloadMD = ValueAsMetadata::get(Payload);
+  Metadata *PayloadMD = MDString::get(Ctx, Payload);
   return MDNode::get(Ctx, {TypeMD, PayloadMD});
 }
 
@@ -22,8 +31,6 @@ Event Event::fromMetadata(Metadata *MD) {
   ConstantInt *TypeCI = cast<ConstantInt>(TypeCA->getValue());
   EventType Type = static_cast<EventType>(TypeCI->getZExtValue());
 
-  Metadata *PayloadMD = Node->getOperand(1);
-  Value *Payload = cast<ValueAsMetadata>(PayloadMD)->getValue();
-
+  StringRef Payload = cast<MDString>(Node->getOperand(1))->getString();
   return {Type, Payload};
 }

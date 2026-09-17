@@ -51,9 +51,9 @@ attributes #1 = { "instrument-function-entry-inlined"="sqtt_func_enter" "instrum
 ; POST: attributes #[[ATTR0]] = { "instrument-function-entry"="sqtt_func_enter" "instrument-function-exit"="sqtt_func_exit" }
 ; POST: attributes #[[ATTR1:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
-; PRE: [[META0]] = !{i32 0, ptr @instrumented}
-; PRE: [[META1]] = !{i32 1, ptr @instrumented}
+; PRE: [[META0]] = !{i32 0, !"instrumented"}
+; PRE: [[META1]] = !{i32 1, !"instrumented"}
 ;.
-; POST: [[META0]] = !{i32 0, ptr @instrumented_inlined}
-; POST: [[META1]] = !{i32 1, ptr @instrumented_inlined}
+; POST: [[META0]] = !{i32 0, !"instrumented_inlined"}
+; POST: [[META1]] = !{i32 1, !"instrumented_inlined"}
 ;.
