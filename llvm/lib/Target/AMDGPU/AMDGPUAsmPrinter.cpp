@@ -201,20 +201,39 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
       sqtt::EventsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
 
   const unsigned PtrSize = getPointerSize();
-  for (unsigned I = 0, E = Events->getNumOperands(); I != E; ++I) {
-    sqtt::Event Ev = sqtt::Event::fromMetadata(Events->getOperand(I));
-    GlobalValue *Payload = Ev.getPayloadAsGlobalValue();
+  const unsigned NumEvents = Events->getNumOperands();
 
-    // {ptr label, i16 type, ptr payload}
+  // {ptr label, i16 type, ptr payload_string}
+  MapVector<StringRef, MCSymbol *> StrSet;
+  for (unsigned I = 0; I != NumEvents; ++I) {
+    sqtt::Event Ev = sqtt::Event::fromMetadata(Events->getOperand(I));
+    StringRef Payload = Ev.getPayload();
+
+    auto [It, Inserted] = StrSet.try_emplace(Payload);
+    if (Inserted) {
+      It->second = OutContext.getOrCreateSymbol(
+          Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+          "sqtt_event_str." + Twine(StrSet.size() - 1));
+    }
+    MCSymbol *StrSym = It->second;
+
     MCSymbol *PC = OutContext.lookupSymbol(
         Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
         "sqtt_event." + Twine(I));
     assert(PC && "SQTT event PC label should already exist");
     OutStreamer->emitSymbolValue(PC, PtrSize);
     OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
-    OutStreamer->emitSymbolValue(getSymbol(Payload), PtrSize);
+    OutStreamer->emitSymbolValue(StrSym, PtrSize);
   }
+  OutStreamer->popSection();
 
+  OutStreamer->switchSection(OutContext.getELFSection(
+      sqtt::StringsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+  for (auto &[Payload, StrSym] : StrSet) {
+    OutStreamer->emitLabel(StrSym);
+    OutStreamer->emitBytes(Payload);
+    OutStreamer->emitInt8(0);
+  }
   OutStreamer->popSection();
 }
 

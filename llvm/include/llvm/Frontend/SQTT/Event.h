@@ -1,20 +1,20 @@
 #ifndef LLVM_FRONTEND_SQTT_EVENT_H
 #define LLVM_FRONTEND_SQTT_EVENT_H
 
-#include <cstdint>
+#include "llvm/ADT/StringRef.h"
 
-#include "llvm/Support/Casting.h"
+#include <cstdint>
 
 namespace llvm {
 class Function;
 class LLVMContext;
 class Metadata;
-class Value;
 
 namespace sqtt {
 
 const char EventsTableMetadata[] = "llvm.sqtt.events";
 const char EventsTableSection[] = "__sqtt_events";
+const char StringsTableSection[] = "__sqtt_strings";
 
 enum class EventType : uint16_t {
   FunctionEntry,
@@ -23,24 +23,16 @@ enum class EventType : uint16_t {
 
 class Event {
   EventType Type;
-  Value *Payload;
+  StringRef Payload;
 
-  Event(EventType Type, Value *Payload) : Type(Type), Payload(Payload) {}
+  Event(EventType Type, StringRef Payload) : Type(Type), Payload(Payload) {}
 
 public:
-  static Event functionEntry(Function &F) {
-    return Event(EventType::FunctionEntry, &F);
-  }
-
-  static Event functionExit(Function &F) {
-    return Event(EventType::FunctionExit, &F);
-  }
+  static Event functionEntry(const Function &F);
+  static Event functionExit(const Function &F);
 
   EventType getType() const { return Type; }
-  Value *getPayload() const { return Payload; }
-  GlobalValue *getPayloadAsGlobalValue() const {
-    return cast<GlobalValue>(Payload);
-  }
+  StringRef getPayload() const { return Payload; }
 
   Metadata *toMetadata(LLVMContext &Ctx) const;
   static Event fromMetadata(Metadata *MD);
