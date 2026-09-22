@@ -6639,9 +6639,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     } else if (!IsHIP || IsHIPDevice) {
       StringRef Val = SQTTArg->getValue();
       if (Val == "before-inlining") {
+        CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
         CmdArgs.push_back("-finstrument-functions");
         CmdArgs.push_back("-finstrument-function-prefix=sqtt");
       } else if (Val == "after-inlining") {
+        CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
         CmdArgs.push_back("-finstrument-functions-after-inlining");
         CmdArgs.push_back("-finstrument-function-prefix=sqtt");
       } else
