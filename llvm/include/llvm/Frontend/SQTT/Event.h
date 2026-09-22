@@ -19,6 +19,8 @@ const char DataTableSection[] = "__sqtt_data";
 enum class EventType : uint16_t {
   FunctionEntry,
   FunctionExit,
+  UserEntry,
+  UserExit,
   End,
   Begin = FunctionEntry,
 };
@@ -32,6 +34,8 @@ class Event {
 public:
   static Event functionEntry(const Function &F);
   static Event functionExit(const Function &F);
+  static Event userEntry(StringRef Payload);
+  static Event userExit(StringRef Payload);
 
   EventType getType() const { return Type; }
   StringRef getPayload() const { return Payload; }
