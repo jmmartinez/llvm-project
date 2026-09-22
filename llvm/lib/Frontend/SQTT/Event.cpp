@@ -15,6 +15,14 @@ Event Event::functionExit(const Function &F) {
   return Event(EventType::FunctionExit, F.getName());
 }
 
+Event Event::userEntry(StringRef Payload) {
+  return Event(EventType::UserEntry, Payload);
+}
+
+Event Event::userExit(StringRef Payload) {
+  return Event(EventType::UserExit, Payload);
+}
+
 Metadata *Event::toMetadata(LLVMContext &Ctx) const {
   auto *IntTy = Type::getInt32Ty(Ctx);
   Metadata *TypeMD = ConstantAsMetadata::get(
