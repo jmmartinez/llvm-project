@@ -19,6 +19,7 @@
 
 #include "VerifierInternal.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -157,6 +158,43 @@ void llvm::verifyAMDGPUIntrinsicCall(VerifierSupport &VS, Intrinsic::ID ID,
   switch (ID) {
   default:
     return;
+  case Intrinsic::amdgcn_sqtt_event: {
+    Value *Op = Call.getArgOperand(0);
+    auto *MAV = dyn_cast<MetadataAsValue>(Op);
+    Check(MAV, "SQTT event must be a metadata as value", &Call, Op);
+
+    auto *Node = dyn_cast<MDNode>(MAV->getMetadata());
+    Check(Node, "SQTT event metadata must be a node", &Call, Op);
+    Check(Node->getNumOperands() != 0, "SQTT event metadata must not be empty",
+          &Call, Op);
+
+    // Verify a single (unmerged) event node of the form {i32 type, !"payload"}.
+    auto VerifyEventNode = [&VS, &Call, Op](const MDNode *Node) {
+      Check(Node && Node->getNumOperands() == 2,
+            "SQTT event metadata must be a 2-operand node", &Call, Op);
+
+      auto *TypeCI = mdconst::dyn_extract<ConstantInt>(Node->getOperand(0));
+      Check(TypeCI, "SQTT event type must be an integer", &Call, Op);
+
+      uint64_t TypeVal = TypeCI->getZExtValue();
+      Check(TypeVal >= static_cast<uint64_t>(sqtt::EventType::Begin) &&
+                TypeVal < static_cast<uint64_t>(sqtt::EventType::End),
+            "unknown SQTT event type " + Twine(TypeVal), &Call, Op);
+
+      Check(isa<MDString>(Node->getOperand(1)),
+            "SQTT event payload must be a string", &Call, Op);
+    };
+
+    // A merged event is a list of single event nodes, while a single event
+    // holds its type in the first operand.
+    if (isa<MDNode>(Node->getOperand(0))) {
+      for (const MDOperand &Event : Node->operands())
+        VerifyEventNode(dyn_cast<MDNode>(Event));
+    } else {
+      VerifyEventNode(Node);
+    }
+    break;
+  }
   case Intrinsic::amdgcn_kill: {
     if (auto *CBI = dyn_cast<CallBrInst>(&Call)) {
       Check(CBI->getNumIndirectDests() == 1,
