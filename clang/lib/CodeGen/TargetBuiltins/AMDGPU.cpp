@@ -18,6 +18,7 @@
 #include "clang/Basic/TargetBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/IR/IntrinsicsSPIRV.h"
@@ -31,6 +32,14 @@ using namespace CodeGen;
 using namespace llvm;
 
 namespace {
+
+static Value *emitSQTTUserEvent(CodeGenFunction &CGF, sqtt::Event Event) {
+  LLVMContext &C = CGF.getLLVMContext();
+  Function *F = CGF.CGM.getIntrinsic(Intrinsic::amdgcn_sqtt_event);
+  return CGF.Builder.CreateCall(F,
+                                {MetadataAsValue::get(C, Event.toMetadata(C)),
+                                 PoisonValue::get(CGF.Int32Ty)});
+}
 
 static Value *emitAMDGPUSBufferLoadBuiltin(CodeGenFunction &CGF,
                                            const CallExpr *E) {
@@ -2290,6 +2299,14 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
   case AMDGPU::BI__builtin_amdgcn_permlane_xor:
     return emitBuiltinWithOneOverloadedType<3>(*this, E,
                                                Intrinsic::amdgcn_permlane_xor);
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_entry:
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_exit: {
+    const auto *Name = cast<StringLiteral>(E->getArg(0)->IgnoreParenImpCasts());
+    return emitSQTTUserEvent(
+        *this, BuiltinID == AMDGPU::BI__builtin_amdgcn_sqtt_user_entry
+                   ? sqtt::Event::userEntry(Name->getString())
+                   : sqtt::Event::userExit(Name->getString()));
+  }
   default:
     return nullptr;
   }
