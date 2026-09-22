@@ -29,14 +29,14 @@ declare void @side_effect()
 
 !0 = !{i32 0, !"contiguous0"}
 !1 = !{i32 1, !"contiguous1"}
-!2 = !{i32 2, !"separate0"}
-!3 = !{i32 3, !"separate1"}
+!2 = !{i32 0, !"separate0"}
+!3 = !{i32 1, !"separate1"}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; CHECK: [[META0]] = !{[[META1:![0-9]+]], [[META2:![0-9]+]]}
 ; CHECK: [[META1]] = !{i32 0, !"contiguous0"}
 ; CHECK: [[META2]] = !{i32 1, !"contiguous1"}
-; CHECK: [[META3]] = !{i32 2, !"separate0"}
-; CHECK: [[META4]] = !{i32 3, !"separate1"}
+; CHECK: [[META3]] = !{i32 0, !"separate0"}
+; CHECK: [[META4]] = !{i32 1, !"separate1"}
 ;.

@@ -19,6 +19,8 @@ const char DataTableSection[] = "__sqtt_data";
 enum class EventType : uint16_t {
   FunctionEntry,
   FunctionExit,
+  End,
+  Begin = FunctionEntry,
 };
 
 class Event {
