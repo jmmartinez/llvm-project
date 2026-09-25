@@ -193,6 +193,13 @@ void llvm::verifyAMDGPUIntrinsicCall(VerifierSupport &VS, Intrinsic::ID ID,
     } else {
       VerifyEventNode(Node);
     }
+
+    for (Value *Data : drop_begin(Call.args(), 2)) {
+      Type *DataTy = Data->getType();
+      if (!DataTy->isIntOrPtrTy())
+        VS.CheckFailed("SQTT event data must be an integer or pointer", &Call,
+                       Data);
+    }
     break;
   }
   case Intrinsic::amdgcn_kill: {

@@ -12591,6 +12591,9 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
   }
 
   case Intrinsic::amdgcn_sqtt_event: {
+    if (Op.getNumOperands() != 4)
+      return SDValue();
+
     const ConstantSDNode *EventID = dyn_cast<ConstantSDNode>(Op.getOperand(3));
     if (!EventID)
       return SDValue();

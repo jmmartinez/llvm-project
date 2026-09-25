@@ -22,7 +22,7 @@ define void @event_after_arith(ptr addrspace(1) %p, i32 %a, i32 %b) {
   %add = add i32 %x, %a
   %mul = mul i32 %add, %b
   store i32 %mul, ptr addrspace(1) %p
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
   ret void
 }
 
@@ -43,7 +43,7 @@ define void @event_before_arith(ptr addrspace(1) %p, i32 %a, i32 %b) {
 ; GFX90A-NEXT:    global_store_dword v[0:1], v2, off
 ; GFX90A-NEXT:    s_waitcnt vmcnt(0)
 ; GFX90A-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
   %x = load i32, ptr addrspace(1) %p
   %add = add i32 %x, %a
   %mul = mul i32 %add, %b
@@ -69,14 +69,14 @@ define void @event_in_between_arith(ptr addrspace(1) %p, i32 %a, i32 %b) {
 ; GFX90A-NEXT:    s_setpc_b64 s[30:31]
   %x = load i32, ptr addrspace(1) %p
   %add = add i32 %x, %a
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
   %mul = mul i32 %add, %b
   store i32 %mul, ptr addrspace(1) %p
   ret void
 }
 
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, ...)
 
 !0 = !{i32 0, !"event_after_arith"}
 !1 = !{i32 0, !"event_before_arith"}

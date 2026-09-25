@@ -3,40 +3,56 @@
 
 define void @contiguous_events() {
 ; CHECK-LABEL: define void @contiguous_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0)
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1)
 ; CHECK-NEXT:    ret void
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  ret void
+}
+
+define void @contiguous_events_with_data(i32 %data0, i64 %data1) {
+; CHECK-LABEL: define void @contiguous_events_with_data(
+; CHECK-SAME: i32 [[DATA0:%.*]], i64 [[DATA1:%.*]]) {
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 [[DATA0]], i64 [[DATA1]])
+; CHECK-NEXT:    ret void
+;
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i32 %data0)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i64 %data1)
   ret void
 }
 
 define void @separate_events() {
 ; CHECK-LABEL: define void @separate_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1)
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META6:![0-9]+]], i32 2)
 ; CHECK-NEXT:    call void @side_effect()
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2)
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META7:![0-9]+]], i32 3)
 ; CHECK-NEXT:    ret void
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !4, i32 poison)
   call void @side_effect()
-  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !5, i32 poison)
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, ...)
 declare void @side_effect()
 
 !0 = !{i32 0, !"contiguous0"}
 !1 = !{i32 1, !"contiguous1"}
-!2 = !{i32 0, !"separate0"}
-!3 = !{i32 1, !"separate1"}
+!2 = !{i32 0, !"contiguous_data0"}
+!3 = !{i32 1, !"contiguous_data1"}
+!4 = !{i32 0, !"separate0"}
+!5 = !{i32 1, !"separate1"}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; CHECK: [[META0]] = !{[[META1:![0-9]+]], [[META2:![0-9]+]]}
-; CHECK: [[META1]] = !{i32 0, !"contiguous0"}
-; CHECK: [[META2]] = !{i32 1, !"contiguous1"}
-; CHECK: [[META3]] = !{i32 0, !"separate0"}
-; CHECK: [[META4]] = !{i32 1, !"separate1"}
+; CHECK: [[META1]] = !{i32 0, !"contiguous_data0"}
+; CHECK: [[META2]] = !{i32 1, !"contiguous_data1"}
+; CHECK: [[META3]] = !{[[META4:![0-9]+]], [[META5:![0-9]+]]}
+; CHECK: [[META4]] = !{i32 0, !"contiguous0"}
+; CHECK: [[META5]] = !{i32 1, !"contiguous1"}
+; CHECK: [[META6]] = !{i32 0, !"separate0"}
+; CHECK: [[META7]] = !{i32 1, !"separate1"}
 ;.

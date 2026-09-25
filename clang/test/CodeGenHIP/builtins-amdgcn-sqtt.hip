@@ -4,8 +4,8 @@
 #define __device__ __attribute__((device))
 
 // CHECK-LABEL: @test_user_markers(
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[ENTRY:![0-9]+]], i32 poison)
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[EXIT:![0-9]+]], i32 poison)
+// CHECK: call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[ENTRY:![0-9]+]], i32 poison)
+// CHECK: call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[EXIT:![0-9]+]], i32 poison)
 extern "C" __device__ void test_user_markers() {
   __builtin_amdgcn_sqtt_user_entry("foo");
   __builtin_amdgcn_sqtt_user_exit("foo");

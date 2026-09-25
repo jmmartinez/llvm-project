@@ -1750,6 +1750,9 @@ bool AMDGPUInstructionSelector::selectRelocConstant(MachineInstr &I) const {
 }
 
 bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
+  if (I.getNumExplicitOperands() != 3)
+    return false;
+
   std::optional<ValueAndVReg> EventID =
       getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), *MRI);
   if (!EventID)

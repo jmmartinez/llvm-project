@@ -8,30 +8,6 @@ define void @sqtt_event_entry() {
 ; GFX9-LABEL: sqtt_event_entry:
 ; GFX9:       ; %bb.0:
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX9-NEXT:    s_mov_b32 m0, 0
-; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
-; GFX9-NEXT:    s_nop 0
-; GFX9-NEXT:  .Lsqtt_event.0:
-; GFX9-NEXT:    s_ttracedata
-; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
-; GFX9-NEXT:    s_setpc_b64 s[30:31]
-;
-; GFX10-LABEL: sqtt_event_entry:
-; GFX10:       ; %bb.0:
-; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
-; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX10-NEXT:  .Lsqtt_event.0:
-; GFX10-NEXT:    s_ttracedata_imm 0x0
-; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
-; GFX10-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
-  ret void
-}
-
-define void @sqtt_event_exit() {
-; GFX9-LABEL: sqtt_event_exit:
-; GFX9:       ; %bb.0:
-; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_mov_b32 m0, 1
 ; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX9-NEXT:    s_nop 0
@@ -40,7 +16,7 @@ define void @sqtt_event_exit() {
 ; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
 ;
-; GFX10-LABEL: sqtt_event_exit:
+; GFX10-LABEL: sqtt_event_entry:
 ; GFX10:       ; %bb.0:
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -48,12 +24,12 @@ define void @sqtt_event_exit() {
 ; GFX10-NEXT:    s_ttracedata_imm 0x1
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
   ret void
 }
 
-define void @sqtt_events_merged() {
-; GFX9-LABEL: sqtt_events_merged:
+define void @sqtt_event_exit() {
+; GFX9-LABEL: sqtt_event_exit:
 ; GFX9:       ; %bb.0:
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    s_mov_b32 m0, 2
@@ -64,7 +40,7 @@ define void @sqtt_events_merged() {
 ; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
 ;
-; GFX10-LABEL: sqtt_events_merged:
+; GFX10-LABEL: sqtt_event_exit:
 ; GFX10:       ; %bb.0:
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -72,8 +48,32 @@ define void @sqtt_events_merged() {
 ; GFX10-NEXT:    s_ttracedata_imm 0x2
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
-  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  ret void
+}
+
+define void @sqtt_events_merged() {
+; GFX9-LABEL: sqtt_events_merged:
+; GFX9:       ; %bb.0:
+; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GFX9-NEXT:    s_mov_b32 m0, 0
+; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
+; GFX9-NEXT:    s_nop 0
+; GFX9-NEXT:  .Lsqtt_event.0:
+; GFX9-NEXT:    s_ttracedata
+; GFX9-NEXT:    ; sched_barrier mask(0x00000000)
+; GFX9-NEXT:    s_setpc_b64 s[30:31]
+;
+; GFX10-LABEL: sqtt_events_merged:
+; GFX10:       ; %bb.0:
+; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
+; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GFX10-NEXT:  .Lsqtt_event.0:
+; GFX10-NEXT:    s_ttracedata_imm 0x0
+; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
+; GFX10-NEXT:    s_setpc_b64 s[30:31]
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !3, i32 poison)
   ret void
 }
 
@@ -97,7 +97,7 @@ define void @sqtt_event_user_entry() {
 ; GFX10-NEXT:    s_ttracedata_imm 0x3
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !4, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !4, i32 poison)
   ret void
 }
 
@@ -121,11 +121,11 @@ define void @sqtt_event_user_exit() {
 ; GFX10-NEXT:    s_ttracedata_imm 0x4
 ; GFX10-NEXT:    ; sched_barrier mask(0x00000000)
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
-  call void @llvm.amdgcn.sqtt.event(metadata !5, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !5, i32 poison)
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, ...)
 
 !0 = !{i32 0, !"sqtt_event_entry"}
 !1 = !{i32 1, !"sqtt_event_exit"}

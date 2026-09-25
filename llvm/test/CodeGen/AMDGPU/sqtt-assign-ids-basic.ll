@@ -3,16 +3,16 @@
 
 define void @foo() {
 ; CHECK-LABEL: define void @foo() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0)
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1)
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0)
+; CHECK-NEXT:    call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1)
 ; CHECK-NEXT:    ret void
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
+  call void (metadata, i32, ...) @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, ...)
 
 !0 = !{i32 0, !"foo"}
 !1 = !{i32 1, !"foo"}

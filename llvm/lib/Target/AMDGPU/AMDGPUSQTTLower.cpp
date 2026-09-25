@@ -72,6 +72,8 @@ static auto findEventRange(Instruction &I) {
 static void combineEvents(Module &M, Function &SQTTEventFun) {
   LLVMContext &C = M.getContext();
   MapVector<BasicBlock *, SmallVector<IntrinsicInst *, 4>> IntrinsicBlocks;
+  Type *IdTy = SQTTEventFun.getFunctionType()->getParamType(1);
+
   for (User *U : SQTTEventFun.users()) {
     IntrinsicInst *II = cast<IntrinsicInst>(U);
     IntrinsicBlocks[II->getParent()].push_back(II);
@@ -96,12 +98,16 @@ static void combineEvents(Module &M, Function &SQTTEventFun) {
           map_range(EventMDs, sqtt::Event::fromMetadata)};
 
       Metadata *MergedEventMD = sqtt::MergedEvent{Events}.toMetadata(C);
+      SmallVector<Value *> Args{MetadataAsValue::get(C, MergedEventMD),
+                                PoisonValue::get(IdTy)};
+      for (IntrinsicInst *II : Range)
+        append_range(Args, drop_begin(II->args(), 2));
 
       IntrinsicInst *First = (*std::begin(Range));
-      First->setArgOperand(0, MetadataAsValue::get(C, MergedEventMD));
+      IRBuilder<> B(First);
+      B.CreateCall(&SQTTEventFun, Args);
 
-      auto ToRemove = drop_begin(Range);
-      for_each(make_early_inc_range(ToRemove),
+      for_each(make_early_inc_range(Range),
                std::mem_fn(&IntrinsicInst::eraseFromParent));
     }
   }
