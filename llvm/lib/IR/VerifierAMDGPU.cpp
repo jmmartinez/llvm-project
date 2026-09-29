@@ -204,8 +204,14 @@ void llvm::verifyAMDGPUIntrinsicCall(VerifierSupport &VS, Intrinsic::ID ID,
                 TypeVal < static_cast<uint64_t>(sqtt::EventType::End),
             "unknown SQTT event type " + Twine(TypeVal), &Call, Op);
 
-      Check(isa<MDString>(Node->getOperand(1)),
-            "SQTT event payload must be a string", &Call, Op);
+      if (TypeVal ==
+          static_cast<uint64_t>(sqtt::EventType::SetEventTableBase)) {
+        Check(mdconst::dyn_extract<ConstantInt>(Node->getOperand(1)),
+              "SQTT SetEventTableBase payload must be an integer", &Call, Op);
+      } else {
+        Check(isa<MDString>(Node->getOperand(1)),
+              "SQTT event payload must be a string", &Call, Op);
+      }
     };
 
     // A merged event is a list of single event nodes, while a single event
