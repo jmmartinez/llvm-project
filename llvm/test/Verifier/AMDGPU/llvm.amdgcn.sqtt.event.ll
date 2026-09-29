@@ -42,6 +42,12 @@ define void @merged_with_invalid_event() {
   ret void
 }
 
+; CHECK: SQTT SetEventTableBase payload must be an integer
+define void @set_base_bad_payload() {
+  call void @llvm.amdgcn.sqtt.event(metadata !8, i32 poison)
+  ret void
+}
+
 !0 = !{i32 99, !"bogus"}
 !1 = !{i32 0, i32 1}
 !2 = !{}
@@ -50,3 +56,4 @@ define void @merged_with_invalid_event() {
 !5 = !{i32 0, !"a"}
 !6 = !{i32 99, !"b"}
 !7 = !{!5, !6}
+!8 = !{i32 4, !"not-an-int"}

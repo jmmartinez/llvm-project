@@ -23,11 +23,19 @@ Event Event::userExit(StringRef Payload) {
   return Event(EventType::UserExit, Payload);
 }
 
+Event Event::setEventTableBase(uint32_t Index) {
+  return Event(EventType::SetEventTableBase, Index);
+}
+
 Metadata *Event::toMetadata(LLVMContext &Ctx) const {
   auto *IntTy = Type::getInt32Ty(Ctx);
   Metadata *TypeMD = ConstantAsMetadata::get(
       ConstantInt::get(IntTy, static_cast<uint32_t>(Type)));
-  Metadata *PayloadMD = MDString::get(Ctx, Payload);
+  Metadata *PayloadMD;
+  if (isSetEventTableBase())
+    PayloadMD = ConstantAsMetadata::get(ConstantInt::get(IntTy, getIndex()));
+  else
+    PayloadMD = MDString::get(Ctx, getPayload());
   return MDNode::get(Ctx, {TypeMD, PayloadMD});
 }
 
@@ -38,6 +46,11 @@ Event Event::fromMetadata(Metadata *MD) {
   ConstantAsMetadata *TypeCA = cast<ConstantAsMetadata>(TypeMD);
   ConstantInt *TypeCI = cast<ConstantInt>(TypeCA->getValue());
   EventType Type = static_cast<EventType>(TypeCI->getZExtValue());
+
+  if (Type == EventType::SetEventTableBase) {
+    auto *Index = mdconst::extract<ConstantInt>(Node->getOperand(1));
+    return setEventTableBase(static_cast<uint32_t>(Index->getZExtValue()));
+  }
 
   StringRef Payload = cast<MDString>(Node->getOperand(1))->getString();
   return {Type, Payload};
