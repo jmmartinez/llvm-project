@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPU.h"
+#include "AMDGPUTargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/Constants.h"
@@ -112,6 +113,15 @@ static bool run(Module &M) {
       M.getFunction(Intrinsic::getName(Intrinsic::amdgcn_sqtt_event));
   if (!Intrinsic)
     return false;
+
+  if (AMDGPUTargetMachine::EnableObjectLinking) {
+    M.getContext().diagnose(DiagnosticInfoGeneric(
+        "SQTT event lowering assumes a single translation unit and is "
+        "incompatible with -amdgpu-enable-object-linking",
+        DS_Error));
+    return false;
+  }
+
   if (CombineEvents)
     combineEvents(M, *Intrinsic);
   assignEventIDs(M, *Intrinsic);
