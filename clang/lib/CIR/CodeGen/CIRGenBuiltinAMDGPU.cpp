@@ -1465,6 +1465,13 @@ CIRGenFunction::emitAMDGPUBuiltinExpr(unsigned builtinId,
     return emitBinaryExpMaybeConstrainedFPBuiltin(
         *this, expr, "ldexp", "experimental.constrained.ldexp");
   }
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_entry:
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_exit: {
+    cgm.errorNYI(expr->getSourceRange(),
+                 std::string("unimplemented AMDGPU builtin call: ") +
+                     getContext().BuiltinInfo.getName(builtinId));
+    return mlir::Value{};
+  }
   default:
     return std::nullopt;
   }
