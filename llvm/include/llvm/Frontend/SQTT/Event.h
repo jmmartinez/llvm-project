@@ -21,24 +21,35 @@ enum class EventType : uint16_t {
   FunctionExit,
   UserEntry,
   UserExit,
+  SetEventTableBase,
   End,
   Begin = FunctionEntry,
 };
 
 class Event {
   EventType Type;
-  StringRef Payload;
+  union {
+    StringRef StringPayload;
+    uint32_t IntPayload;
+  };
 
-  Event(EventType Type, StringRef Payload) : Type(Type), Payload(Payload) {}
+  Event(EventType Type, StringRef Payload)
+      : Type(Type), StringPayload(Payload) {}
+  Event(EventType Type, uint32_t Payload) : Type(Type), IntPayload(Payload) {}
 
 public:
   static Event functionEntry(const Function &F);
   static Event functionExit(const Function &F);
   static Event userEntry(StringRef Payload);
   static Event userExit(StringRef Payload);
+  static Event setEventTableBase(uint32_t Index);
 
   EventType getType() const { return Type; }
-  StringRef getPayload() const { return Payload; }
+  bool isSetEventTableBase() const {
+    return Type == EventType::SetEventTableBase;
+  }
+  StringRef getPayload() const { return StringPayload; }
+  uint32_t getIndex() const { return IntPayload; }
 
   Metadata *toMetadata(LLVMContext &Ctx) const;
   static Event fromMetadata(Metadata *MD);
