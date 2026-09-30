@@ -15,6 +15,7 @@ namespace sqtt {
 const char EventsTableMetadata[] = "llvm.sqtt.events";
 const char EventsTableSection[] = "__sqtt_events";
 const char DataTableSection[] = "__sqtt_data";
+const char EventsTableCUStart[] = "sqtt_events_cu_base";
 
 constexpr uint32_t SectionBase = 0xffffffff;
 
