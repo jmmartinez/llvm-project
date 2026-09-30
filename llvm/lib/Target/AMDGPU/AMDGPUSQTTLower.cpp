@@ -15,6 +15,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PassManager.h"
@@ -108,19 +109,89 @@ static void combineEvents(Module &M, Function &SQTTEventFun) {
   }
 }
 
+static bool canBeCalledFromOutsideTheCU(const Function &F) {
+  return !F.hasLocalLinkage() ||
+         F.hasAddressTaken(nullptr, /*IgnoreCallbackUses=*/true,
+                           /*IgnoreAssumeLikeCalls=*/true,
+                           /*IgnoreLLVMUsed=*/true);
+}
+
+static CallInst *insertSetEventTableBase(Instruction &InsertBefore,
+                                         uint32_t Index, bool IsCULocal) {
+  IRBuilder<> Builder(&InsertBefore);
+  LLVMContext &C = Builder.getContext();
+  Metadata *EventMD = sqtt::Event::setEventTableBase(Index).toMetadata(C);
+  Value *Args[] = {MetadataAsValue::get(C, EventMD),
+                   PoisonValue::get(Builder.getInt32Ty()),
+                   Builder.getInt1(IsCULocal)};
+  return Builder.CreateIntrinsicWithoutFolding(Intrinsic::amdgcn_sqtt_event,
+                                               Args);
+}
+
+static CallInst *setEventTableToCUBase(Instruction &InsertBefore) {
+  return insertSetEventTableBase(InsertBefore, /*Index=*/0,
+                                 /*IsCULocal=*/false);
+}
+
+static CallInst *setEventTableToSectionBase(Instruction &InsertBefore) {
+  return insertSetEventTableBase(InsertBefore, sqtt::SectionBase,
+                                 /*IsCULocal=*/true);
+}
+
+static void insertCUBoundaryEventForFunction(Function &F) {
+  BasicBlock &EntryBB = F.getEntryBlock();
+  BasicBlock::iterator InsertBeforeEntry = EntryBB.getFirstNonPHIOrAlloca();
+  setEventTableToCUBase(*InsertBeforeEntry);
+
+  bool ReturnsToHost = AMDGPU::isKernel(F);
+  if (ReturnsToHost)
+    return;
+
+  for (BasicBlock &BB : F) {
+    ReturnInst *RI = dyn_cast<ReturnInst>(BB.getTerminator());
+    if (!RI)
+      continue;
+    setEventTableToSectionBase(*RI);
+  }
+}
+
+static void insertCUBoundaryEventForCallSite(CallInst &CI) {
+  setEventTableToSectionBase(CI);
+  setEventTableToCUBase(*CI.getNextNode());
+}
+
+static void insertCUBoundaryEvents(Module &M) {
+  for (Function &F : M) {
+    if (F.isDeclaration())
+      continue;
+    if (!canBeCalledFromOutsideTheCU(F))
+      continue;
+    insertCUBoundaryEventForFunction(F);
+  }
+
+  for (Function &F : M) {
+    for (Instruction &I : make_early_inc_range(instructions(F))) {
+      CallInst *CI = dyn_cast<CallInst>(&I);
+      if (!CI)
+        continue;
+      Function *CalledFunction = CI->getCalledFunction();
+      if (CalledFunction && (CalledFunction->isIntrinsic() ||
+                             !canBeCalledFromOutsideTheCU(*CalledFunction)))
+        continue;
+      insertCUBoundaryEventForCallSite(*CI);
+    }
+  }
+}
+
 static bool run(Module &M) {
   Function *Intrinsic =
       M.getFunction(Intrinsic::getName(Intrinsic::amdgcn_sqtt_event));
-  if (!Intrinsic)
+
+  if (!Intrinsic || Intrinsic->user_empty())
     return false;
 
-  if (AMDGPUTargetMachine::EnableObjectLinking) {
-    M.getContext().diagnose(DiagnosticInfoGeneric(
-        "SQTT event lowering assumes a single translation unit and is "
-        "incompatible with -amdgpu-enable-object-linking",
-        DS_Error));
-    return false;
-  }
+  if (AMDGPUTargetMachine::EnableObjectLinking)
+    insertCUBoundaryEvents(M);
 
   if (CombineEvents)
     combineEvents(M, *Intrinsic);

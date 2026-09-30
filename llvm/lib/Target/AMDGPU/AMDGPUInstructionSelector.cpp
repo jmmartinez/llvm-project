@@ -1753,7 +1753,7 @@ bool AMDGPUInstructionSelector::selectRelocConstant(MachineInstr &I) const {
 bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
   std::optional<ValueAndVReg> EventID =
       getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), *MRI);
-  if (!EventID)
+  if (!EventID || !I.getOperand(3).getImm())
     return false;
 
   MachineBasicBlock &BB = *I.getParent();
