@@ -71,6 +71,32 @@ static auto findEventRange(Instruction &I) {
   return map_range(make_range(FirstEventIt, End), AsIntrinsic);
 }
 
+static void
+removeRedundantSetEventTableEvents(const IntrinsicInst &First,
+                                   SmallVectorImpl<sqtt::Event> &Events) {
+  bool IsCULocal = cast<ConstantInt>(First.getArgOperand(2))->getZExtValue();
+
+  // We want to preserve only the last setEventTableBase event. And only if the
+  // BaseOffset actually changes at the end of the event.
+  auto LastSetEventTableBase =
+      find_if(Events.rbegin(), Events.rend(),
+              std::mem_fn(&sqtt::Event::isSetEventTableBase));
+  if (LastSetEventTableBase == Events.rend())
+    return;
+
+  auto EraseEnd = LastSetEventTableBase.base() - 1;
+  auto EraseBegin = remove_if(Events.begin(), EraseEnd,
+                              std::mem_fn(&sqtt::Event::isSetEventTableBase));
+
+  // The last event sets the base offset to the same value as the incoming
+  // offset, we can drop it too.
+  uint32_t IncomingIndex = IsCULocal ? 0 : sqtt::SectionBase;
+  if (LastSetEventTableBase->getIndex() == IncomingIndex)
+    ++EraseEnd;
+
+  Events.erase(EraseBegin, EraseEnd);
+}
+
 static void combineEvents(Module &M, Function &SQTTEventFun) {
   LLVMContext &C = M.getContext();
   MapVector<BasicBlock *, SmallVector<IntrinsicInst *, 4>> IntrinsicBlocks;
@@ -97,14 +123,19 @@ static void combineEvents(Module &M, Function &SQTTEventFun) {
       SmallVector<sqtt::Event> Events{
           map_range(EventMDs, sqtt::Event::fromMetadata)};
 
-      Metadata *MergedEventMD = sqtt::MergedEvent{Events}.toMetadata(C);
-
       IntrinsicInst *First = (*std::begin(Range));
-      First->setArgOperand(0, MetadataAsValue::get(C, MergedEventMD));
+      removeRedundantSetEventTableEvents(*First, Events);
 
       auto ToRemove = drop_begin(Range);
       for_each(make_early_inc_range(ToRemove),
                std::mem_fn(&IntrinsicInst::eraseFromParent));
+
+      if (!Events.empty()) {
+        Metadata *MergedEventMD = sqtt::MergedEvent{Events}.toMetadata(C);
+        First->setArgOperand(0, MetadataAsValue::get(C, MergedEventMD));
+      } else {
+        First->eraseFromParent();
+      }
     }
   }
 }
