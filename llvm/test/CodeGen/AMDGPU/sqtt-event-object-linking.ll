@@ -3,10 +3,10 @@
 ; CHECK: error: SQTT event lowering assumes a single translation unit and is incompatible with -amdgpu-enable-object-linking
 ; CHECK: LLVM ERROR: Cannot select: intrinsic %llvm.amdgcn.sqtt.event
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 
 define void @sqtt_event() {
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
   ret void
 }
 

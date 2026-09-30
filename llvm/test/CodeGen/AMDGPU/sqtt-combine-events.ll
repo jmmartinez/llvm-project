@@ -3,28 +3,28 @@
 
 define void @contiguous_events() {
 ; CHECK-LABEL: define void @contiguous_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
 ; CHECK-NEXT:    ret void
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison)
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i1 true)
   ret void
 }
 
 define void @separate_events() {
 ; CHECK-LABEL: define void @separate_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i1 true)
 ; CHECK-NEXT:    call void @side_effect()
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i1 true)
 ; CHECK-NEXT:    ret void
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison)
+  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i1 true)
   call void @side_effect()
-  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison)
+  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i1 true)
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 declare void @side_effect()
 
 !0 = !{i32 0, !"contiguous0"}

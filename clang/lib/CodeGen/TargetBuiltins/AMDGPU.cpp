@@ -38,7 +38,8 @@ static Value *emitSQTTUserEvent(CodeGenFunction &CGF, sqtt::Event Event) {
   Function *F = CGF.CGM.getIntrinsic(Intrinsic::amdgcn_sqtt_event);
   return CGF.Builder.CreateCall(F,
                                 {MetadataAsValue::get(C, Event.toMetadata(C)),
-                                 PoisonValue::get(CGF.Int32Ty)});
+                                 PoisonValue::get(CGF.Int32Ty),
+                                 /*IsCULocal=*/CGF.Builder.getTrue()});
 }
 
 static Value *emitAMDGPUSBufferLoadBuiltin(CodeGenFunction &CGF,
