@@ -16,6 +16,8 @@ const char EventsTableMetadata[] = "llvm.sqtt.events";
 const char EventsTableSection[] = "__sqtt_events";
 const char DataTableSection[] = "__sqtt_data";
 
+constexpr uint32_t SectionBase = 0xffffffff;
+
 enum class EventType : uint16_t {
   FunctionEntry,
   FunctionExit,
