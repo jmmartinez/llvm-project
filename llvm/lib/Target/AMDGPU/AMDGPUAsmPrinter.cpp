@@ -203,6 +203,14 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   OutStreamer->switchSection(OutContext.getELFSection(
       sqtt::EventsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
 
+  MCSymbol *CUBase = nullptr;
+  if (AMDGPUTargetMachine::EnableObjectLinking) {
+    CUBase = OutContext.getOrCreateSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        sqtt::EventsTableCUStart);
+    OutStreamer->emitLabel(CUBase);
+  }
+
   const unsigned PtrSize = getPointerSize();
   const unsigned NumEvents = Events->getNumOperands();
 
@@ -238,6 +246,23 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
     OutStreamer->emitInt16(MergedEv.size());
     for (const sqtt::Event &Ev : MergedEv.events()) {
       OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
+      if (Ev.isSetEventTableBase()) {
+        const MCExpr *NewEventTableBase;
+        if (Ev.getIndex() == sqtt::SectionBase) {
+          NewEventTableBase = MCSymbolRefExpr::create(
+              OutContext.getOrCreateSymbol(Twine("__start_") +
+                                           sqtt::EventsTableSection),
+              OutContext);
+        } else {
+          unsigned Offset = Ev.getIndex() * PtrSize;
+          const MCExpr *OffsetExpr = MCConstantExpr::create(Offset, OutContext);
+          NewEventTableBase = MCBinaryExpr::createAdd(
+              MCSymbolRefExpr::create(CUBase, OutContext), OffsetExpr,
+              OutContext);
+        }
+        OutStreamer->emitValue(NewEventTableBase, PtrSize);
+        continue;
+      }
       StringRef Payload = Ev.getPayload();
       auto [It, Inserted] = StrSet.try_emplace(Payload);
       if (Inserted) {
