@@ -264,7 +264,8 @@ bool GCNTTIImpl::insertEntryExitInstrumentationCall(Function &F, StringRef Func,
   IRBuilder<> Builder(InsertBefore);
   Builder.SetCurrentDebugLocation(DL);
   Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event,
-                          {EventMD, PoisonValue::get(Builder.getInt32Ty())});
+                          {EventMD, PoisonValue::get(Builder.getInt32Ty()),
+                           /*IsCULocal=*/Builder.getTrue()});
   return true;
 }
 
