@@ -24,8 +24,10 @@
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include <optional>
 
 #define DEBUG_TYPE "amdgpu-isel"
@@ -1753,16 +1755,57 @@ bool AMDGPUInstructionSelector::selectRelocConstant(MachineInstr &I) const {
 bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
   std::optional<ValueAndVReg> EventID =
       getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), *MRI);
-  if (!EventID || !I.getOperand(3).getImm())
+  if (!EventID)
     return false;
 
   MachineBasicBlock &BB = *I.getParent();
   const DebugLoc &DL = I.getDebugLoc();
   int64_t Id = EventID->Value.getZExtValue();
+  bool IsCULocal = I.getOperand(3).getImm();
 
-  bool UseImm = Subtarget->canTraceSQTTEventWithImm(Id);
-  if (!UseImm)
+  // The absolute id of a non CU-local event is only known at runtime, so it
+  // cannot be encoded in s_ttracedata_imm.
+  bool UseImm = IsCULocal && Subtarget->canTraceSQTTEventWithImm(Id);
+  if (!IsCULocal) {
+    // absolute id = event_id + (cu_base - __start___sqtt_events) / ptr_size
+    auto SymbolAddress = [&](const Twine &Name) {
+      const char *Sym = MF->createExternalSymbolName(Name.str());
+      Register Addr = MRI->createVirtualRegister(&AMDGPU::SReg_64RegClass);
+      BuildMI(BB, &I, DL, TII.get(AMDGPU::SI_PC_ADD_REL_OFFSET), Addr)
+          .addExternalSymbol(Sym, SIInstrInfo::MO_REL32_LO)
+          .addExternalSymbol(Sym, SIInstrInfo::MO_REL32_HI);
+      return Addr;
+    };
+    Register TableBase =
+        SymbolAddress(Twine("__start_") + sqtt::EventsTableSection);
+    Register CUBase = SymbolAddress(
+        Twine(MF->getContext().getAsmInfo().getInternalSymbolPrefix()) +
+        sqtt::EventsTableCUStart);
+
+    Register ByteOffset = MRI->createVirtualRegister(&AMDGPU::SReg_32RegClass);
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_SUB_I32), ByteOffset)
+        .addReg(CUBase, {}, AMDGPU::sub0)
+        .addReg(TableBase, {}, AMDGPU::sub0)
+        .setOperandDead(3); // Dead scc
+    unsigned PtrSize =
+        MF->getDataLayout().getPointerSizeInBits(AMDGPUAS::FLAT_ADDRESS) / 8;
+    Register AbsoluteID = MRI->createVirtualRegister(&AMDGPU::SReg_32RegClass);
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_LSHR_B32), AbsoluteID)
+        .addReg(ByteOffset)
+        .addImm(Log2_32(PtrSize))
+        .setOperandDead(3); // Dead scc
+    if (Id) {
+      Register CUBaseID = AbsoluteID;
+      AbsoluteID = MRI->createVirtualRegister(&AMDGPU::SReg_32RegClass);
+      BuildMI(BB, &I, DL, TII.get(AMDGPU::S_ADD_I32), AbsoluteID)
+          .addReg(CUBaseID)
+          .addImm(Id)
+          .setOperandDead(3); // Dead scc
+    }
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::COPY), AMDGPU::M0).addReg(AbsoluteID);
+  } else if (!UseImm) {
     BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0).addImm(Id);
+  }
   BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
   unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
   BuildMI(BB, &I, DL, TII.get(Opc)).addImm(Id);
