@@ -1,4 +1,4 @@
-#include "llvm/Frontend/SQTT/Event.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
