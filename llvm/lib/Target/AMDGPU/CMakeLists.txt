@@ -198,6 +198,7 @@ add_llvm_target(AMDGPUCodeGen
   LINK_COMPONENTS
   AMDGPUDesc
   AMDGPUInfo
+  AMDGPUSQTT
   AMDGPUUtils
   Analysis
   AsmPrinter
@@ -205,7 +206,6 @@ add_llvm_target(AMDGPUCodeGen
   CodeGen
   CodeGenTypes
   Core
-  FrontendSQTT
   GlobalISel
   HipStdPar
   IPO
@@ -232,4 +232,5 @@ add_subdirectory(Disassembler)
 add_subdirectory(MCA)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
+add_subdirectory(SQTT)
 add_subdirectory(Utils)
