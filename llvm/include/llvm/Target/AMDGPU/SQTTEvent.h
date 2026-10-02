@@ -1,8 +1,23 @@
-#ifndef LLVM_FRONTEND_SQTT_EVENT_H
-#define LLVM_FRONTEND_SQTT_EVENT_H
+//===- SQTTEvent.h - AMDGPU SQTT event metadata -----------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// SQTT event metadata shared by the AMDGPU backend.
+///
+//===----------------------------------------------------------------------===//
 
+#ifndef LLVM_TARGET_AMDGPU_SQTTEVENT_H
+#define LLVM_TARGET_AMDGPU_SQTTEVENT_H
+
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/AMDGPUSQTTEventType.h"
 #include <cstdint>
 
 namespace llvm {
@@ -18,16 +33,6 @@ const char DataTableSection[] = "__sqtt_data";
 const char EventsTableCUStart[] = "sqtt_events_cu_base";
 
 constexpr uint32_t SectionBase = 0xffffffff;
-
-enum class EventType : uint16_t {
-  FunctionEntry,
-  FunctionExit,
-  UserEntry,
-  UserExit,
-  SetEventTableBase,
-  End,
-  Begin = FunctionEntry,
-};
 
 class Event {
   EventType Type;

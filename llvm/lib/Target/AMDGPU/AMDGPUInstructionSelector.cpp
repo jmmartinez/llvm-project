@@ -24,10 +24,10 @@
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/Frontend/SQTT/Event.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include <optional>
 
 #define DEBUG_TYPE "amdgpu-isel"
