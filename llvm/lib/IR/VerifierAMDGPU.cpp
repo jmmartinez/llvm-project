@@ -19,7 +19,7 @@
 
 #include "VerifierInternal.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Frontend/SQTT/Event.h"
+#include "llvm/IR/AMDGPUSQTTEventType.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
