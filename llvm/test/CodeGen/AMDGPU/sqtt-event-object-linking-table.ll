@@ -22,7 +22,8 @@
 ; CHECK-NEXT: .quad{{.*}}.Lsqtt_event.2
 ; CHECK-NEXT: .short{{.*}}1
 ; CHECK-NEXT: .short{{.*}}0
-; CHECK-NEXT: .quad{{.*}}.Lsqtt_data.3
-; CHECK-NEXT: .Lsqtt_data.3:
+; CHECK-NEXT: .quad{{.*}}.Lsqtt_str.0
+; CHECK:      .section{{.*}}__sqtt_data_str,"MS",@progbits
+; CHECK-NEXT: .Lsqtt_str.0:
 ; CHECK-NEXT: .ascii{{.*}}"sqtt_event"
 ; CHECK-NEXT: .byte{{.*}}0

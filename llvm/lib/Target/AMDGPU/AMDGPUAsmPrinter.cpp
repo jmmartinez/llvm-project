@@ -268,12 +268,18 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
       if (Inserted) {
         It->second = OutContext.getOrCreateSymbol(
             Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
-            "sqtt_data." + Twine(DataEntries++));
+            "sqtt_str." + Twine(StrSet.size() - 1));
       }
       MCSymbol *StrSym = It->second;
       OutStreamer->emitSymbolValue(StrSym, PtrSize);
     }
   }
+
+  OutStreamer->popSection();
+
+  OutStreamer->switchSection(OutContext.getELFSection(
+      Twine(sqtt::DataTableSection) + "_str", ELF::SHT_PROGBITS,
+      /*Flags=*/ELF::SHF_MERGE | ELF::SHF_STRINGS));
 
   // emit the zero terminated strings
   for (auto &[Payload, StrSym] : StrSet) {
