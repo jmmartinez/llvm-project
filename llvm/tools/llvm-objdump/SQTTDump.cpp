@@ -12,7 +12,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "SQTTDump.h"
+#include "llvm-objdump.h"
+#include "llvm/Object/ObjectFile.h"
+#include "llvm/TargetParser/Triple.h"
 
 using namespace llvm;
 
-void llvm::dumpSQTT(const object::ObjectFile &O) {}
+void llvm::dumpSQTT(const object::ObjectFile &O) {
+  if (!O.isELF()) {
+    objdump::reportWarning("SQTT is currently only supported for ELF targets",
+                           O.getFileName());
+    return;
+  }
+
+  if (O.getArch() != Triple::amdgpu) {
+    objdump::reportWarning("SQTT is only supported for AMDGPU targets",
+                           O.getFileName());
+    return;
+  }
+}
