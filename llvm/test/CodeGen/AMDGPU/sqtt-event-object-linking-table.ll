@@ -1,5 +1,7 @@
 ; RUN: llc -global-isel=0 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking < %S/sqtt-event-object-linking.ll | FileCheck %s
 ; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking < %S/sqtt-event-object-linking.ll | FileCheck %s
+; RUN: llc -global-isel=0 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking -filetype=obj < %S/sqtt-event-object-linking.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
+; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking -filetype=obj < %S/sqtt-event-object-linking.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
 
 ; CHECK:      .section{{.*}}__sqtt_events,"",@progbits
 ; CHECK-NEXT: .Lsqtt_events_cu_base:
@@ -27,3 +29,30 @@
 ; CHECK-NEXT: .Lsqtt_str.0:
 ; CHECK-NEXT: .ascii{{.*}}"sqtt_event"
 ; CHECK-NEXT: .byte{{.*}}0
+
+; FIXME: The pointers in __sqtt_events and __sqtt_data are R_AMDGPU_ABS64
+; relocations, which llvm-objdump --sqtt does not apply yet. Every entry reads
+; as a pointer to the first record, with a zero address and payload.
+; OBJDUMP:      [
+; OBJDUMP-NEXT:   [
+; OBJDUMP-NEXT:     {
+; OBJDUMP-NEXT:       "type": "SetEventTableBase",
+; OBJDUMP-NEXT:       "payload": 0,
+; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:     }
+; OBJDUMP-NEXT:   ],
+; OBJDUMP-NEXT:   [
+; OBJDUMP-NEXT:     {
+; OBJDUMP-NEXT:       "type": "SetEventTableBase",
+; OBJDUMP-NEXT:       "payload": 0,
+; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:     }
+; OBJDUMP-NEXT:   ],
+; OBJDUMP-NEXT:   [
+; OBJDUMP-NEXT:     {
+; OBJDUMP-NEXT:       "type": "SetEventTableBase",
+; OBJDUMP-NEXT:       "payload": 0,
+; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:     }
+; OBJDUMP-NEXT:   ]
+; OBJDUMP-NEXT: ]
