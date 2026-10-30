@@ -2,10 +2,10 @@
 ; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 < %S/llvm.amdgcn.sqtt.event.ll | FileCheck %s
 ; RUN: llc -global-isel=0 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 < %S/llvm.amdgcn.sqtt.event.ll | FileCheck %s
 ; RUN: llc -global-isel=1 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 < %S/llvm.amdgcn.sqtt.event.ll | FileCheck %s
-; RUN: llc -global-isel=0 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
-; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
-; RUN: llc -global-isel=0 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
-; RUN: llc -global-isel=1 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefix=OBJDUMP
+; RUN: llc -global-isel=0 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefixes=OBJDUMP,OBJDUMP-GFX9
+; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefixes=OBJDUMP,OBJDUMP-GFX9
+; RUN: llc -global-isel=0 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefixes=OBJDUMP,OBJDUMP-GFX10
+; RUN: llc -global-isel=1 -mtriple=amdgpu10.10-amd-amdhsa -mcpu=gfx1010 -filetype=obj < %S/llvm.amdgcn.sqtt.event.ll | llvm-objdump --sqtt - | FileCheck %s --check-prefixes=OBJDUMP,OBJDUMP-GFX10
 
 ; CHECK:      .section{{.*}}__sqtt_events,"",@progbits
 ; CHECK-NEXT: .quad{{.*}}.Lsqtt_data.0
@@ -59,43 +59,51 @@
 ; CHECK-NEXT: .ascii{{.*}}"user_exit"
 ; CHECK-NEXT: .byte{{.*}}0
 
-; FIXME: The pointers in __sqtt_events and __sqtt_data are R_AMDGPU_ABS64
-; relocations, which llvm-objdump --sqtt does not apply yet. Every entry reads
-; as a pointer to the first record, with a zero address and payload.
 ; OBJDUMP:      [
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionEntry",
 ; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-GFX9-NEXT:  "address": 12
+; OBJDUMP-GFX10-NEXT: "address": 4
+; OBJDUMP-NEXT:     }
+; OBJDUMP-NEXT:   ],
+; OBJDUMP-NEXT:   [
+; OBJDUMP-NEXT:     {
+; OBJDUMP-NEXT:       "type": "FunctionExit",
+; OBJDUMP-NEXT:       "payload": 17,
+; OBJDUMP-GFX9-NEXT:  "address": 76
+; OBJDUMP-GFX10-NEXT: "address": 68
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ],
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "payload": 33,
+; OBJDUMP-GFX9-NEXT:  "address": 140
+; OBJDUMP-GFX10-NEXT: "address": 132
+; OBJDUMP-NEXT:     },
+; OBJDUMP-NEXT:     {
+; OBJDUMP-NEXT:       "type": "FunctionExit",
+; OBJDUMP-NEXT:       "payload": 33,
+; OBJDUMP-GFX9-NEXT:  "address": 140
+; OBJDUMP-GFX10-NEXT: "address": 132
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ],
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
-; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "type": "UserEntry",
+; OBJDUMP-NEXT:       "payload": 52,
+; OBJDUMP-GFX9-NEXT:  "address": 204
+; OBJDUMP-GFX10-NEXT: "address": 196
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ],
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
-; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
-; OBJDUMP-NEXT:     }
-; OBJDUMP-NEXT:   ],
-; OBJDUMP-NEXT:   [
-; OBJDUMP-NEXT:     {
-; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "type": "UserExit",
+; OBJDUMP-NEXT:       "payload": 63,
+; OBJDUMP-GFX9-NEXT:  "address": 268
+; OBJDUMP-GFX10-NEXT: "address": 260
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ]
 ; OBJDUMP-NEXT: ]
