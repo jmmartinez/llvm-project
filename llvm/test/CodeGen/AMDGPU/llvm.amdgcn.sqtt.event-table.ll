@@ -63,7 +63,7 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
+; OBJDUMP-NEXT:       "payload": "sqtt_event_entry",
 ; OBJDUMP-GFX9-NEXT:  "address": 12
 ; OBJDUMP-GFX10-NEXT: "address": 4
 ; OBJDUMP-NEXT:     }
@@ -71,7 +71,7 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionExit",
-; OBJDUMP-NEXT:       "payload": 17,
+; OBJDUMP-NEXT:       "payload": "sqtt_event_exit",
 ; OBJDUMP-GFX9-NEXT:  "address": 76
 ; OBJDUMP-GFX10-NEXT: "address": 68
 ; OBJDUMP-NEXT:     }
@@ -79,13 +79,13 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 33,
+; OBJDUMP-NEXT:       "payload": "sqtt_events_merged",
 ; OBJDUMP-GFX9-NEXT:  "address": 140
 ; OBJDUMP-GFX10-NEXT: "address": 132
 ; OBJDUMP-NEXT:     },
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionExit",
-; OBJDUMP-NEXT:       "payload": 33,
+; OBJDUMP-NEXT:       "payload": "sqtt_events_merged",
 ; OBJDUMP-GFX9-NEXT:  "address": 140
 ; OBJDUMP-GFX10-NEXT: "address": 132
 ; OBJDUMP-NEXT:     }
@@ -93,7 +93,7 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "UserEntry",
-; OBJDUMP-NEXT:       "payload": 52,
+; OBJDUMP-NEXT:       "payload": "user_entry",
 ; OBJDUMP-GFX9-NEXT:  "address": 204
 ; OBJDUMP-GFX10-NEXT: "address": 196
 ; OBJDUMP-NEXT:     }
@@ -101,7 +101,7 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "UserExit",
-; OBJDUMP-NEXT:       "payload": 63,
+; OBJDUMP-NEXT:       "payload": "user_exit",
 ; OBJDUMP-GFX9-NEXT:  "address": 268
 ; OBJDUMP-GFX10-NEXT: "address": 260
 ; OBJDUMP-NEXT:     }
