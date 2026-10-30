@@ -15,6 +15,8 @@
 #include "llvm-objdump.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/DebugInfo/DIContext.h"
+#include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/IR/AMDGPUSQTTEventType.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Object/RelocationResolver.h"
@@ -79,6 +81,35 @@ static uint64_t readPointer(StringRef Data, uint64_t Offset,
   if (It != Relocs.end())
     return It->second;
   return readValue<uint64_t>(Data, Offset);
+}
+
+// The PC field is the address of s_ttracedata. In a relocatable object that
+// address is an offset into .text; in a linked image it is a virtual address.
+static std::optional<object::SectionedAddress>
+codeAddressForPC(const object::ObjectFile &O, uint64_t PC) {
+  for (const object::SectionRef &Sec : O.sections()) {
+    if (!Sec.isText())
+      continue;
+    uint64_t Start = Sec.getAddress();
+    uint64_t Size = Sec.getSize();
+    if (PC >= Start && PC < Start + Size)
+      return object::SectionedAddress{PC, Sec.getIndex()};
+  }
+  return std::nullopt;
+}
+
+static std::optional<DILineInfo>
+lineForPC(DWARFContext &DICtx, const object::ObjectFile &O, uint64_t PC) {
+  std::optional<object::SectionedAddress> Addr = codeAddressForPC(O, PC);
+  if (!Addr)
+    return std::nullopt;
+
+  DILineInfoSpecifier Spec(DILineInfoSpecifier::FileLineInfoKind::BaseNameOnly);
+  std::optional<DILineInfo> Info = DICtx.getLineInfoForAddress(*Addr, Spec);
+  if (!Info || Info->FileName.empty() ||
+      Info->FileName == DILineInfo::BadString)
+    return std::nullopt;
+  return Info;
 }
 
 static StringRef eventTypeName(uint16_t Type) {
@@ -166,6 +197,7 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
   uint64_t StrBase = SqttDataStr.getAddress();
   DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(SqttEvents);
   DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(SqttData);
+  std::unique_ptr<DWARFContext> DICtx = DWARFContext::create(O);
 
   // Each __sqtt_data record is {u64 pc, u16 count, [u16 type, u64 payload]+}.
   json::OStream J(outs(), 2);
@@ -196,7 +228,12 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
                                      O.getFileName());
               J.attribute("payload", Payload);
             }
-            J.attribute("address", PC);
+            std::optional<DILineInfo> Line = lineForPC(*DICtx, O, PC);
+            if (Line) {
+              J.attribute("file", Line->FileName);
+              J.attribute("line", Line->Line);
+              J.attribute("column", Line->Column);
+            }
           });
           EventOffset += 10;
         }
