@@ -4,10 +4,24 @@
 
 declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 
-define void @sqtt_event(ptr addrspace(1) %out) {
+define void @sqtt_event(ptr addrspace(1) %out) !dbg !10 {
 ; CHECK-LABEL: sqtt_event:
-; CHECK:       ; %bb.0:
+; CHECK:       .Lfunc_begin0:
+; CHECK-NEXT:    .file 0 "sqtt-event-object-linking.ll"
+; CHECK-NEXT:    .loc 0 0 0 ; sqtt-event-object-linking.ll:0:0
+; CHECK-NEXT:    .cfi_sections .debug_frame
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  ; %bb.0:
+; CHECK-NEXT:    .cfi_llvm_def_aspace_cfa 64, 0, 6
+; CHECK-NEXT:    .cfi_llvm_register_pair 16, 62, 32, 63, 32
+; CHECK-NEXT:    .cfi_undefined 2562
+; CHECK-NEXT:    .cfi_undefined 36
+; CHECK-NEXT:    .cfi_undefined 37
+; CHECK-NEXT:    .cfi_undefined 38
+; CHECK-NEXT:    .cfi_undefined 39
 ; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:  .Ltmp0:
+; CHECK-NEXT:    .loc 0 43 3 prologue_end ; sqtt-event-object-linking.ll:43:3
 ; CHECK-NEXT:    s_getpc_b64 s[4:5]
 ; CHECK-NEXT:    s_add_u32 s4, s4, __start___sqtt_events@rel32@lo+4
 ; CHECK-NEXT:    s_addc_u32 s5, s5, __start___sqtt_events@rel32@hi+12
@@ -24,6 +38,7 @@ define void @sqtt_event(ptr addrspace(1) %out) {
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    v_mov_b32_e32 v2, 1
 ; CHECK-NEXT:    global_store_dword v[0:1], v2, off
+; CHECK-NEXT:    .loc 0 44 3 ; sqtt-event-object-linking.ll:44:3
 ; CHECK-NEXT:    s_mov_b32 m0, 2
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    s_nop 0
@@ -31,7 +46,9 @@ define void @sqtt_event(ptr addrspace(1) %out) {
 ; CHECK-NEXT:    s_ttracedata
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    v_mov_b32_e32 v2, 2
+; CHECK-NEXT:    .loc 0 45 3 ; sqtt-event-object-linking.ll:45:3
 ; CHECK-NEXT:    global_store_dword v[0:1], v2, off
+; CHECK-NEXT:    .loc 0 46 3 ; sqtt-event-object-linking.ll:46:3
 ; CHECK-NEXT:    s_mov_b32 m0, 0
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    s_nop 0
@@ -40,10 +57,27 @@ define void @sqtt_event(ptr addrspace(1) %out) {
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    s_waitcnt vmcnt(0)
 ; CHECK-NEXT:    s_setpc_b64 s[30:31]
-  store i32 1, ptr addrspace(1) %out
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
-  store i32 2, ptr addrspace(1) %out
-  ret void
+; CHECK-NEXT:  .Ltmp1:
+  store i32 1, ptr addrspace(1) %out, !dbg !11
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true), !dbg !12
+  store i32 2, ptr addrspace(1) %out, !dbg !13
+  ret void, !dbg !14
 }
 
 !0 = !{i32 0, !"sqtt_event"}
+
+!llvm.dbg.cu = !{!100}
+!llvm.module.flags = !{!101, !102}
+
+!100 = distinct !DICompileUnit(language: DW_LANG_C99, file: !103, emissionKind: LineTablesOnly, isOptimized: false)
+!101 = !{i32 2, !"Dwarf Version", i32 5}
+!102 = !{i32 2, !"Debug Info Version", i32 3}
+!103 = !DIFile(filename: "sqtt-event-object-linking.ll", directory: "")
+!104 = !DISubroutineType(types: !105)
+!105 = !{null}
+
+!10 = distinct !DISubprogram(name: "sqtt_event", scope: !103, file: !103, line: 7, type: !104, spFlags: DISPFlagDefinition, unit: !100)
+!11 = !DILocation(line: 43, column: 3, scope: !10)
+!12 = !DILocation(line: 44, column: 3, scope: !10)
+!13 = !DILocation(line: 45, column: 3, scope: !10)
+!14 = !DILocation(line: 46, column: 3, scope: !10)
