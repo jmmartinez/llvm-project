@@ -1,10 +1,28 @@
 ## Check that --sqtt is accepted for an AMDGPU ELF object.
 
-# RUN: yaml2obj %s -o %t
-# RUN: llvm-objdump --sqtt %t 2>&1 | FileCheck %s --implicit-check-not={{.}}
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+
+# RUN: yaml2obj %t/elf-amdgpu.yaml -o %t/elf-amdgpu.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu.o 2>&1 | FileCheck %s --implicit-check-not={{.}}
 
 # CHECK: {{.*}}file format elf64-amdgpu
 
+## Check that --sqtt warns for non-AMDGPU ELF objects.
+
+# RUN: yaml2obj %t/elf-x86.yaml -o %t/elf-x86.o
+# RUN: llvm-objdump --sqtt %t/elf-x86.o 2>&1 | FileCheck %s --check-prefix=NOT-AMDGPU -DFILE=%t/elf-x86.o
+
+# NOT-AMDGPU: warning: '[[FILE]]': SQTT is only supported for AMDGPU targets
+
+## Check that --sqtt warns for non-ELF objects.
+
+# RUN: yaml2obj %t/coff.yaml -o %t/coff.o
+# RUN: llvm-objdump --sqtt %t/coff.o 2>&1 | FileCheck %s --check-prefix=NOT-ELF -DFILE=%t/coff.o
+
+# NOT-ELF: warning: '[[FILE]]': SQTT is currently only supported for ELF targets
+
+#--- elf-amdgpu.yaml
 --- !ELF
 FileHeader:
   Class:      ELFCLASS64
@@ -12,3 +30,19 @@ FileHeader:
   Type:       ET_REL
   Machine:    EM_AMDGPU
   Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+
+#--- elf-x86.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_X86_64
+
+#--- coff.yaml
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:        []
+symbols:         []
