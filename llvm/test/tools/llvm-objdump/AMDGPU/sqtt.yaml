@@ -8,6 +8,20 @@
 
 # CHECK: {{.*}}file format elf64-amdgpu
 
+## Check that --sqtt warns for each missing SQTT section.
+
+# RUN: yaml2obj %t/elf-amdgpu-no-sections.yaml -o %t/elf-amdgpu-no-sections.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-no-sections.o 2>&1 | FileCheck %s --check-prefix=NO-SECTIONS -DFILE=%t/elf-amdgpu-no-sections.o
+
+# NO-SECTIONS:      warning: '[[FILE]]': SQTT section __sqtt_data not found
+# NO-SECTIONS-NEXT: warning: '[[FILE]]': SQTT section __sqtt_data_str not found
+# NO-SECTIONS-NEXT: warning: '[[FILE]]': SQTT section __sqtt_events not found
+
+# RUN: yaml2obj %t/elf-amdgpu-no-str.yaml -o %t/elf-amdgpu-no-str.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-no-str.o 2>&1 | FileCheck %s --check-prefix=NO-STR -DFILE=%t/elf-amdgpu-no-str.o --implicit-check-not=warning
+
+# NO-STR: warning: '[[FILE]]': SQTT section __sqtt_data_str not found
+
 ## Check that --sqtt warns for non-AMDGPU ELF objects.
 
 # RUN: yaml2obj %t/elf-x86.yaml -o %t/elf-x86.o
@@ -30,6 +44,37 @@ FileHeader:
   Type:       ET_REL
   Machine:    EM_AMDGPU
   Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+
+#--- elf-amdgpu-no-sections.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+
+#--- elf-amdgpu-no-str.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data
+    Type:     SHT_PROGBITS
 
 #--- elf-x86.yaml
 --- !ELF

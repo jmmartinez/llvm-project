@@ -16,6 +16,9 @@
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/TargetParser/Triple.h"
 
+#include <map>
+#include <optional>
+
 using namespace llvm;
 
 void llvm::dumpSQTT(const object::ObjectFile &O) {
@@ -30,4 +33,30 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
                            O.getFileName());
     return;
   }
+
+  std::map<StringRef, std::optional<object::SectionRef>> Sections{
+      {"__sqtt_events", std::nullopt},
+      {"__sqtt_data", std::nullopt},
+      {"__sqtt_data_str", std::nullopt}};
+
+  for (const object::SectionRef &Section : O.sections()) {
+    StringRef SectionName =
+        objdump::unwrapOrError(Section.getName(), O.getFileName());
+    auto Sec = Sections.find(SectionName);
+    if (Sec != Sections.end())
+      Sec->second = Section;
+  }
+
+  bool FoundAllSections = true;
+  for (const auto &[Name, Section] : Sections) {
+    if (Section)
+      continue;
+
+    FoundAllSections = false;
+    objdump::reportWarning("SQTT section " + Name + " not found",
+                           O.getFileName());
+  }
+
+  if (!FoundAllSections)
+    return;
 }
