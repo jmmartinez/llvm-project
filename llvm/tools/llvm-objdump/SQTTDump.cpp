@@ -13,9 +13,11 @@
 
 #include "SQTTDump.h"
 #include "llvm-objdump.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/IR/AMDGPUSQTTEventType.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/RelocationResolver.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
@@ -29,6 +31,54 @@ using namespace llvm;
 template <typename T> static T readValue(StringRef Data, uint64_t Offset) {
   return support::endian::read<T, llvm::endianness::little>(Data.data() +
                                                             Offset);
+}
+
+// Relocatable objects store pointer fields as R_AMDGPU_ABS64 addends. Those
+// relocations live in a separate section. A linked image already has the
+// values in the section bytes.
+static DenseMap<uint64_t, uint64_t>
+relocatedValues(const object::SectionRef &Target) {
+  const object::ObjectFile *O = Target.getObject();
+  DenseMap<uint64_t, uint64_t> Values;
+  auto [Supports, Resolver] = object::getRelocationResolver(*O);
+  if (!Supports)
+    return Values;
+
+  for (const object::SectionRef &Sec : O->sections()) {
+    Expected<object::section_iterator> RelocatedOrErr =
+        Sec.getRelocatedSection();
+    if (!RelocatedOrErr) {
+      consumeError(RelocatedOrErr.takeError());
+      continue;
+    }
+    if (*RelocatedOrErr == O->section_end() || **RelocatedOrErr != Target)
+      continue;
+
+    for (const object::RelocationRef &Reloc : Sec.relocations()) {
+      if (!Supports(Reloc.getType())) {
+        objdump::reportWarning("unsupported relocation type " +
+                                   Twine(Reloc.getType()),
+                               O->getFileName());
+        continue;
+      }
+      object::symbol_iterator Sym = Reloc.getSymbol();
+      if (Sym == O->symbol_end())
+        continue;
+      uint64_t SymValue =
+          objdump::unwrapOrError(Sym->getValue(), O->getFileName());
+      Values[Reloc.getOffset()] =
+          object::resolveRelocation(Resolver, Reloc, SymValue, /*LocData=*/0);
+    }
+  }
+  return Values;
+}
+
+static uint64_t readPointer(StringRef Data, uint64_t Offset,
+                            const DenseMap<uint64_t, uint64_t> &Relocs) {
+  auto It = Relocs.find(Offset);
+  if (It != Relocs.end())
+    return It->second;
+  return readValue<uint64_t>(Data, Offset);
 }
 
 static StringRef eventTypeName(uint16_t Type) {
@@ -97,20 +147,23 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
   StringRef DataArray =
       objdump::unwrapOrError(SqttData.getContents(), O.getFileName());
   uint64_t DataBase = SqttData.getAddress();
+  DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(SqttEvents);
+  DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(SqttData);
 
   // Each __sqtt_data record is {u64 pc, u16 count, [u16 type, u64 payload]+}.
   json::OStream J(outs(), 2);
   J.array([&] {
     for (uint64_t Offset = 0; Offset < EventsArray.size(); Offset += 8) {
       uint64_t EventDataOffset =
-          readValue<uint64_t>(EventsArray, Offset) - DataBase;
-      uint64_t PC = readValue<uint64_t>(DataArray, EventDataOffset);
+          readPointer(EventsArray, Offset, EventRelocs) - DataBase;
+      uint64_t PC = readPointer(DataArray, EventDataOffset, DataRelocs);
       uint16_t EventCount = readValue<uint16_t>(DataArray, EventDataOffset + 8);
       J.array([&] {
         uint64_t EventOffset = EventDataOffset + 10;
         for (uint16_t I = 0; I < EventCount; ++I) {
           uint16_t EventType = readValue<uint16_t>(DataArray, EventOffset);
-          uint64_t Payload = readValue<uint64_t>(DataArray, EventOffset + 2);
+          uint64_t Payload =
+              readPointer(DataArray, EventOffset + 2, DataRelocs);
           J.object([&] {
             J.attribute("type", eventTypeName(EventType));
             J.attribute("payload", Payload);
