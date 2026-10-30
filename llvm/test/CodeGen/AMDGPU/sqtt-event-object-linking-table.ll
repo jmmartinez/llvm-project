@@ -48,7 +48,7 @@
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "FunctionEntry",
-; OBJDUMP-NEXT:       "payload": 0,
+; OBJDUMP-NEXT:       "payload": "sqtt_event",
 ; OBJDUMP-NEXT:       "address": 84
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ]
