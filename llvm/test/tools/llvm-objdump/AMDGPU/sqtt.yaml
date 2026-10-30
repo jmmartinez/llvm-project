@@ -7,6 +7,7 @@
 # RUN: llvm-objdump --sqtt %t/elf-amdgpu.o 2>&1 | FileCheck %s --implicit-check-not={{.}}
 
 # CHECK: {{.*}}file format elf64-amdgpu
+# CHECK: []
 
 ## Check that --sqtt warns for each missing SQTT section.
 
