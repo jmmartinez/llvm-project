@@ -1,0 +1,14 @@
+## Check that --sqtt is accepted for an AMDGPU ELF object.
+
+# RUN: yaml2obj %s -o %t
+# RUN: llvm-objdump --sqtt %t 2>&1 | FileCheck %s --implicit-check-not={{.}}
+
+# CHECK: {{.*}}file format elf64-amdgpu
+
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
