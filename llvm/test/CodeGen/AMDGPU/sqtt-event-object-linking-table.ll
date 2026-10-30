@@ -30,29 +30,26 @@
 ; CHECK-NEXT: .ascii{{.*}}"sqtt_event"
 ; CHECK-NEXT: .byte{{.*}}0
 
-; FIXME: The pointers in __sqtt_events and __sqtt_data are R_AMDGPU_ABS64
-; relocations, which llvm-objdump --sqtt does not apply yet. Every entry reads
-; as a pointer to the first record, with a zero address and payload.
 ; OBJDUMP:      [
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "SetEventTableBase",
 ; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "address": 108
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ],
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
 ; OBJDUMP-NEXT:       "type": "SetEventTableBase",
 ; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "address": 60
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ],
 ; OBJDUMP-NEXT:   [
 ; OBJDUMP-NEXT:     {
-; OBJDUMP-NEXT:       "type": "SetEventTableBase",
+; OBJDUMP-NEXT:       "type": "FunctionEntry",
 ; OBJDUMP-NEXT:       "payload": 0,
-; OBJDUMP-NEXT:       "address": 0
+; OBJDUMP-NEXT:       "address": 84
 ; OBJDUMP-NEXT:     }
 ; OBJDUMP-NEXT:   ]
 ; OBJDUMP-NEXT: ]
