@@ -100,6 +100,19 @@ static StringRef eventTypeName(uint16_t Type) {
   return "<unknown>";
 }
 
+static bool hasStringPayload(uint16_t Type) {
+  using sqtt::EventType;
+  switch (Type) {
+  case to_underlying(EventType::FunctionEntry):
+  case to_underlying(EventType::FunctionExit):
+  case to_underlying(EventType::UserEntry):
+  case to_underlying(EventType::UserExit):
+    return true;
+  default:
+    return false;
+  }
+}
+
 void llvm::dumpSQTT(const object::ObjectFile &O) {
   if (!O.isELF()) {
     objdump::reportWarning("SQTT is currently only supported for ELF targets",
@@ -141,12 +154,16 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
 
   object::SectionRef &SqttEvents = *Sections["__sqtt_events"];
   object::SectionRef &SqttData = *Sections["__sqtt_data"];
+  object::SectionRef &SqttDataStr = *Sections["__sqtt_data_str"];
 
   StringRef EventsArray =
       objdump::unwrapOrError(SqttEvents.getContents(), O.getFileName());
   StringRef DataArray =
       objdump::unwrapOrError(SqttData.getContents(), O.getFileName());
   uint64_t DataBase = SqttData.getAddress();
+  StringRef DataStringsArray =
+      objdump::unwrapOrError(SqttDataStr.getContents(), O.getFileName());
+  uint64_t StrBase = SqttDataStr.getAddress();
   DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(SqttEvents);
   DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(SqttData);
 
@@ -166,7 +183,19 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
               readPointer(DataArray, EventOffset + 2, DataRelocs);
           J.object([&] {
             J.attribute("type", eventTypeName(EventType));
-            J.attribute("payload", Payload);
+            if (!hasStringPayload(EventType)) {
+              J.attribute("payload", Payload);
+            } else if (Payload >= StrBase &&
+                       Payload - StrBase < DataStringsArray.size()) {
+              StringRef Str = DataStringsArray.substr(Payload - StrBase);
+              Str = Str.substr(0, Str.find('\0'));
+              J.attribute("payload", Str);
+            } else {
+              objdump::reportWarning("SQTT string payload " + Twine(Payload) +
+                                         " is outside __sqtt_data_str",
+                                     O.getFileName());
+              J.attribute("payload", Payload);
+            }
             J.attribute("address", PC);
           });
           EventOffset += 10;
