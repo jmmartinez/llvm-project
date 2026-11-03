@@ -214,17 +214,17 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   const unsigned PtrSize = getPointerSize();
   const unsigned NumEvents = Events->getNumOperands();
 
-  // {ptr event_list}
+  // {ptr record}
   unsigned DataEntries = 0;
-  SmallVector<std::pair<sqtt::MergedEvent, MCSymbol *>> EventList;
+  SmallVector<std::pair<sqtt::EventRecord, MCSymbol *>> EventRecordList;
   for (unsigned I = 0; I != NumEvents; ++I) {
-    sqtt::MergedEvent MergedEv =
-        sqtt::MergedEvent::fromMetadata(Events->getOperand(I));
-    MCSymbol *EventListSym = OutContext.getOrCreateSymbol(
+    sqtt::EventRecord Record =
+        sqtt::EventRecord::fromMetadata(Events->getOperand(I));
+    MCSymbol *DataSym = OutContext.getOrCreateSymbol(
         Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
         "sqtt_data." + Twine(DataEntries++));
-    EventList.emplace_back(std::move(MergedEv), EventListSym);
-    OutStreamer->emitSymbolValue(EventListSym, PtrSize);
+    EventRecordList.emplace_back(std::move(Record), DataSym);
+    OutStreamer->emitSymbolValue(DataSym, PtrSize);
   }
   OutStreamer->popSection();
 
@@ -235,7 +235,7 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   // emit {ptr to label, i16 count, [type, payload_string]+}
   unsigned Id = 0;
   MapVector<StringRef, MCSymbol *> StrSet;
-  for (auto &[MergedEv, DataSym] : EventList) {
+  for (auto &[Record, DataSym] : EventRecordList) {
     OutStreamer->emitLabel(DataSym);
 
     MCSymbol *PC = OutContext.lookupSymbol(
@@ -244,8 +244,8 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
     assert(PC && "SQTT event PC label should already exist");
     OutStreamer->emitSymbolValue(PC, PtrSize);
 
-    OutStreamer->emitInt16(MergedEv.size());
-    for (const sqtt::Event &Ev : MergedEv.events()) {
+    OutStreamer->emitInt16(Record.size());
+    for (const sqtt::Event &Ev : Record.events()) {
       OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
       if (Ev.isSetEventTableBase()) {
         const MCExpr *NewEventTableBase;

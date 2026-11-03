@@ -131,8 +131,8 @@ static void combineEvents(Module &M, Function &SQTTEventFun) {
                std::mem_fn(&IntrinsicInst::eraseFromParent));
 
       if (!Events.empty()) {
-        Metadata *MergedEventMD = sqtt::MergedEvent{Events}.toMetadata(C);
-        First->setArgOperand(0, MetadataAsValue::get(C, MergedEventMD));
+        Metadata *RecordMD = sqtt::EventRecord{Events}.toMetadata(C);
+        First->setArgOperand(0, MetadataAsValue::get(C, RecordMD));
       } else {
         First->eraseFromParent();
       }
