@@ -66,16 +66,16 @@ public:
   static Event fromMetadata(Metadata *MD);
 };
 
-class MergedEvent {
+class EventRecord {
   SmallVector<Event, 4> Events;
 
 public:
-  MergedEvent(ArrayRef<Event> Events) : Events(Events) {}
+  EventRecord(ArrayRef<Event> Events) : Events(Events) {}
   ArrayRef<Event> events() const { return Events; }
   size_t size() const { return Events.size(); }
 
   Metadata *toMetadata(LLVMContext &Ctx) const;
-  static MergedEvent fromMetadata(Metadata *MD);
+  static EventRecord fromMetadata(Metadata *MD);
 };
 
 } // namespace sqtt
