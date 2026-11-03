@@ -157,47 +157,62 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
     return;
   }
 
-  std::optional<object::SectionRef> Events, Data, DataStr;
+  std::optional<object::SectionRef> Events, DataStr;
+  // The data section is named after the format version of its records.
+  SmallVector<object::SectionRef, 1> Data;
   for (const object::SectionRef &Section : O.sections()) {
     StringRef SectionName =
         objdump::unwrapOrError(Section.getName(), O.getFileName());
     if (SectionName == sqtt::EventsTableSection)
       Events = Section;
-    else if (SectionName == sqtt::DataTableSection)
-      Data = Section;
     else if (SectionName == sqtt::DataStringsSection)
       DataStr = Section;
+    else if (SectionName.starts_with(sqtt::DataTableSectionPrefix))
+      Data.push_back(Section);
   }
 
-  bool FoundAllSections = true;
-  auto CheckFound = [&](const std::optional<object::SectionRef> &Section,
-                        StringRef Name) {
-    if (Section)
-      return;
-    FoundAllSections = false;
-    objdump::reportWarning("SQTT section " + Name + " not found",
+  auto CheckFound = [&](size_t Count, StringRef Name) {
+    if (Count == 1)
+      return true;
+    // Linking compilation units built with different format versions leaves
+    // one data section per version.
+    objdump::reportWarning(Count ? "multiple SQTT sections " + Name
+                                 : "SQTT section " + Name + " not found",
                            O.getFileName());
+    return false;
   };
-  CheckFound(Data, sqtt::DataTableSection);
-  CheckFound(DataStr, sqtt::DataStringsSection);
-  CheckFound(Events, sqtt::EventsTableSection);
-
-  if (!FoundAllSections)
+  if (!CheckFound(Data.size(), sqtt::DataTableSectionPrefix))
     return;
+  if (!CheckFound(DataStr.has_value(), sqtt::DataStringsSection))
+    return;
+  if (!CheckFound(Events.has_value(), sqtt::EventsTableSection))
+    return;
+
+  StringRef DataSectionName =
+      objdump::unwrapOrError(Data.front().getName(), O.getFileName());
+  StringRef VersionStr = DataSectionName;
+  VersionStr.consume_front(sqtt::DataTableSectionPrefix);
+  uint32_t Version;
+  if (VersionStr.getAsInteger(10, Version) || Version != sqtt::FormatVersion) {
+    objdump::reportWarning("SQTT section " + DataSectionName +
+                               " has an unsupported format version",
+                           O.getFileName());
+    return;
+  }
 
   StringRef EventsArray =
       objdump::unwrapOrError(Events->getContents(), O.getFileName());
   StringRef DataArray =
-      objdump::unwrapOrError(Data->getContents(), O.getFileName());
-  uint64_t DataBase = Data->getAddress();
+      objdump::unwrapOrError(Data.front().getContents(), O.getFileName());
+  uint64_t DataBase = Data.front().getAddress();
   StringRef DataStringsArray =
       objdump::unwrapOrError(DataStr->getContents(), O.getFileName());
   uint64_t StrBase = DataStr->getAddress();
   DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(*Events);
-  DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(*Data);
+  DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(Data.front());
   std::unique_ptr<DWARFContext> DICtx = DWARFContext::create(O);
 
-  // Each __sqtt_data record is {u64 pc, u16 count, [u16 type, u64 payload]+}.
+  // Each data record is {u64 pc, u16 count, [u16 type, u64 payload]+}.
   json::OStream J(outs(), 2);
   J.array([&] {
     for (uint64_t Offset = 0; Offset < EventsArray.size(); Offset += 8) {
