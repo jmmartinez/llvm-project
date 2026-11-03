@@ -56,7 +56,7 @@ Event Event::fromMetadata(Metadata *MD) {
   return {Type, Payload};
 }
 
-MergedEvent MergedEvent::fromMetadata(Metadata *MD) {
+EventRecord EventRecord::fromMetadata(Metadata *MD) {
   auto *Node = cast<MDNode>(MD);
   Metadata *Op0 = Node->getOperand(0);
   if (isa<ConstantAsMetadata>(Op0)) {
@@ -70,7 +70,7 @@ MergedEvent MergedEvent::fromMetadata(Metadata *MD) {
   return {Events};
 }
 
-Metadata *MergedEvent::toMetadata(LLVMContext &Ctx) const {
+Metadata *EventRecord::toMetadata(LLVMContext &Ctx) const {
   SmallVector<Metadata *, 4> Ops;
   for (const Event &Ev : Events)
     Ops.push_back(Ev.toMetadata(Ctx));
