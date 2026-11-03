@@ -229,7 +229,8 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   OutStreamer->popSection();
 
   OutStreamer->switchSection(OutContext.getELFSection(
-      sqtt::DataTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+      Twine(sqtt::DataTableSectionPrefix) + Twine(sqtt::FormatVersion),
+      ELF::SHT_PROGBITS, /*Flags=*/0));
 
   // emit {ptr to label, i16 count, [type, payload_string]+}
   unsigned Id = 0;
