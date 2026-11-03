@@ -191,7 +191,7 @@ void llvm::verifyAMDGPUIntrinsicCall(VerifierSupport &VS, Intrinsic::ID ID,
     Check(Node->getNumOperands() != 0, "SQTT event metadata must not be empty",
           &Call, Op);
 
-    // Verify a single (unmerged) event node of the form {i32 type, !"payload"}.
+    // Verify a single event node of the form {i32 type, !"payload"}.
     auto VerifyEventNode = [&VS, &Call, Op](const MDNode *Node) {
       Check(Node && Node->getNumOperands() == 2,
             "SQTT event metadata must be a 2-operand node", &Call, Op);
@@ -214,8 +214,8 @@ void llvm::verifyAMDGPUIntrinsicCall(VerifierSupport &VS, Intrinsic::ID ID,
       }
     };
 
-    // A merged event is a list of single event nodes, while a single event
-    // holds its type in the first operand.
+    // An event record is a list of single event nodes, while a record with one
+    // event is just that event, which holds its type in the first operand.
     if (isa<MDNode>(Node->getOperand(0))) {
       for (const MDOperand &Event : Node->operands())
         VerifyEventNode(dyn_cast<MDNode>(Event));
