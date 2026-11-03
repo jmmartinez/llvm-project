@@ -23,9 +23,9 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/TargetParser/Triple.h"
 
-#include <map>
 #include <optional>
 
 using namespace llvm;
@@ -157,46 +157,44 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
     return;
   }
 
-  std::map<StringRef, std::optional<object::SectionRef>> Sections{
-      {"__sqtt_events", std::nullopt},
-      {"__sqtt_data", std::nullopt},
-      {"__sqtt_data_str", std::nullopt}};
-
+  std::optional<object::SectionRef> Events, Data, DataStr;
   for (const object::SectionRef &Section : O.sections()) {
     StringRef SectionName =
         objdump::unwrapOrError(Section.getName(), O.getFileName());
-    auto Sec = Sections.find(SectionName);
-    if (Sec != Sections.end())
-      Sec->second = Section;
+    if (SectionName == sqtt::EventsTableSection)
+      Events = Section;
+    else if (SectionName == sqtt::DataTableSection)
+      Data = Section;
+    else if (SectionName == sqtt::DataStringsSection)
+      DataStr = Section;
   }
 
   bool FoundAllSections = true;
-  for (const auto &[Name, Section] : Sections) {
+  auto CheckFound = [&](const std::optional<object::SectionRef> &Section,
+                        StringRef Name) {
     if (Section)
-      continue;
-
+      return;
     FoundAllSections = false;
     objdump::reportWarning("SQTT section " + Name + " not found",
                            O.getFileName());
-  }
+  };
+  CheckFound(Data, sqtt::DataTableSection);
+  CheckFound(DataStr, sqtt::DataStringsSection);
+  CheckFound(Events, sqtt::EventsTableSection);
 
   if (!FoundAllSections)
     return;
 
-  object::SectionRef &SqttEvents = *Sections["__sqtt_events"];
-  object::SectionRef &SqttData = *Sections["__sqtt_data"];
-  object::SectionRef &SqttDataStr = *Sections["__sqtt_data_str"];
-
   StringRef EventsArray =
-      objdump::unwrapOrError(SqttEvents.getContents(), O.getFileName());
+      objdump::unwrapOrError(Events->getContents(), O.getFileName());
   StringRef DataArray =
-      objdump::unwrapOrError(SqttData.getContents(), O.getFileName());
-  uint64_t DataBase = SqttData.getAddress();
+      objdump::unwrapOrError(Data->getContents(), O.getFileName());
+  uint64_t DataBase = Data->getAddress();
   StringRef DataStringsArray =
-      objdump::unwrapOrError(SqttDataStr.getContents(), O.getFileName());
-  uint64_t StrBase = SqttDataStr.getAddress();
-  DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(SqttEvents);
-  DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(SqttData);
+      objdump::unwrapOrError(DataStr->getContents(), O.getFileName());
+  uint64_t StrBase = DataStr->getAddress();
+  DenseMap<uint64_t, uint64_t> EventRelocs = relocatedValues(*Events);
+  DenseMap<uint64_t, uint64_t> DataRelocs = relocatedValues(*Data);
   std::unique_ptr<DWARFContext> DICtx = DWARFContext::create(O);
 
   // Each __sqtt_data record is {u64 pc, u16 count, [u16 type, u64 payload]+}.
