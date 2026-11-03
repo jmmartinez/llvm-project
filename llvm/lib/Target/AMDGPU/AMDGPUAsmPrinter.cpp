@@ -277,9 +277,9 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
 
   OutStreamer->popSection();
 
-  OutStreamer->switchSection(OutContext.getELFSection(
-      Twine(sqtt::DataTableSection) + "_str", ELF::SHT_PROGBITS,
-      /*Flags=*/ELF::SHF_MERGE | ELF::SHF_STRINGS));
+  OutStreamer->switchSection(
+      OutContext.getELFSection(sqtt::DataStringsSection, ELF::SHT_PROGBITS,
+                               /*Flags=*/ELF::SHF_MERGE | ELF::SHF_STRINGS));
 
   // emit the zero terminated strings
   for (auto &[Payload, StrSym] : StrSet) {
