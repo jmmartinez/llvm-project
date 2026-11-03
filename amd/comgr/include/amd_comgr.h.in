@@ -526,6 +526,16 @@ typedef struct amd_comgr_symbolizer_info_s {
 } amd_comgr_symbolizer_info_t;
 
 /**
+ * @brief A handle to an SQTT event table.
+ *
+ * Holds the SQTT event metadata of a code object. Each event ID refers to a
+ * record of one or more events emitted by the same instruction.
+ */
+typedef struct amd_comgr_sqtt_table_s {
+  uint64_t handle;
+} amd_comgr_sqtt_table_t;
+
+/**
  * @brief Return the number of isa names supported by this version of
  * the code object manager library.
  *
@@ -953,6 +963,72 @@ amd_comgr_symbolize(
     uint64_t address,
     bool is_code,
     void *user_data) AMD_COMGR_VERSION_2_4;
+
+/**
+ * @brief SQTT event types.
+ */
+typedef enum amd_comgr_sqtt_event_type_s {
+  /**
+   * Function entry and exit. The payload is the function's symbol name.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_ENTRY = 0x0,
+  AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_EXIT = 0x1,
+
+  /**
+   * User region entry and exit. The payload is the region name.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_USER_ENTRY = 0x2,
+  AMD_COMGR_SQTT_EVENT_TYPE_USER_EXIT = 0x3,
+
+  /**
+   * Sets the base of the event IDs traced after it. The payload is a table
+   * base index.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE = 0x4
+} amd_comgr_sqtt_event_type_t;
+
+/**
+ * @brief SQTT record attributes.
+ */
+typedef enum amd_comgr_sqtt_record_info_s {
+  /**
+   * The unrelocated ELF address of the instruction that emits the record. The
+   * type of this attribute is uint64_t. Pass it to @c amd_comgr_symbolize with
+   * @p is_code set to true to get its source location (needs at least
+   * @c -gline-tables-only).
+   */
+  AMD_COMGR_SQTT_RECORD_INFO_PC = 0x0,
+
+  /**
+   * The number of events in the record. The type of this attribute is
+   * uint64_t.
+   */
+  AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT = 0x1
+} amd_comgr_sqtt_record_info_t;
+
+/**
+ * @brief SQTT event attributes.
+ */
+typedef enum amd_comgr_sqtt_event_info_s {
+  /**
+   * The type of the event. The type of this attribute is
+   * @p amd_comgr_sqtt_event_type_t.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_TYPE = 0x0,
+
+  /**
+   * The payload string of a function or user event. The type of this
+   * attribute is const char *, a null-terminated string owned by the table and
+   * valid until the table is destroyed.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING = 0x1,
+
+  /**
+   * The table base index of a set event table base event. The type of this
+   * attribute is uint64_t.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX = 0x2
+} amd_comgr_sqtt_event_info_t;
 
  /**
  * @brief Get a handle to the metadata of a data object.
