@@ -28,6 +28,7 @@ class SQTTTable {
                 const llvm::sqtt::BinarySQTTRecord **Value) const;
 
   static bool isRecordInfoValid(amd_comgr_sqtt_record_info_t RecordInfo);
+  static bool isEventInfoValid(amd_comgr_sqtt_event_info_t EventInfo);
 
 public:
   // Parses the SQTT sections of DataP into a new table.
@@ -39,6 +40,10 @@ public:
   amd_comgr_status_t getRecordInfo(uint32_t RecordId,
                                    amd_comgr_sqtt_record_info_t Attribute,
                                    void *Value) const;
+
+  amd_comgr_status_t getEventInfo(uint32_t RecordId, size_t EventId,
+                                  amd_comgr_sqtt_event_info_t Attribute,
+                                  void *Value) const;
 
   static amd_comgr_sqtt_table_t convert(SQTTTable *Table) {
     amd_comgr_sqtt_table_t Handle = {
