@@ -23,12 +23,22 @@ class SQTTTable {
   // buffer, so the data object must outlive the table.
   std::vector<llvm::sqtt::BinarySQTTRecord> Records;
 
+  amd_comgr_status_t
+  getRecordInfo(uint32_t RecordId,
+                const llvm::sqtt::BinarySQTTRecord **Value) const;
+
+  static bool isRecordInfoValid(amd_comgr_sqtt_record_info_t RecordInfo);
+
 public:
   // Parses the SQTT sections of DataP into a new table.
   static amd_comgr_status_t create(DataObject *DataP,
                                    amd_comgr_sqtt_table_t *Table);
 
   size_t recordSize() const { return Records.size(); }
+
+  amd_comgr_status_t getRecordInfo(uint32_t RecordId,
+                                   amd_comgr_sqtt_record_info_t Attribute,
+                                   void *Value) const;
 
   static amd_comgr_sqtt_table_t convert(SQTTTable *Table) {
     amd_comgr_sqtt_table_t Handle = {
