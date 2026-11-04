@@ -21,6 +21,7 @@
 #include "comgr-logger.h"
 #include "comgr-metadata.h"
 #include "comgr-signal.h"
+#include "comgr-sqtt.h"
 #include "comgr-symbol.h"
 #include "comgr-symbolizer.h"
 
@@ -722,7 +723,9 @@ amd_comgr_status_t AMD_COMGR_API
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
-  return AMD_COMGR_STATUS_ERROR;
+  ensureLLVMInitialized();
+
+  return SQTTTable::create(DataP, Table);
 }
 
 amd_comgr_status_t AMD_COMGR_API
@@ -730,11 +733,13 @@ amd_comgr_status_t AMD_COMGR_API
     amd_comgr_destroy_sqtt_table
     //
     (amd_comgr_sqtt_table_t Table) {
-  if (!Table.handle) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP) {
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
-  return AMD_COMGR_STATUS_ERROR;
+  delete TableP;
+  return AMD_COMGR_STATUS_SUCCESS;
 }
 
 amd_comgr_status_t AMD_COMGR_API
