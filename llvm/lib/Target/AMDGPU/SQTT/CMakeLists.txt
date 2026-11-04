@@ -4,6 +4,7 @@ add_llvm_component_library(LLVMAMDGPUSQTT
   LINK_COMPONENTS
   Core
   Support
+  Object
 
   ADD_TO_COMPONENT
   AMDGPU
