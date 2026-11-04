@@ -1024,8 +1024,8 @@ typedef enum amd_comgr_sqtt_event_info_s {
 
   /**
    * The payload string of a function or user event. The type of this
-   * attribute is const char *, a null-terminated string owned by the table and
-   * valid until the table is destroyed.
+   * attribute is const char *, a null-terminated string inside the table's
+   * data object, valid until the table is destroyed.
    */
   AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING = 0x1,
 
