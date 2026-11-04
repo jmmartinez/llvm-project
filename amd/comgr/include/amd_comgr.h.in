@@ -1044,7 +1044,7 @@ typedef enum amd_comgr_sqtt_event_info_s {
  * section, an unsupported version and malformed contents are not reported
  * differently.
  *
- * @p data must not be released before the table is destroyed.
+ * @p data must not be released or modified before the table is destroyed.
  *
  * @param[in] data The executable. Its kind must be
  * ::AMD_COMGR_DATA_KIND_EXECUTABLE. Use @c amd_comgr_lookup_code_object first
