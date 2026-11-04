@@ -152,6 +152,10 @@ relocatedValues(const object::SectionRef &Target) {
   return Values;
 }
 
+static Error makeError(const Twine &Message) {
+  return make_error<StringError>(Message, inconvertibleErrorCode());
+}
+
 class SectionInfo {
   uint64_t BaseAddress;
   StringRef Contents;
@@ -163,7 +167,11 @@ class SectionInfo {
         Relocs(std::move(Relocs)) {}
 
 public:
-  static Expected<SectionInfo> get(const object::SectionRef &Section) {
+  static Expected<SectionInfo> get(const object::SectionRef &Section,
+                                   StringRef Name) {
+    if (Section.isVirtual())
+      return makeError("SQTT section " + Name + " has no contents");
+
     auto Contents = Section.getContents();
     if (!Contents)
       return Contents.takeError();
@@ -186,8 +194,11 @@ public:
     return Contents.substr(Address - BaseAddress);
   }
 
-  bool contains(uint64_t Address) const {
-    return Address >= begin_address() && Address < end_address();
+  bool contains(uint64_t Address, uint64_t Size = 1) const {
+    if (Address < BaseAddress)
+      return false;
+    uint64_t Offset = Address - BaseAddress;
+    return Offset <= Contents.size() && Contents.size() - Offset >= Size;
   }
 
   template <typename T> T readValue(uint64_t Address) const {
@@ -199,7 +210,7 @@ public:
     // We assume that relocations are only used for pointers (labels to data or
     // string sections), and not for regular data. This is not in general true,
     // but it holds in our context.
-    auto It = Relocs.find(Address);
+    auto It = Relocs.find(Address - BaseAddress);
     if (It != Relocs.end())
       return It->second;
     return readValue<uint64_t>(Address);
@@ -209,13 +220,10 @@ public:
 Expected<std::vector<BinarySQTTRecord>>
 sqtt::parseBinarySQTTRecords(const object::ObjectFile &O) {
   if (!O.isELF())
-    return make_error<StringError>(
-        "SQTT is currently only supported for ELF targets",
-        inconvertibleErrorCode());
+    return makeError("SQTT is currently only supported for ELF targets");
 
   if (O.getArch() != Triple::amdgpu)
-    return make_error<StringError>("SQTT is only supported for AMDGPU targets",
-                                   inconvertibleErrorCode());
+    return makeError("SQTT is only supported for AMDGPU targets");
 
   std::optional<object::SectionRef> Events, DataStr;
   // The data section is named after the format version of its records.
@@ -236,24 +244,20 @@ sqtt::parseBinarySQTTRecords(const object::ObjectFile &O) {
   // Linking compilation units built with different format versions leaves one
   // data section per version.
   if (Data.size() > 1)
-    return make_error<StringError>("multiple SQTT sections " +
-                                       Twine(sqtt::DataTableSectionPrefix),
-                                   inconvertibleErrorCode());
+    return makeError("multiple SQTT sections " +
+                     Twine(sqtt::DataTableSectionPrefix));
 
   if (Data.empty())
-    return make_error<StringError>(
-        "SQTT section " + Twine(sqtt::DataTableSectionPrefix) + " not found",
-        inconvertibleErrorCode());
+    return makeError("SQTT section " + Twine(sqtt::DataTableSectionPrefix) +
+                     " not found");
 
   if (!DataStr)
-    return make_error<StringError>(
-        "SQTT section " + Twine(sqtt::DataStringsSection) + " not found",
-        inconvertibleErrorCode());
+    return makeError("SQTT section " + Twine(sqtt::DataStringsSection) +
+                     " not found");
 
   if (!Events)
-    return make_error<StringError>(
-        "SQTT section " + Twine(sqtt::EventsTableSection) + " not found",
-        inconvertibleErrorCode());
+    return makeError("SQTT section " + Twine(sqtt::EventsTableSection) +
+                     " not found");
 
   auto DataSectionName = Data.front().getName();
   if (!DataSectionName)
@@ -262,61 +266,74 @@ sqtt::parseBinarySQTTRecords(const object::ObjectFile &O) {
   StringRef VersionStr = *DataSectionName;
   VersionStr.consume_front(sqtt::DataTableSectionPrefix);
   uint32_t Version;
-  if (VersionStr.getAsInteger(10, Version) || Version != sqtt::FormatVersion) {
-    return make_error<StringError>("SQTT section " + *DataSectionName +
-                                       " has an unsupported format version",
-                                   inconvertibleErrorCode());
-  }
+  if (VersionStr.getAsInteger(10, Version) || Version != sqtt::FormatVersion)
+    return makeError("SQTT section " + *DataSectionName +
+                     " has an unsupported format version");
 
-  Expected<SectionInfo> EventsInfo = SectionInfo::get(*Events);
+  Expected<SectionInfo> EventsInfo =
+      SectionInfo::get(*Events, sqtt::EventsTableSection);
   if (!EventsInfo)
     return EventsInfo.takeError();
-  Expected<SectionInfo> DataInfo = SectionInfo::get(Data.front());
+  Expected<SectionInfo> DataInfo =
+      SectionInfo::get(Data.front(), *DataSectionName);
   if (!DataInfo)
     return DataInfo.takeError();
-  Expected<SectionInfo> DataStringsInfo = SectionInfo::get(*DataStr);
+  Expected<SectionInfo> DataStringsInfo =
+      SectionInfo::get(*DataStr, sqtt::DataStringsSection);
   if (!DataStringsInfo)
     return DataStringsInfo.takeError();
 
-  auto EventRelocs = relocatedValues(*Events);
-  if (!EventRelocs)
-    return EventRelocs.takeError();
+  if (EventsInfo->size() % 8 != 0)
+    return makeError("SQTT section " + Twine(sqtt::EventsTableSection) +
+                     " size is not a multiple of 8");
 
-  auto DataRelocs = relocatedValues(Data.front());
-  if (!DataRelocs)
-    return DataRelocs.takeError();
+  // Each record is {u64 pc, u16 count, [u16 type, u64 payload]*count}.
+  constexpr uint64_t RecordHeaderSize = 10;
+  constexpr uint64_t EventSize = 10;
 
   std::vector<BinarySQTTRecord> Records;
   for (uint64_t Address = EventsInfo->begin_address();
        Address < EventsInfo->end_address(); Address += 8) {
+    uint64_t Id = (Address - EventsInfo->begin_address()) / 8;
     uint64_t EventDataPtr = EventsInfo->readPointer(Address);
+    if (!DataInfo->contains(EventDataPtr, RecordHeaderSize))
+      return makeError("SQTT event ID " + Twine(Id) +
+                       " points outside the data section");
 
     uint64_t PC = DataInfo->readPointer(EventDataPtr);
     uint16_t EventCount = DataInfo->readValue<uint16_t>(EventDataPtr + 8);
+    if (!DataInfo->contains(EventDataPtr,
+                            RecordHeaderSize + EventCount * EventSize))
+      return makeError("SQTT event ID " + Twine(Id) +
+                       " has a truncated record");
 
-    // Each record is {u64 pc, u16 count, [u16 type, u64 payload]*count}.
     std::vector<Event> Events;
     for (uint16_t I = 0; I < EventCount; ++I) {
-      uint64_t EventDataAddress = EventDataPtr + 10 + I * 10;
+      uint64_t EventDataAddress =
+          EventDataPtr + RecordHeaderSize + I * EventSize;
       uint16_t EventType = DataInfo->readValue<uint16_t>(EventDataAddress);
       std::optional<sqtt::EventType> EventTypeOpt = isValidEventType(EventType);
       if (!EventTypeOpt)
-        return make_error<StringError>("Invalid SQTT event type " +
-                                           Twine(EventType),
-                                       inconvertibleErrorCode());
+        return makeError("Invalid SQTT event type " + Twine(EventType));
       uint64_t Payload = DataInfo->readPointer(EventDataAddress + 2);
       if (sqtt::Event::hasStringPayload(*EventTypeOpt)) {
         if (!DataStringsInfo->contains(Payload))
-          return make_error<StringError>("SQTT string payload " +
-                                             Twine(Payload) +
-                                             " is outside __sqtt_data_str",
-                                         inconvertibleErrorCode());
+          return makeError("SQTT string payload " + Twine(Payload) +
+                           " is outside __sqtt_data_str");
         StringRef PayloadStr = DataStringsInfo->contentsFrom(Payload);
-        PayloadStr = PayloadStr.substr(0, PayloadStr.find('\0'));
-        Events.emplace_back(*EventTypeOpt, PayloadStr);
-      } else if (EventTypeOpt == sqtt::EventType::SetEventTableBase) {
-        // we have to convert the payload from an absolute address to an index
-        uint64_t Index = (Payload - EventsInfo->begin_address()) / 8;
+        size_t End = PayloadStr.find('\0');
+        if (End == StringRef::npos)
+          return makeError("SQTT string payload " + Twine(Payload) +
+                           " is not null-terminated");
+        Events.emplace_back(*EventTypeOpt, PayloadStr.take_front(End));
+      } else {
+        assert(*EventTypeOpt == sqtt::EventType::SetEventTableBase);
+        if (!EventsInfo->contains(Payload) ||
+            (Payload - EventsInfo->begin_address()) % 8 != 0)
+          return makeError("SQTT event table base " + Twine(Payload) +
+                           " is not an entry of " +
+                           Twine(sqtt::EventsTableSection));
+        uint32_t Index = (Payload - EventsInfo->begin_address()) / 8;
         Events.emplace_back(*EventTypeOpt, Index);
       }
     }
