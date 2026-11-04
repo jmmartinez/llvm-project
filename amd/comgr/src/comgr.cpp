@@ -776,11 +776,12 @@ amd_comgr_status_t AMD_COMGR_API
     //
     (amd_comgr_sqtt_table_t Table, uint32_t RecordId, size_t EventId,
      amd_comgr_sqtt_event_info_t Attribute, void *Value) {
-  if (!Table.handle || !Value) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Value) {
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
-  return AMD_COMGR_STATUS_ERROR;
+  return TableP->getEventInfo(RecordId, EventId, Attribute, Value);
 }
 
 amd_comgr_status_t AMD_COMGR_API

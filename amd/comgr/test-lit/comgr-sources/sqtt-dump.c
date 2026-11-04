@@ -9,6 +9,22 @@
 #include "amd_comgr.h"
 #include "common.h"
 
+static const char *eventTypeName(amd_comgr_sqtt_event_type_t Type) {
+  switch (Type) {
+  case AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_ENTRY:
+    return "FunctionEntry";
+  case AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_EXIT:
+    return "FunctionExit";
+  case AMD_COMGR_SQTT_EVENT_TYPE_USER_ENTRY:
+    return "UserEntry";
+  case AMD_COMGR_SQTT_EVENT_TYPE_USER_EXIT:
+    return "UserExit";
+  case AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE:
+    return "SetEventTableBase";
+  }
+  return "Unknown";
+}
+
 int main(int argc, char *argv[]) {
   if (argc != 2 || strncmp(argv[1], "--", 2) == 0) {
     fprintf(stderr, "usage: sqtt-dump <executable>\n");
@@ -45,9 +61,27 @@ int main(int argc, char *argv[]) {
         Table, RecordId, AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT, &EventCount));
     printf("record %u: pc=%llu events=%zu\n", RecordId, (unsigned long long)PC,
            (size_t)EventCount);
+
+    for (size_t I = 0; I != EventCount; ++I) {
+      amd_comgr_sqtt_event_type_t Type;
+      amd_comgr_(sqtt_table_get_event_info(
+          Table, RecordId, I, AMD_COMGR_SQTT_EVENT_INFO_TYPE, &Type));
+      if (Type == AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE) {
+        uint64_t Index;
+        amd_comgr_(sqtt_table_get_event_info(
+            Table, RecordId, I,
+            AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX, &Index));
+        printf("  %s %llu\n", eventTypeName(Type), (unsigned long long)Index);
+      } else {
+        const char *Payload;
+        amd_comgr_(sqtt_table_get_event_info(
+            Table, RecordId, I, AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING,
+            &Payload));
+        printf("  %s %s\n", eventTypeName(Type), Payload);
+      }
+    }
   }
 
-  // TODO: Print the events once the event getter is implemented.
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));
   return 0;
