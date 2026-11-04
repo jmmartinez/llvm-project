@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // TODO: Print the records once tables can be created.
+  // TODO: Print the records once the table getters are implemented.
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));
   return 0;
