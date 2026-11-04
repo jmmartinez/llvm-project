@@ -45,6 +45,55 @@
 
 # NO-STR: warning: '[[FILE]]': SQTT section __sqtt_data_str not found
 
+## Check that --sqtt decodes a record from raw section contents. The section
+## addresses are 0, so the pointers are offsets into their target section.
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -o %t/contents.o
+# RUN: llvm-objdump --sqtt %t/contents.o 2>&1 | FileCheck %s --check-prefix=CONTENTS --implicit-check-not=warning
+
+# CONTENTS:      [
+# CONTENTS-NEXT:   {
+# CONTENTS-NEXT:     "pc": 16,
+# CONTENTS-NEXT:     "events": [
+# CONTENTS-NEXT:       {
+# CONTENTS-NEXT:         "type": "UserEntry",
+# CONTENTS-NEXT:         "payload": "foo"
+# CONTENTS-NEXT:       }
+# CONTENTS-NEXT:     ]
+# CONTENTS-NEXT:   }
+# CONTENTS-NEXT: ]
+
+## Check that --sqtt rejects malformed section contents.
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DEVENTS=00000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT section __sqtt_events size is not a multiple of 8"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DEVENTS=1400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 points outside the data section"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DCOUNT=0200 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 has a truncated record"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0900 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="Invalid SQTT event type 9"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DPAYLOAD=0400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT string payload 4 is outside __sqtt_data_str"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DSTR=666F6F -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT string payload 0 is not null-terminated"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0400 -DPAYLOAD=0400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event table base 4 is not an entry of __sqtt_events"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0400 -DPAYLOAD=0800000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event table base 8 is not an entry of __sqtt_events"
+
+# RUN: yaml2obj %t/elf-amdgpu-nobits.yaml -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT section __sqtt_data_v1 has no contents"
+
+# BAD: warning: '[[FILE]]': [[MSG]]{{$}}
+
 ## Check that --sqtt warns for non-AMDGPU ELF objects.
 
 # RUN: yaml2obj %t/elf-x86.yaml -o %t/elf-x86.o
@@ -117,6 +166,45 @@ Sections:
     Type:     SHT_PROGBITS
   - Name:     __sqtt_data_v1
     Type:     SHT_PROGBITS
+
+#--- elf-amdgpu-contents.yaml
+## One record: {pc 0x10, count, [type, payload]}.
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+    Content:  "[[EVENTS=0000000000000000]]"
+  - Name:     __sqtt_data_v1
+    Type:     SHT_PROGBITS
+    Content:  "1000000000000000[[COUNT=0100]][[TYPE=0200]][[PAYLOAD=0000000000000000]]"
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+    Content:  "[[STR=666F6F00]]"
+
+#--- elf-amdgpu-nobits.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v1
+    Type:     SHT_NOBITS
+    Size:     8
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
 
 #--- elf-x86.yaml
 --- !ELF
