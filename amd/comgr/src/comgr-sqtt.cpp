@@ -89,10 +89,79 @@ SQTTTable::getRecordInfo(uint32_t RecordId,
   return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
 }
 
+static amd_comgr_sqtt_event_type_t convertEventType(sqtt::EventType Type) {
+  switch (Type) {
+  case sqtt::EventType::FunctionEntry:
+    return AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_ENTRY;
+  case sqtt::EventType::FunctionExit:
+    return AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_EXIT;
+  case sqtt::EventType::UserEntry:
+    return AMD_COMGR_SQTT_EVENT_TYPE_USER_ENTRY;
+  case sqtt::EventType::UserExit:
+    return AMD_COMGR_SQTT_EVENT_TYPE_USER_EXIT;
+  case sqtt::EventType::SetEventTableBase:
+    return AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE;
+  default:
+    llvm_unreachable("invalid event type");
+  }
+}
+
+amd_comgr_status_t
+SQTTTable::getEventInfo(uint32_t RecordId, size_t EventId,
+                        amd_comgr_sqtt_event_info_t Attribute,
+                        void *Value) const {
+  if (!isEventInfoValid(Attribute)) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  const sqtt::BinarySQTTRecord *Record;
+  amd_comgr_status_t Status = getRecordInfo(RecordId, &Record);
+  if (Status != AMD_COMGR_STATUS_SUCCESS) {
+    return Status;
+  }
+
+  if (EventId >= Record->size()) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  const sqtt::Event &Event = Record->events()[EventId];
+  bool HasString = sqtt::Event::hasStringPayload(Event.getType());
+  switch (Attribute) {
+  case AMD_COMGR_SQTT_EVENT_INFO_TYPE:
+    *static_cast<amd_comgr_sqtt_event_type_t *>(Value) =
+        convertEventType(Event.getType());
+    return AMD_COMGR_STATUS_SUCCESS;
+  case AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING:
+    if (!HasString) {
+      return AMD_COMGR_STATUS_ERROR;
+    }
+    // The reader checked that a null byte follows the payload.
+    *static_cast<const char **>(Value) = Event.getPayload().data();
+    return AMD_COMGR_STATUS_SUCCESS;
+  case AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX:
+    if (HasString) {
+      return AMD_COMGR_STATUS_ERROR;
+    }
+    *static_cast<uint64_t *>(Value) = Event.getIndex();
+    return AMD_COMGR_STATUS_SUCCESS;
+  }
+  return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+}
+
 bool SQTTTable::isRecordInfoValid(amd_comgr_sqtt_record_info_t RecordInfo) {
   switch (RecordInfo) {
   case AMD_COMGR_SQTT_RECORD_INFO_PC:
   case AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT:
+    return true;
+  }
+  return false;
+}
+
+bool SQTTTable::isEventInfoValid(amd_comgr_sqtt_event_info_t EventInfo) {
+  switch (EventInfo) {
+  case AMD_COMGR_SQTT_EVENT_INFO_TYPE:
+  case AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING:
+  case AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX:
     return true;
   }
   return false;
