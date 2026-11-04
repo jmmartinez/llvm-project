@@ -53,3 +53,47 @@ amd_comgr_status_t SQTTTable::create(DataObject *DataP,
   *Table = convert(NewTable.release());
   return AMD_COMGR_STATUS_SUCCESS;
 }
+
+amd_comgr_status_t
+SQTTTable::getRecordInfo(uint32_t RecordId,
+                         const llvm::sqtt::BinarySQTTRecord **Value) const {
+  if (RecordId >= Records.size()) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+  *Value = &Records[RecordId];
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+amd_comgr_status_t
+SQTTTable::getRecordInfo(uint32_t RecordId,
+                         amd_comgr_sqtt_record_info_t Attribute,
+                         void *Value) const {
+  if (!isRecordInfoValid(Attribute)) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  const sqtt::BinarySQTTRecord *Record;
+  amd_comgr_status_t Status = getRecordInfo(RecordId, &Record);
+  if (Status != AMD_COMGR_STATUS_SUCCESS) {
+    return Status;
+  }
+
+  switch (Attribute) {
+  case AMD_COMGR_SQTT_RECORD_INFO_PC:
+    *static_cast<uint64_t *>(Value) = Record->getTTraceDataAddress();
+    return AMD_COMGR_STATUS_SUCCESS;
+  case AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT:
+    *static_cast<uint64_t *>(Value) = Record->size();
+    return AMD_COMGR_STATUS_SUCCESS;
+  }
+  return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+}
+
+bool SQTTTable::isRecordInfoValid(amd_comgr_sqtt_record_info_t RecordInfo) {
+  switch (RecordInfo) {
+  case AMD_COMGR_SQTT_RECORD_INFO_PC:
+  case AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT:
+    return true;
+  }
+  return false;
+}
