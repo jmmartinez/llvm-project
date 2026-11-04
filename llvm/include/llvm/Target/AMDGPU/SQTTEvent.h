@@ -18,12 +18,18 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/AMDGPUSQTTEventType.h"
+#include "llvm/Support/Error.h"
+#include <cassert>
 #include <cstdint>
+#include <vector>
 
 namespace llvm {
 class Function;
 class LLVMContext;
 class Metadata;
+namespace object {
+class ObjectFile;
+} // namespace object
 
 namespace sqtt {
 
@@ -37,6 +43,8 @@ constexpr uint32_t SectionBase = 0xffffffff;
 
 constexpr uint32_t FormatVersion = 1;
 
+class BinarySQTTRecord;
+
 class Event {
   EventType Type;
   union {
@@ -44,11 +52,15 @@ class Event {
     uint32_t IntPayload;
   };
 
-  Event(EventType Type, StringRef Payload)
-      : Type(Type), StringPayload(Payload) {}
-  Event(EventType Type, uint32_t Payload) : Type(Type), IntPayload(Payload) {}
-
 public:
+  Event(EventType Type, StringRef Payload)
+      : Type(Type), StringPayload(Payload) {
+    assert(hasStringPayload(Type));
+  }
+  Event(EventType Type, uint32_t Payload) : Type(Type), IntPayload(Payload) {
+    assert(!hasStringPayload(Type));
+  }
+
   static Event functionEntry(const Function &F);
   static Event functionExit(const Function &F);
   static Event userEntry(StringRef Payload);
@@ -64,6 +76,7 @@ public:
 
   Metadata *toMetadata(LLVMContext &Ctx) const;
   static Event fromMetadata(Metadata *MD);
+  LLVM_ABI static bool hasStringPayload(EventType Type);
 };
 
 class EventRecord {
@@ -77,6 +90,18 @@ public:
   Metadata *toMetadata(LLVMContext &Ctx) const;
   static EventRecord fromMetadata(Metadata *MD);
 };
+
+class BinarySQTTRecord : public EventRecord {
+  uint64_t TTraceDataAddress;
+
+public:
+  BinarySQTTRecord(ArrayRef<Event> Events, uint64_t TTraceDataAddress)
+      : EventRecord(Events), TTraceDataAddress(TTraceDataAddress) {}
+  uint64_t getTTraceDataAddress() const { return TTraceDataAddress; }
+};
+
+LLVM_ABI Expected<std::vector<BinarySQTTRecord>>
+parseBinarySQTTRecords(const object::ObjectFile &O);
 
 } // namespace sqtt
 } // namespace llvm

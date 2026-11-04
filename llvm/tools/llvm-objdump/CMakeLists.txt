@@ -16,6 +16,10 @@ set(LLVM_LINK_COMPONENTS
   TargetParser
   )
 
+if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
+  list(APPEND LLVM_LINK_COMPONENTS AMDGPUSQTT)
+endif()
+
 set(LLVM_TARGET_DEFINITIONS ObjdumpOpts.td)
 tablegen(LLVM ObjdumpOpts.inc -gen-opt-parser-defs)
 add_public_tablegen_target(ObjdumpOptsTableGen)
