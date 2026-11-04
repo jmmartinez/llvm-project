@@ -32,7 +32,12 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // TODO: Print the records once the table getters are implemented.
+  uint64_t Count;
+  amd_comgr_(sqtt_table_get_record_count(Table, &Count));
+  printf("records: %zu\n", (size_t)Count);
+
+  // TODO: Print the records once the record and event getters are
+  // implemented.
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));
   return 0;
