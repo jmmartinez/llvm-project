@@ -747,11 +747,13 @@ amd_comgr_status_t AMD_COMGR_API
     amd_comgr_sqtt_table_get_record_count
     //
     (amd_comgr_sqtt_table_t Table, uint64_t *Count) {
-  if (!Table.handle || !Count) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Count) {
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
-  return AMD_COMGR_STATUS_ERROR;
+  *Count = TableP->recordSize();
+  return AMD_COMGR_STATUS_SUCCESS;
 }
 
 amd_comgr_status_t AMD_COMGR_API
