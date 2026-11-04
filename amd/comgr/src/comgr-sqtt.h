@@ -28,6 +28,8 @@ public:
   static amd_comgr_status_t create(DataObject *DataP,
                                    amd_comgr_sqtt_table_t *Table);
 
+  size_t recordSize() const { return Records.size(); }
+
   static amd_comgr_sqtt_table_t convert(SQTTTable *Table) {
     amd_comgr_sqtt_table_t Handle = {
         static_cast<uint64_t>(reinterpret_cast<uintptr_t>(Table))};

@@ -1,6 +1,8 @@
 // RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
 // RUN:   -fsqtt-instrument %s -o %t.so
-// RUN: sqtt-dump %t.so
+// RUN: sqtt-dump %t.so | %FileCheck %s
+
+// CHECK: records: 6
 
 __attribute__((noinline)) void helper(global int *Out) { *Out = 1; }
 
