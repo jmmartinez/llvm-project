@@ -760,13 +760,14 @@ amd_comgr_status_t AMD_COMGR_API
     // NOLINTNEXTLINE(readability-identifier-naming)
     amd_comgr_sqtt_table_get_record_info
     //
-    (amd_comgr_sqtt_table_t Table, uint32_t EventId,
+    (amd_comgr_sqtt_table_t Table, uint32_t RecordId,
      amd_comgr_sqtt_record_info_t Attribute, void *Value) {
-  if (!Table.handle || !Value) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Value) {
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
-  return AMD_COMGR_STATUS_ERROR;
+  return TableP->getRecordInfo(RecordId, Attribute, Value);
 }
 
 amd_comgr_status_t AMD_COMGR_API

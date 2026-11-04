@@ -36,8 +36,18 @@ int main(int argc, char *argv[]) {
   amd_comgr_(sqtt_table_get_record_count(Table, &Count));
   printf("records: %zu\n", (size_t)Count);
 
-  // TODO: Print the records once the record and event getters are
-  // implemented.
+  for (uint32_t RecordId = 0; RecordId != Count; ++RecordId) {
+    uint64_t PC;
+    uint64_t EventCount;
+    amd_comgr_(sqtt_table_get_record_info(Table, RecordId,
+                                          AMD_COMGR_SQTT_RECORD_INFO_PC, &PC));
+    amd_comgr_(sqtt_table_get_record_info(
+        Table, RecordId, AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT, &EventCount));
+    printf("record %u: pc=%llu events=%zu\n", RecordId, (unsigned long long)PC,
+           (size_t)EventCount);
+  }
+
+  // TODO: Print the events once the event getter is implemented.
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));
   return 0;
