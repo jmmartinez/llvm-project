@@ -11,6 +11,13 @@
 // RUN:   -o %t.link.so
 // RUN: sqtt-dump %t.link.so --all | %FileCheck %s --check-prefix=LINK
 
+// RUN: not sqtt-dump %t.so --record-id 6 --event-id 0 \
+// RUN:   | %FileCheck %s --check-prefix=OUT-OF-RANGE
+// RUN: not sqtt-dump %t.so --record-id 0 --event-id 3 \
+// RUN:   | %FileCheck %s --check-prefix=OUT-OF-RANGE
+// RUN: sqtt-dump %t.so --record-id 2 --event-id 1 \
+// RUN:   | %FileCheck %s --check-prefix=SINGLE-EVENT --match-full-lines
+
 // CHECK: record 0: pc={{[0-9]+}} events=3
 // CHECK-NEXT:   UserExit region
 // CHECK-NEXT:   FunctionExit __clang_ocl_kern_imp_foo
@@ -76,6 +83,11 @@
 // LINK-NEXT:   SetEventTableBase 0
 // LINK-NEXT:   location: helper at ??:0:0
 // LINK-NOT: record {{[0-9]+}}:
+
+// OUT-OF-RANGE: FAILED: sqtt_table_get_event_info({{.*}}) failed: INVALID_ARGUMENT
+
+// SINGLE-EVENT: FunctionEntry __clang_ocl_kern_imp_foo
+// SINGLE-EVENT-NOT: {{.}}
 
 __attribute__((noinline)) void helper(global int *Out) { *Out = 1; }
 
