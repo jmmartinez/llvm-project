@@ -25,6 +25,12 @@ static const char *eventTypeName(amd_comgr_sqtt_event_type_t Type) {
   return "Unknown";
 }
 
+// amd_comgr_symbolize requires a non-null user data, which is unused here.
+static void printLocation(const char *Symbol, void *UserData) {
+  (void)UserData;
+  printf("  location: %s", Symbol);
+}
+
 int main(int argc, char *argv[]) {
   if (argc != 2 || strncmp(argv[1], "--", 2) == 0) {
     fprintf(stderr, "usage: sqtt-dump <executable>\n");
@@ -47,6 +53,9 @@ int main(int argc, char *argv[]) {
     amd_comgr_(release_data(Data));
     return 1;
   }
+
+  amd_comgr_symbolizer_info_t Symbolizer;
+  amd_comgr_(create_symbolizer_info(Data, printLocation, &Symbolizer));
 
   uint64_t Count;
   amd_comgr_(sqtt_table_get_record_count(Table, &Count));
@@ -80,8 +89,11 @@ int main(int argc, char *argv[]) {
         printf("  %s %s\n", eventTypeName(Type), Payload);
       }
     }
+
+    amd_comgr_(symbolize(Symbolizer, PC, /*is_code=*/true, &RecordId));
   }
 
+  amd_comgr_(destroy_symbolizer_info(Symbolizer));
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));
   return 0;
