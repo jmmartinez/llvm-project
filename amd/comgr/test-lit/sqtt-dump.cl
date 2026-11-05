@@ -3,6 +3,10 @@
 // RUN: sqtt-dump %t.so | %FileCheck %s
 
 // RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
+// RUN:   -gline-tables-only -fsqtt-instrument %s -o %t.g.so
+// RUN: sqtt-dump %t.g.so | %FileCheck %s
+
+// RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
 // RUN:   -fsqtt-instrument -mllvm -amdgpu-enable-object-linking %s \
 // RUN:   -o %t.link.so
 // RUN: sqtt-dump %t.link.so | %FileCheck %s --check-prefix=LINK
