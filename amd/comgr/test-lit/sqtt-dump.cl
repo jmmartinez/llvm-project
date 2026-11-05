@@ -1,15 +1,15 @@
 // RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
 // RUN:   -fsqtt-instrument %s -o %t.so
-// RUN: sqtt-dump %t.so | %FileCheck %s --check-prefixes=CHECK,NODEBUG
+// RUN: sqtt-dump %t.so --all | %FileCheck %s --check-prefixes=CHECK,NODEBUG
 
 // RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
 // RUN:   -gline-tables-only -fsqtt-instrument %s -o %t.g.so
-// RUN: sqtt-dump %t.g.so | %FileCheck %s --check-prefixes=CHECK,DEBUG
+// RUN: sqtt-dump %t.g.so --all | %FileCheck %s --check-prefixes=CHECK,DEBUG
 
 // RUN: %clang --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib -O1 \
 // RUN:   -fsqtt-instrument -mllvm -amdgpu-enable-object-linking %s \
 // RUN:   -o %t.link.so
-// RUN: sqtt-dump %t.link.so | %FileCheck %s --check-prefix=LINK
+// RUN: sqtt-dump %t.link.so --all | %FileCheck %s --check-prefix=LINK
 
 // CHECK: record 0: pc={{[0-9]+}} events=3
 // CHECK-NEXT:   UserExit region

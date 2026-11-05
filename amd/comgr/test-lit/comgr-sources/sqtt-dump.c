@@ -32,8 +32,9 @@ static void printLocation(const char *Symbol, void *UserData) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2 || strncmp(argv[1], "--", 2) == 0) {
-    fprintf(stderr, "usage: sqtt-dump <executable>\n");
+  if (argc != 3 || strncmp(argv[1], "--", 2) == 0 ||
+      strcmp(argv[2], "--all") != 0) {
+    fprintf(stderr, "usage: sqtt-dump <executable> --all\n");
     return 1;
   }
 
