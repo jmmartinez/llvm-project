@@ -3,6 +3,7 @@
 
 set(SANITIZER_SOURCES_NOTERMINATION
   sanitizer_allocator.cpp
+  sanitizer_allocator_amdgpu.cpp
   sanitizer_common.cpp
   sanitizer_deadlock_detector1.cpp
   sanitizer_deadlock_detector2.cpp
@@ -26,6 +27,7 @@ set(SANITIZER_SOURCES_NOTERMINATION
   sanitizer_platform_limits_solaris.cpp
   sanitizer_posix.cpp
   sanitizer_printf.cpp
+  sanitizer_procmaps_aix.cpp
   sanitizer_procmaps_common.cpp
   sanitizer_procmaps_bsd.cpp
   sanitizer_procmaps_fuchsia.cpp
@@ -87,6 +89,7 @@ set(SANITIZER_SYMBOLIZER_SOURCES
   sanitizer_stacktrace_printer.cpp
   sanitizer_stacktrace_sparc.cpp
   sanitizer_symbolizer.cpp
+  sanitizer_symbolizer_amdgpu.cpp
   sanitizer_symbolizer_libbacktrace.cpp
   sanitizer_symbolizer_libcdep.cpp
   sanitizer_symbolizer_mac.cpp
@@ -110,6 +113,7 @@ set(SANITIZER_IMPL_HEADERS
   sancov_flags.h
   sancov_flags.inc
   sanitizer_addrhashmap.h
+  sanitizer_aix.h
   sanitizer_allocator.h
   sanitizer_allocator_checks.h
   sanitizer_allocator_combined.h
@@ -199,6 +203,7 @@ set(SANITIZER_IMPL_HEADERS
   sanitizer_stoptheworld.h
   sanitizer_suppressions.h
   sanitizer_symbolizer.h
+  sanitizer_symbolizer_amdgpu.h
   sanitizer_symbolizer_markup_constants.h
   sanitizer_symbolizer_internal.h
   sanitizer_symbolizer_libbacktrace.h
@@ -346,8 +351,12 @@ endif()
 # Host offload helpers for device sanitizers.
 include(FindLibcCommonUtils)
 if(OS_NAME MATCHES "Linux" AND TARGET llvm-libc-common-utilities)
+  set(ALL_SANITIZER_OFFLOAD_SUPPORTED_HOST_ARCH ${X86_64} ${ARM64} ${PPC64})
+  list_intersect(SANITIZER_OFFLOAD_SUPPORTED_HOST_ARCH
+    SANITIZER_COMMON_SUPPORTED_ARCH
+    ALL_SANITIZER_OFFLOAD_SUPPORTED_HOST_ARCH)
   add_compiler_rt_object_libraries(RTSanitizerOffload
-    ARCHS ${SANITIZER_COMMON_SUPPORTED_ARCH}
+    ARCHS ${SANITIZER_OFFLOAD_SUPPORTED_HOST_ARCH}
     SOURCES
       sanitizer_offload.cpp
       sanitizer_offload_image.cpp
@@ -359,7 +368,7 @@ if(OS_NAME MATCHES "Linux" AND TARGET llvm-libc-common-utilities)
       sanitizer_offload_rpc.h
     CFLAGS ${SANITIZER_CFLAGS}
     DEFS ${SANITIZER_COMMON_DEFINITIONS})
-  foreach(arch ${SANITIZER_COMMON_SUPPORTED_ARCH})
+  foreach(arch ${SANITIZER_OFFLOAD_SUPPORTED_HOST_ARCH})
     target_link_libraries(RTSanitizerOffload.${arch} PRIVATE
                           llvm-libc-common-utilities)
   endforeach()

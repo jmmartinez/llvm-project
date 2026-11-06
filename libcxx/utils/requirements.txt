@@ -1,7 +1,8 @@
--r ci/lnt/requirements.txt
 click
+llvm-lnt
 numpy
 pandas
 plotly
+PyGithub
 scipy
 tabulate

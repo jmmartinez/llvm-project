@@ -21,7 +21,7 @@ subroutine test_do(n, a)
   integer :: n, a(n), source_i
   associate(i => source_i)
     !$omp metadirective &
-    !$omp & when(implementation={vendor(llvm)}: do) &
+    !$omp & when(implementation={vendor(amd)}: do) &
     !$omp & otherwise(nothing)
     do i = 1, n
       a(i) = i
@@ -36,7 +36,7 @@ subroutine test_pointer_iv(n, a)
   integer, pointer :: i
   i => target
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i
@@ -49,7 +49,7 @@ subroutine test_threadprivate_iv(n, a)
   integer, save :: i
   !$omp threadprivate(i)
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i

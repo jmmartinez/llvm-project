@@ -1,3 +1,5 @@
+! Fails until we update the pass to use the `fir.do_concurrent` op.
+
 ! Tests that if `do concurrent` is not perfectly nested in its parent loop, that
 ! we skip converting the not-perfectly nested `do concurrent` loop.
 
@@ -31,10 +33,7 @@ end
 ! DEVICE-SAME:   %{{[[:alnum:]]+}} -> %{{[^,]+}},
 ! DEVICE-SAME:   %{{[^[:space:]]+}} -> %[[I_ARG:[^,]+]],
 ! DEVICE-SAME:   %{{[^[:space:]]+}} -> %[[X_ARG:[^,]+]],
-! DEVICE-SAME:   %{{[^[:space:]]+}} -> %[[A_ARG:[^,]+]],
-! DEVICE-SAME:   %{{[^[:space:]]+}} -> %{{[^,]+}},
-! DEVICE-SAME:   %{{[^[:space:]]+}} -> %{{[^,]+}},
-! DEVICE-SAME:   %{{[^[:space:]]+}} -> %{{[^:]+}} :
+! DEVICE-SAME:   %{{[^[:space:]]+}} -> %[[A_ARG:[^:]+]] :
 ! DEVICE-SAME:   {{.*}}) {
 
 ! DEVICE: omp.teams

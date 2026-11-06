@@ -44,7 +44,7 @@ subroutine threadprivate_between(n, a)
   integer :: n, a(n), i
   real, save :: p
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   !$omp threadprivate(p)
   do i = 1, n
@@ -56,7 +56,7 @@ end subroutine
 subroutine requires_between()
   integer :: a(10), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   !$omp requires unified_address
   do i = 1, 10
@@ -97,7 +97,7 @@ end subroutine
 subroutine entry_between()
   integer :: a(10), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   entry alternate_entry()
   do i = 1, 10
@@ -109,7 +109,7 @@ end subroutine
 subroutine acc_routine_between(a)
   integer :: a(10), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   !$acc routine seq
   do i = 1, 10
@@ -121,7 +121,7 @@ end subroutine
 subroutine format_between()
   integer :: a(10), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
 100 format(i0)
   do i = 1, 10
@@ -134,7 +134,7 @@ subroutine acc_declare_between()
   integer, save :: a(10)
   integer :: i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   !$acc declare create(a)
   do i = 1, 10

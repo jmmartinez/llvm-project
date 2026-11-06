@@ -31,7 +31,6 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/VirtualFileSystem.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -335,6 +334,7 @@ void CGNVCUDARuntime::emitDeviceStub(CodeGenFunction &CGF,
           dyn_cast<llvm::GlobalVariable>(KernelHandles[CGF.CurFn->getName()])) {
     GV->setLinkage(CGF.CurFn->getLinkage());
     GV->setInitializer(CGF.CurFn);
+    CGM.setDSOLocal(GV);
   }
   if (CudaFeatureEnabled(CGM.getTarget().getSDKVersion(),
                          CudaFeature::CUDA_USES_NEW_LAUNCH) ||
@@ -599,9 +599,9 @@ static void replaceManagedVar(llvm::GlobalVariable *Var,
     }
     if (auto *I = dyn_cast<llvm::Instruction>(U)) {
       llvm::Value *OldV = Var;
-      llvm::Instruction *NewV =
-          new llvm::LoadInst(Var->getType(), ManagedVar, "ld.managed", false,
-                             Var->getAlign().valueOrOne(), I->getIterator());
+      llvm::Instruction *NewV = new llvm::LoadInst(
+          Var->getType(), ManagedVar, "ld.managed", false,
+          llvm::Align(Var->getAlignment()), I->getIterator());
       WorkItem.pop_back();
       // Replace constant expressions directly or indirectly using the managed
       // variable with instructions.
@@ -731,8 +731,7 @@ llvm::Function *CGNVCUDARuntime::makeRegisterGlobalsFn() {
             Var,
             VarName,
             llvm::ConstantInt::get(VarSizeTy, VarSize),
-            llvm::ConstantInt::get(IntTy,
-                                   Var->getAlign().valueOrOne().value())};
+            llvm::ConstantInt::get(IntTy, Var->getAlignment())};
         if (!Var->isDeclaration())
           Builder.CreateCall(RegisterManagedVar, Args);
       } else {
@@ -1004,7 +1003,7 @@ llvm::Function *CGNVCUDARuntime::makeModuleCtorFunction() {
       GpuBinaryHandle->setVisibility(llvm::GlobalValue::HiddenVisibility);
     Address GpuBinaryAddr(
         GpuBinaryHandle, PtrTy,
-        CharUnits::fromQuantity(GpuBinaryHandle->getAlign().valueOrOne()));
+        CharUnits::fromQuantity(GpuBinaryHandle->getAlignment()));
     {
       auto *HandleValue = CtorBuilder.CreateLoad(GpuBinaryAddr);
       llvm::Constant *Zero =
@@ -1147,7 +1146,7 @@ llvm::Function *CGNVCUDARuntime::makeModuleDtorFunction() {
 
   Address GpuBinaryAddr(
       GpuBinaryHandle, GpuBinaryHandle->getValueType(),
-      CharUnits::fromQuantity(GpuBinaryHandle->getAlign().valueOrOne()));
+      CharUnits::fromQuantity(GpuBinaryHandle->getAlignment()));
   auto *HandleValue = DtorBuilder.CreateLoad(GpuBinaryAddr);
   // There is only one HIP fat binary per linked module, however there are
   // multiple destructor functions. Make sure the fat binary is unregistered
@@ -1327,7 +1326,7 @@ void CGNVCUDARuntime::createOffloadingEntries() {
         llvm::offloading::emitOffloadingEntry(
             M, Kind, I.Var, getDeviceSideName(I.D), VarSize,
             llvm::offloading::OffloadGlobalManagedEntry | Flags,
-            /*Data=*/I.Var->getAlign().valueOrOne().value(), ManagedVar);
+            /*Data=*/I.Var->getAlignment(), ManagedVar);
       } else {
         llvm::offloading::emitOffloadingEntry(
             M, Kind, I.Var, getDeviceSideName(I.D), VarSize,
@@ -1380,7 +1379,7 @@ void CGNVCUDARuntime::createOffloadingEntries() {
       B.CreateCall(RegisterSectionShadow, {Info.Shadow});
     }
     B.CreateRetVoid();
-    llvm::appendToGlobalCtors(M, CtorFn, /*Priority=*/65535);
+    CGM.AddGlobalCtor(CtorFn);
   }
 }
 
@@ -1532,8 +1531,8 @@ llvm::GlobalValue *CGNVCUDARuntime::getKernelHandle(llvm::Function *F,
       CGM.getMangledName(
           GD.getWithKernelReferenceKind(KernelReferenceKind::Kernel)));
   Var->setAlignment(CGM.getPointerAlign().getAsAlign());
-  Var->setDSOLocal(F->isDSOLocal());
   Var->setVisibility(F->getVisibility());
+  CGM.setDSOLocal(Var);
   auto *FD = cast<FunctionDecl>(GD.getDecl());
   auto *FT = FD->getPrimaryTemplate();
   if (!FT || FT->isThisDeclarationADefinition())

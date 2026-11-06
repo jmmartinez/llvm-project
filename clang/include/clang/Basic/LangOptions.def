@@ -222,6 +222,7 @@ LANGOPT(OpenCLGenericAddressSpace, 1, 0, NotCompatible, "OpenCL generic keyword"
 LANGOPT(OpenCLPipes              , 1, 0, NotCompatible, "OpenCL pipes language constructs and built-ins")
 LANGOPT(NativeHalfType    , 1, 0, NotCompatible, "Native half type support")
 LANGOPT(NativeHalfArgsAndReturns, 1, 0, NotCompatible, "Native half args and returns")
+LANGOPT(HalfArgsAndReturns, 1, 0, NotCompatible, "half args and returns")
 LANGOPT(NativeInt16Type   , 1, 1, NotCompatible, "Native int 16 type support")
 LANGOPT(CUDA              , 1, 0, NotCompatible, "CUDA")
 LANGOPT(HIP               , 1, 0, NotCompatible, "HIP")
@@ -234,7 +235,11 @@ LANGOPT(OpenMPCUDAMode    , 1, 0, NotCompatible, "Generate code for OpenMP pragm
 LANGOPT(OpenMPIRBuilder   , 1, 0, NotCompatible, "Use the experimental OpenMP-IR-Builder codegen path.")
 LANGOPT(OpenMPCUDANumSMs  , 32, 0, NotCompatible, "Number of SMs for CUDA devices.")
 LANGOPT(OpenMPCUDABlocksPerSM  , 32, 0, NotCompatible, "Number of blocks per SM for CUDA devices.")
+LANGOPT(OpenMPGPUThreadsPerTeam, 32, 256, NotCompatible, "Number of threads per team for GPUs.")
+LANGOPT(OpenMPTargetXteamReductionBlockSize, 32, 512, NotCompatible, "Number of threads in a block used by cross-team reduction.")
 LANGOPT(OpenMPTargetDebug , 32, 0, NotCompatible, "Enable debugging in the OpenMP offloading device RTL")
+LANGOPT(OpenMPTargetBigJumpLoop , 1, 1, NotCompatible, "Use big jump loop code generation technique.")
+LANGOPT(OpenMPTargetNoLoop , 1, 1, NotCompatible, "Use no-loop code generation technique.")
 LANGOPT(OpenMPOptimisticCollapse  , 1, 0, NotCompatible, "Use at most 32 bits to represent the collapsed loop nest counter.")
 LANGOPT(OpenMPThreadSubscription  , 1, 0, NotCompatible, "Assume work-shared loops do not have more iterations than participating threads.")
 LANGOPT(OpenMPTeamSubscription  , 1, 0, NotCompatible, "Assume distributed loops do not have more iterations than participating teams.")
@@ -242,7 +247,9 @@ LANGOPT(OpenMPNoThreadState  , 1, 0, NotCompatible, "Assume that no thread in a 
 LANGOPT(OpenMPNoNestedParallelism  , 1, 0, NotCompatible, "Assume that no thread in a parallel region will encounter a parallel region")
 LANGOPT(OpenMPOffloadMandatory  , 1, 0, NotCompatible, "Assert that offloading is mandatory and do not create a host fallback.")
 LANGOPT(OpenMPForceUSM     , 1, 0, NotCompatible, "Enable OpenMP unified shared memory mode via compiler.")
+
 LANGOPT(OpenMPTargetAtomicReduction , 1, 0, NotCompatible, "Use atomic operations for OpenMP GPU cross-team reductions where supported.")
+LANGOPT(OpenMPMetadirectiveRuntimeSelection , 1, 0, NotCompatible, "Enable runtime selection of metadirective variants with non-constant user conditions.")
 LANGOPT(NoGPULib  , 1, 0, NotCompatible, "Indicate a build without the standard GPU libraries.")
 
 LANGOPT(HLSL, 1, 0, NotCompatible, "HLSL")
@@ -404,8 +411,6 @@ LANGOPT(ApplePragmaPack, 1, 0, NotCompatible, "Apple gcc-compatible #pragma pack
 
 LANGOPT(XLPragmaPack, 1, 0, NotCompatible, "IBM XL #pragma pack handling")
 
-LANGOPT(RetainCommentsFromSystemHeaders, 1, 0, Compatible, "retain documentation comments from system headers in the AST")
-
 LANGOPT(APINotes, 1, 0, NotCompatible, "use external API notes")
 LANGOPT(APINotesModules, 1, 0, NotCompatible, "use module-based external API notes")
 LANGOPT(SwiftVersionIndependentAPINotes, 1, 0, NotCompatible, "use external API notes capturing all versions")
@@ -469,6 +474,8 @@ ENUM_LANGOPT(SignReturnAddressScope, SignReturnAddressScopeKind, 2, SignReturnAd
              "Scope of return address signing")
 ENUM_LANGOPT(SignReturnAddressKey, SignReturnAddressKeyKind, 1, SignReturnAddressKeyKind::AKey, NotCompatible,
              "Key used for return address signing")
+ENUM_LANGOPT(SignReturnAddressHardening, SignReturnAddressHardeningKind, 1,
+             SignReturnAddressHardeningKind::None, NotCompatible, "Hardening of return address signing")
 LANGOPT(BranchTargetEnforcement, 1, 0, NotCompatible, "Branch-target enforcement enabled")
 LANGOPT(BranchProtectionPAuthLR, 1, 0, NotCompatible, "Use PC as a diversifier using PAuthLR NOP instructions.")
 LANGOPT(GuardedControlStack, 1, 0, NotCompatible, "Guarded control stack enabled")

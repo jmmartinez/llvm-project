@@ -219,6 +219,7 @@ void DebugInfoFinder::processGlobalVariableExpression(
   auto *GV = GVE->getVariable();
   processScope(GV->getScope());
   processType(GV->getType());
+  processType(GV->getStaticDataMemberDeclaration());
 }
 
 void DebugInfoFinder::processInstruction(const Module &M,
@@ -415,6 +416,10 @@ void DebugInfoFinder::processSubprogram(DISubprogram *SP) {
       [this](DIImportedEntity *IE) { processImportedEntity(IE); },
       [this](DIType *T) { processType(T); },
       [this](auto *GVE) { return processGlobalVariableExpression(GVE); });
+
+  // Not reached through the scope, type, or retained nodes.
+  if (DISubprogram *Decl = SP->getDeclaration())
+    processSubprogram(Decl);
 }
 
 void DebugInfoFinder::processVariable(const DILocalVariable *DV) {
@@ -1145,6 +1150,21 @@ static LLVMDIFlags map_to_llvmDIFlags(DINode::DIFlags Flags) {
   return static_cast<LLVMDIFlags>(Flags);
 }
 
+static MemorySpace map_to_llvmMSPACE(LLVMDWARFMemorySpace MS) {
+  switch (MS) {
+#define HANDLE_DW_MSPACE(ID, NAME)                                             \
+  case ID:                                                                     \
+    return DW_MSPACE_LLVM_##NAME;
+#include "llvm/BinaryFormat/Dwarf.def"
+  default:
+    if (MemorySpace::DW_MSPACE_LLVM_lo_user <= MS &&
+        MS <= MemorySpace::DW_MSPACE_LLVM_hi_user)
+      return static_cast<MemorySpace>(MS);
+    break;
+  }
+  llvm_unreachable("LLVMDWARFMemorySpace out-of-range");
+}
+
 static DISubprogram::DISPFlags
 pack_into_DISPFlags(bool IsLocalToUnit, bool IsDefinition, bool IsOptimized) {
   return DISubprogram::toSPFlags(IsLocalToUnit, IsDefinition, IsOptimized);
@@ -1548,12 +1568,12 @@ LLVMDIBuilderCreateBasicType(LLVMDIBuilderRef Builder, const char *Name,
 }
 
 LLVMMetadataRef LLVMDIBuilderCreatePointerType(
-    LLVMDIBuilderRef Builder, LLVMMetadataRef PointeeTy,
-    uint64_t SizeInBits, uint32_t AlignInBits, unsigned AddressSpace,
+    LLVMDIBuilderRef Builder, LLVMMetadataRef PointeeTy, uint64_t SizeInBits,
+    uint32_t AlignInBits, unsigned AddressSpace, LLVMDWARFMemorySpace MS,
     const char *Name, size_t NameLen) {
   return wrap(unwrap(Builder)->createPointerType(
       unwrapDI<DIType>(PointeeTy), SizeInBits, AlignInBits, AddressSpace,
-      {Name, NameLen}));
+      map_to_llvmMSPACE(MS), {Name, NameLen}));
 }
 
 LLVMMetadataRef LLVMDIBuilderCreateStructType(
@@ -1687,11 +1707,13 @@ LLVMDIBuilderCreateQualifiedType(LLVMDIBuilderRef Builder, unsigned Tag,
                                                    unwrapDI<DIType>(Type)));
 }
 
-LLVMMetadataRef
-LLVMDIBuilderCreateReferenceType(LLVMDIBuilderRef Builder, unsigned Tag,
-                                 LLVMMetadataRef Type) {
-  return wrap(unwrap(Builder)->createReferenceType(Tag,
-                                                   unwrapDI<DIType>(Type)));
+LLVMMetadataRef LLVMDIBuilderCreateReferenceType(LLVMDIBuilderRef Builder,
+                                                 unsigned Tag,
+                                                 LLVMMetadataRef Type,
+                                                 unsigned AddressSpace,
+                                                 LLVMDWARFMemorySpace MS) {
+  return wrap(unwrap(Builder)->createReferenceType(
+      Tag, unwrapDI<DIType>(Type), 0, 0, AddressSpace, map_to_llvmMSPACE(MS)));
 }
 
 LLVMMetadataRef
@@ -1818,12 +1840,13 @@ LLVMMetadataRef LLVMDIBuilderCreateGlobalVariableExpression(
     LLVMDIBuilderRef Builder, LLVMMetadataRef Scope, const char *Name,
     size_t NameLen, const char *Linkage, size_t LinkLen, LLVMMetadataRef File,
     unsigned LineNo, LLVMMetadataRef Ty, LLVMBool LocalToUnit,
-    LLVMMetadataRef Expr, LLVMMetadataRef Decl, uint32_t AlignInBits) {
+    LLVMMetadataRef Expr, LLVMMetadataRef Decl, LLVMDWARFMemorySpace MS,
+    uint32_t AlignInBits) {
   return wrap(unwrap(Builder)->createGlobalVariableExpression(
       unwrapDI<DIScope>(Scope), {Name, NameLen}, {Linkage, LinkLen},
-      unwrapDI<DIFile>(File), LineNo, unwrapDI<DIType>(Ty), LocalToUnit,
-      true, unwrap<DIExpression>(Expr), unwrapDI<MDNode>(Decl),
-      nullptr, AlignInBits));
+      unwrapDI<DIFile>(File), LineNo, unwrapDI<DIType>(Ty), LocalToUnit, true,
+      unwrap<DIExpression>(Expr), unwrapDI<MDNode>(Decl), nullptr,
+      map_to_llvmMSPACE(MS), AlignInBits));
 }
 
 LLVMMetadataRef LLVMDIGlobalVariableExpressionGetVariable(LLVMMetadataRef GVE) {
@@ -1868,11 +1891,11 @@ LLVMMetadataRef LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
     LLVMDIBuilderRef Builder, LLVMMetadataRef Scope, const char *Name,
     size_t NameLen, const char *Linkage, size_t LnkLen, LLVMMetadataRef File,
     unsigned LineNo, LLVMMetadataRef Ty, LLVMBool LocalToUnit,
-    LLVMMetadataRef Decl, uint32_t AlignInBits) {
+    LLVMMetadataRef Decl, LLVMDWARFMemorySpace MS, uint32_t AlignInBits) {
   return wrap(unwrap(Builder)->createTempGlobalVariableFwdDecl(
       unwrapDI<DIScope>(Scope), {Name, NameLen}, {Linkage, LnkLen},
       unwrapDI<DIFile>(File), LineNo, unwrapDI<DIType>(Ty), LocalToUnit,
-      unwrapDI<MDNode>(Decl), nullptr, AlignInBits));
+      unwrapDI<MDNode>(Decl), nullptr, map_to_llvmMSPACE(MS), AlignInBits));
 }
 
 LLVMDbgRecordRef LLVMDIBuilderInsertDeclareRecordBefore(
@@ -1919,11 +1942,12 @@ LLVMDbgRecordRef LLVMDIBuilderInsertDbgValueRecordAtEnd(
 LLVMMetadataRef LLVMDIBuilderCreateAutoVariable(
     LLVMDIBuilderRef Builder, LLVMMetadataRef Scope, const char *Name,
     size_t NameLen, LLVMMetadataRef File, unsigned LineNo, LLVMMetadataRef Ty,
-    LLVMBool AlwaysPreserve, LLVMDIFlags Flags, uint32_t AlignInBits) {
+    LLVMBool AlwaysPreserve, LLVMDIFlags Flags, LLVMDWARFMemorySpace MS,
+    uint32_t AlignInBits) {
   return wrap(unwrap(Builder)->createAutoVariable(
-                  unwrap<DIScope>(Scope), {Name, NameLen}, unwrap<DIFile>(File),
-                  LineNo, unwrap<DIType>(Ty), AlwaysPreserve,
-                  map_from_llvmDIFlags(Flags), AlignInBits));
+      unwrap<DIScope>(Scope), {Name, NameLen}, unwrap<DIFile>(File), LineNo,
+      unwrap<DIType>(Ty), AlwaysPreserve, map_from_llvmDIFlags(Flags),
+      map_to_llvmMSPACE(MS), AlignInBits));
 }
 
 LLVMMetadataRef LLVMDIBuilderCreateParameterVariable(

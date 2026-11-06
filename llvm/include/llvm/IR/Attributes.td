@@ -67,9 +67,6 @@ class TypeAttr<string S, AttrProperty I, list<AttrProperty> P> : Attr<S, I, P>;
 /// StringBool attribute.
 class StrBoolAttr<string S> : Attr<S, IntersectPreserve, []>;
 
-/// Arbitrary string attribute.
-class ComplexStrAttr<string S, list<AttrProperty> P> : Attr<S, IntersectPreserve, P>;
-
 /// ConstantRange attribute.
 class ConstantRangeAttr<string S, AttrProperty I, list<AttrProperty> P> : Attr<S, I, P>;
 
@@ -354,6 +351,9 @@ def SanitizeHWAddress : EnumAttr<"sanitize_hwaddress", IntersectPreserve, [FnAtt
 /// MemTagSanitizer is on.
 def SanitizeMemTag : EnumAttr<"sanitize_memtag", IntersectPreserve, [FnAttr]>;
 
+/// Attribute to identify global variables instrumented by Sanitizers.
+def SanitizedPaddedGlobal : EnumAttr<"sanitized_padded_global", IntersectPreserve, [FnAttr]>;
+
 /// NumericalStabilitySanitizer is on.
 def SanitizeNumericalStability : EnumAttr<"sanitize_numerical_stability", IntersectPreserve, [FnAttr]>;
 
@@ -480,6 +480,7 @@ def : CompatRule<"checkDenormMode">;
 def : CompatRule<"checkStrictFP">;
 def : CompatRuleStrAttr<"isEqual", "sign-return-address">;
 def : CompatRuleStrAttr<"isEqual", "sign-return-address-key">;
+def : CompatRuleStrAttr<"isEqual", "sign-return-address-harden">;
 def : CompatRuleStrAttr<"isEqual", "branch-protection-pauth-lr">;
 
 class MergeRule<string F> {

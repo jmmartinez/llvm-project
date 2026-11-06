@@ -10,8 +10,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "OpenMP/OMPT/OmptCommonDefs.h"
 #include "../private.h"
-#include "PluginManager.h"
+#include "OpenMP/OffloadRTL.h"
 #include "device.h"
 #include "omptarget.h"
 #include "rtl.h"
@@ -30,6 +31,16 @@
 #include <cstring>
 #include <mutex>
 
+EXTERN int ompx_get_team_procs(int DeviceNum) {
+  TIMESCOPE();
+  auto DeviceOrErr = PM->getDevice(DeviceNum);
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
+  int TeamProcs = DeviceOrErr->getTeamProcs();
+  ODBG(ODT_Interface) << "Call to ompx_get_team_procs returning " << TeamProcs;
+  return TeamProcs;
+}
+
 EXTERN void ompx_dump_mapping_tables() {
   ident_t Loc = {0, 0, 0, 0, ";libomptarget;libomptarget;0;0;;"};
   auto ExclusiveDevicesAccessor = PM->getExclusiveDevicesAccessor();
@@ -41,8 +52,6 @@ EXTERN void ompx_dump_mapping_tables() {
 using namespace llvm::omp::target::ompt;
 #endif
 using namespace llvm::omp::target::debug;
-
-using GenericDeviceTy = llvm::omp::target::plugin::GenericDeviceTy;
 
 void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
                           const char *Name);
@@ -73,7 +82,7 @@ EXTERN int omp_get_device_num(void) {
 }
 
 static inline bool is_initial_device_uid(const char *DeviceUid) {
-  return strcmp(DeviceUid, GenericPluginTy::getHostDeviceUid()) == 0;
+  return strcmp(DeviceUid, PM->getHostDeviceUid()) == 0;
 }
 
 EXTERN int omp_get_device_from_uid(const char *DeviceUid) {
@@ -96,8 +105,7 @@ EXTERN int omp_get_device_from_uid(const char *DeviceUid) {
 
   auto ExclusiveDevicesAccessor = PM->getExclusiveDevicesAccessor();
   for (const DeviceTy &Device : PM->devices(ExclusiveDevicesAccessor)) {
-    const char *Uid = Device.RTL->getDevice(Device.RTLDeviceID).getDeviceUid();
-    if (Uid && strcmp(DeviceUid, Uid) == 0) {
+    if (Device.getUid() == DeviceUid) {
       DeviceNum = Device.DeviceID;
       break;
     }
@@ -118,15 +126,14 @@ EXTERN const char *omp_get_uid_from_device(int DeviceNum) {
   if (isInitialDevice(DeviceNum)) {
     ODBG(ODT_Interface) << "Call to " << __func__
                         << " returning initial device UID";
-    return GenericPluginTy::getHostDeviceUid();
+    return PM->getHostDeviceUid();
   }
 
   auto DeviceOrErr = PM->getDevice(DeviceNum);
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
-  const char *Uid =
-      DeviceOrErr->RTL->getDevice(DeviceOrErr->RTLDeviceID).getDeviceUid();
+  const char *Uid = DeviceOrErr->getUid().data();
   ODBG(ODT_Interface) << "Call to " << __func__ << " returning " << Uid;
   return Uid;
 }
@@ -268,6 +275,12 @@ EXTERN int omp_target_is_accessible(const void *Ptr, size_t Size,
     return false;
   }
 
+  if (Size == 0) {
+    ODBG(ODT_Interface) << "Call to " << __func__
+                        << " with zero size returning false";
+    return false;
+  }
+
   if (isInitialDevice(DeviceNum)) {
     ODBG(ODT_Interface) << "Call to " << __func__ << " on host, returning true";
     return true;
@@ -335,31 +348,31 @@ EXTERN int omp_target_memcpy(void *Dst, const void *Src, size_t Length,
     if (!SrcDeviceOrErr)
       FATAL_MESSAGE(SrcDevice, "%s",
                     toString(SrcDeviceOrErr.takeError()).c_str());
-    AsyncInfoTy AsyncInfo(*SrcDeviceOrErr);
     auto DstDeviceOrErr = PM->getDevice(DstDevice);
     if (!DstDeviceOrErr)
       FATAL_MESSAGE(DstDevice, "%s",
                     toString(DstDeviceOrErr.takeError()).c_str());
-    // First try to use D2D memcpy which is more efficient. If fails, fall back
-    // to inefficient way.
-    if (SrcDeviceOrErr->isDataExchangable(*DstDeviceOrErr)) {
+    {
       AsyncInfoTy AsyncInfo(*SrcDeviceOrErr);
       Rc = SrcDeviceOrErr->dataExchange(SrcAddr, *DstDeviceOrErr, DstAddr,
                                         Length, AsyncInfo);
-      if (Rc == OFFLOAD_SUCCESS)
-        return OFFLOAD_SUCCESS;
     }
 
-    void *Buffer = malloc(Length);
-    {
-      AsyncInfoTy AsyncInfo(*SrcDeviceOrErr);
-      Rc = SrcDeviceOrErr->retrieveData(Buffer, SrcAddr, Length, AsyncInfo);
+    // Downstream: if the direct copy fails, e.g., because the devices have no
+    // peer access, copy through a host buffer instead.
+    // The copies use queues, so that OMPT device tracing records them.
+    if (Rc != OFFLOAD_SUCCESS) {
+      void *Buffer = malloc(Length);
+      {
+        AsyncInfoTy AsyncInfo(*SrcDeviceOrErr);
+        Rc = SrcDeviceOrErr->retrieveData(Buffer, SrcAddr, Length, AsyncInfo);
+      }
+      if (Rc == OFFLOAD_SUCCESS) {
+        AsyncInfoTy AsyncInfo(*DstDeviceOrErr);
+        Rc = DstDeviceOrErr->submitData(DstAddr, Buffer, Length, AsyncInfo);
+      }
+      free(Buffer);
     }
-    if (Rc == OFFLOAD_SUCCESS) {
-      AsyncInfoTy AsyncInfo(*DstDeviceOrErr);
-      Rc = DstDeviceOrErr->submitData(DstAddr, Buffer, Length, AsyncInfo);
-    }
-    free(Buffer);
   }
 
   ODBG(ODT_Interface) << __func__ << " returns " << Rc;
@@ -486,10 +499,16 @@ EXTERN void *omp_target_memset(void *Ptr, int ByteVal, size_t NumBytes,
     if (!DeviceOrErr)
       FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
     AsyncInfoTy AsyncInfo(*DeviceOrErr);
-    if (auto Error = DeviceOrErr->RTL->getDevice(DeviceOrErr->RTLDeviceID)
-                         .dataFill(Ptr, &ByteVal, 1, NumBytes, AsyncInfo)) {
+    ol_queue_handle_t Queue = AsyncInfo.getQueue();
+    if (!Queue) {
+      ODBG(ODT_Interface) << "Failed to get queue for async memset on device "
+                          << DeviceNum;
+      return Ptr;
+    }
+    if (auto Res = olMemFill(Queue, Ptr, 1, &ByteVal, NumBytes)) {
       ODBG(ODT_Interface)
-          << __func__ << " failed to fill memory due to error with dataFill";
+          << __func__ << " failed to fill memory due to error with dataFill:"
+          << Res->Details;
       // If the dataFill failed, let's just not do anything.
       // omp_target_memset does not have any good way to fail.
       // Depending on the RTL implementation, the application will
@@ -722,6 +741,41 @@ EXTERN int omp_target_disassociate_ptr(const void *HostPtr, int DeviceNum) {
       const_cast<void *>(HostPtr));
   ODBG(ODT_Interface) << __func__ << " returns " << Rc;
   return Rc;
+}
+
+EXTERN int omp_is_coarse_grain_mem_region(void *ptr, size_t size) {
+  if (!(PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY))
+    return 0;
+  auto DeviceOrErr = PM->getDevice(omp_get_default_device());
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(omp_get_default_device(), "%s",
+                  toString(DeviceOrErr.takeError()).c_str());
+
+  return DeviceOrErr->RTL->query_coarse_grain_mem_region(
+      omp_get_default_device(), ptr, size);
+}
+
+// This user-callable function allows host overlays of HIP mem alloc functions
+// to register memory as coarse grain in the openmp runtime. This will
+// prevent duplicate HSA memory registration when OpenMP sees same memory
+// in map clauses.
+EXTERN void omp_register_coarse_grain_mem(void *ptr, size_t size, int setattr) {
+  if (!(PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY))
+    return;
+  auto DeviceOrErr = PM->getDevice(omp_get_default_device());
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(omp_get_default_device(), "%s",
+                  toString(DeviceOrErr.takeError()).c_str());
+
+  if (!(DeviceOrErr->RTL->is_gfx90a(omp_get_default_device()) &&
+        DeviceOrErr->RTL->is_gfx90a_coarse_grain_usm_map_enabled(
+            omp_get_default_device())))
+    return;
+
+  bool set_attr = (setattr == 1) ? true : false;
+  DeviceOrErr->RTL->set_coarse_grain_mem(omp_get_default_device(), ptr, size,
+                                         set_attr);
+  return;
 }
 
 EXTERN void *omp_get_mapped_ptr(const void *Ptr, int DeviceNum) {

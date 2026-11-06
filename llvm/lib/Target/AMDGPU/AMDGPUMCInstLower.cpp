@@ -104,6 +104,11 @@ bool AMDGPUMCInstLower::lowerOperand(const MachineOperand &MO,
     MCSymbol *Sym = Ctx.getOrCreateSymbol(StringRef(MO.getSymbolName()));
     const MCExpr *Expr =
         MCSymbolRefExpr::create(Sym, getSpecifier(MO.getTargetFlags()), Ctx);
+    int64_t Offset = MO.getOffset();
+    if (Offset != 0) {
+      Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(Offset, Ctx),
+                                     Ctx);
+    }
     MCOp = MCOperand::createExpr(Expr);
     return true;
   }
@@ -331,6 +336,10 @@ static void emitVGPRBlockComment(const MachineInstr *MI, const SIInstrInfo *TII,
 void AMDGPUAsmPrinter::emitInstruction(const MachineInstr *MI) {
   if (MI->isCall())
     collectCallEdge(*MI);
+  switch (MI->getOpcode()) {
+  case TargetOpcode::DBG_VALUE:
+    llvm_unreachable("Should be handled target independently");
+  }
 
   // FIXME: Enable feature predicate checks once all the test pass.
   // AMDGPU_MC::verifyInstructionPredicates(MI->getOpcode(),
@@ -355,7 +364,9 @@ void AMDGPUAsmPrinter::emitInstruction(const MachineInstr *MI) {
     const MachineBasicBlock *MBB = MI->getParent();
     MachineBasicBlock::const_instr_iterator I = ++MI->getIterator();
     while (I != MBB->instr_end() && I->isInsideBundle()) {
-      emitInstruction(&*I);
+      bool HandledByEmitDbgComment = I->isDebugInstr() && emitDebugComment(&*I);
+      if(!HandledByEmitDbgComment)
+        emitInstruction(&*I);
       ++I;
     }
   } else {
@@ -451,7 +462,7 @@ void AMDGPUAsmPrinter::emitInstruction(const MachineInstr *MI) {
 
     if (isVerbose() && (MI->getOpcode() == AMDGPU::S_SET_VGPR_MSB ||
                         (MI->getOpcode() == AMDGPU::S_SETREG_IMM32_B32 &&
-                         STI.has1024AddressableVGPRs()))) {
+                         STI.hasVGPRMSBs()))) {
       std::optional<unsigned> V;
       if (MI->getOpcode() == AMDGPU::S_SETREG_IMM32_B32)
         V = AMDGPU::convertSetRegImmToVgprMSBs(*MI,

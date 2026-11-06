@@ -216,6 +216,8 @@ struct DIDumpOptions {
   llvm::SmallVector<unsigned, 0> FilterChildTag;
   std::function<llvm::StringRef(uint64_t DwarfRegNum, bool IsEH)>
       GetNameForDWARFReg;
+  std::function<llvm::StringRef(uint64_t AS)> GetNameForDWARFAddressSpace;
+
   /// The target of the object being dumped.
   Triple TT;
 

@@ -55,6 +55,15 @@ static void AsanDie() {
   WaitForDebugger(flags()->sleep_before_dying, "before dying");
 
   if (flags()->unmap_shadow_on_exit) {
+#if SANITIZER_AIX && SANITIZER_WORDSIZE == 64
+    UnmapOrDie((void*)kHighShadowBeg, kHighShadowEnd - kHighShadowBeg);
+    UnmapOrDie((void*)kMidShadowBeg, kMidShadowEnd - kMidShadowBeg);
+
+    UnmapOrDie((void*)kMid2ShadowBeg, kMid2ShadowEnd - kMid2ShadowBeg);
+    UnmapOrDie((void*)kMid3ShadowBeg, kMid3ShadowEnd - kMid3ShadowBeg);
+
+    UnmapOrDie((void*)kLowShadowBeg, kLowShadowEnd - kLowShadowBeg);
+#else
     if (kMidMemBeg) {
       UnmapOrDie((void*)kLowShadowBeg, kMidMemBeg - kLowShadowBeg);
       UnmapOrDie((void*)kMidMemEnd, kHighShadowEnd - kMidMemEnd);
@@ -62,6 +71,7 @@ static void AsanDie() {
       if (kHighShadowEnd)
         UnmapOrDie((void*)kLowShadowBeg, kHighShadowEnd - kLowShadowBeg);
     }
+#endif
   }
 }
 
@@ -85,7 +95,11 @@ bool AsanInited() {
 bool replace_intrin_cached;
 
 #if !ASAN_FIXED_MAPPING
+#  if !(SANITIZER_AIX && SANITIZER_WORDSIZE == 64)
 uptr kHighMemEnd, kMidMemBeg, kMidMemEnd;
+#  else
+uptr kHighMemEnd;
+#  endif
 #endif
 
 // -------------------------- Misc ---------------- {{{1
@@ -155,6 +169,22 @@ void __asan_report_ ## type ## _n_noabort(uptr addr, uptr size) {           \
 
 ASAN_REPORT_ERROR_N(load, false)
 ASAN_REPORT_ERROR_N(store, true)
+
+extern "C" NOINLINE INTERFACE_ATTRIBUTE void
+__asan_report_assume_dereferenceable(uptr addr, uptr size) {
+  if (__asan_region_is_poisoned(addr, size)) {
+    GET_CALLER_PC_BP_SP;
+    ReportAssumeDereferenceableError(pc, bp, sp, addr, size, true);
+  }
+}
+
+extern "C" NOINLINE INTERFACE_ATTRIBUTE void
+__asan_report_assume_dereferenceable_noabort(uptr addr, uptr size) {
+  if (__asan_region_is_poisoned(addr, size)) {
+    GET_CALLER_PC_BP_SP;
+    ReportAssumeDereferenceableError(pc, bp, sp, addr, size, false);
+  }
+}
 
 #define ASAN_MEMORY_ACCESS_CALLBACK_BODY(type, is_write, size, exp_arg, fatal) \
   uptr sp = MEM_TO_SHADOW(addr);                                               \
@@ -247,6 +277,54 @@ void __asan_storeN_noabort(uptr addr, uptr size) {
   }
 }
 
+// This interface enables to report an error that is triggered in a
+// thread of execution that the compiler-rt doesn't have information about
+// heterogeneous devices such as GPUs, FGPAs can be call this function to
+// report violations.
+// @param nonself_callstack          - pointer to a array of callstack pointers
+// @param n_nonself_callstack        - depth of callstack
+// @param nonself_addrs              - pointer to the array of addresses
+// whose access is defined by instrumentation as invalid
+// @param n_nonself_addrs            - number of such addresses
+// @param nonself_tids               - pointer to the array identifying the
+// reporting entity.
+// @param n_nonself_tids             - length of the identity
+// @param is_write                   - access type
+// @param access_size                - access size
+// @param is_abort                   - flag to abort the execution
+// @param nonself_name               - c string literal describing the non self
+// entity
+// @param nonself_adjust_vma         - difference between actual load address
+// and VA specified in object.
+// @param nonself_fd                 - posix file handle to the object code (-1
+// if not applicable)
+// @param nonself_file_extent_size   - file size (0 if not applicable)
+// @param nonself_file_extent_start  - file offset (0 if not applicable)
+//
+extern "C" NOINLINE INTERFACE_ATTRIBUTE void __asan_report_nonself_error(
+    uptr *nonself_callstack, u32 n_nonself_callstack, uptr *nonself_addrs,
+    u32 n_nonself_addrs, u64 *nonself_tids, u32 n_nonself_tids, bool is_write,
+    u32 access_size, bool is_abort, const char *nonself_name,
+    s64 nonself_adjust_vma, int nonself_fd, u64 nonself_file_extent_size,
+    u64 nonself_file_extent_start = /*default*/ 0) {
+  ReportNonselfError(nonself_callstack, n_nonself_callstack, nonself_addrs,
+                     n_nonself_addrs, nonself_tids, n_nonself_tids, is_write,
+                     access_size, is_abort, nonself_name, nonself_adjust_vma,
+                     nonself_fd, nonself_file_extent_size,
+                     nonself_file_extent_start);
+}
+
+// Report a device memory leak, or print a summary when device_id == -1.
+// Called by GPU runtimes to report allocations made on the device that
+// were never freed.
+extern "C" NOINLINE INTERFACE_ATTRIBUTE void __asan_report_nonself_leak(
+    u64 alloc_pc, u64 alloc_size, int device_id, const char *device_name,
+    s64 vma_adjust, int fd, u64 file_extent_size,
+    u64 file_extent_start = /*default*/ 0) {
+  ReportNonselfLeak(alloc_pc, alloc_size, device_id, device_name, vma_adjust,
+                    fd, file_extent_size, file_extent_start);
+}
+
 // Force the linker to keep the symbols for various ASan interface functions.
 // We want to keep those in the executable in order to let the instrumented
 // dynamic libraries access the symbol even if it is not used by the executable
@@ -309,6 +387,8 @@ static NOINLINE void force_interface_symbols() {
     case 50: __asan_set_shadow_f3(0, 0); break;
     case 51: __asan_set_shadow_f5(0, 0); break;
     case 52: __asan_set_shadow_f8(0, 0); break;
+    case 53: __asan_report_nonself_error(0,0,0,0,0,0,0,0,0,
+                 0,0,0,0,0); break;
   }
   // clang-format on
 }
@@ -383,10 +463,14 @@ void PrintAddressSpaceLayout() {
   Printf("SHADOW_SCALE: %d\n", (int)ASAN_SHADOW_SCALE);
   Printf("SHADOW_GRANULARITY: %d\n", (int)ASAN_SHADOW_GRANULARITY);
   Printf("SHADOW_OFFSET: %p\n", (void *)ASAN_SHADOW_OFFSET);
+  Printf("kGaplessShadow: %d\n", kGaplessShadow);
   CHECK(ASAN_SHADOW_SCALE >= 3 && ASAN_SHADOW_SCALE <= 7);
   if (kMidMemBeg)
     CHECK(kMidShadowBeg > kLowShadowEnd &&
+// On AIX 64-bit, we have a highly customized memory layout.
+#if !SANITIZER_AIX || SANITIZER_WORDSIZE != 64
           kMidMemBeg > kMidShadowEnd &&
+#endif
           kHighShadowBeg > kMidMemEnd);
 }
 

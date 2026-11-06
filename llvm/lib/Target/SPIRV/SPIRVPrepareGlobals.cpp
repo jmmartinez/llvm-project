@@ -6,13 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The pass:
-//   - transforms IR globals that cannot be trivially mapped to SPIRV into
-//     something that is trival to lower;
-//   - for AMDGCN flavoured SPIRV, it assigns unique IDs to the specialisation
-//     constants associated with feature predicates, which were inserted by the
-//     FE when expanding calls to __builtin_amdgcn_processor_is or
-//     __builtin_amdgcn_is_invocable
+// The pass transforms IR globals that cannot be trivially mapped to SPIRV
+// into something that is trival to lower.
 //
 //===----------------------------------------------------------------------===//
 
@@ -20,8 +15,6 @@
 #include "SPIRVUtils.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/IR/IntrinsicsSPIRV.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
@@ -70,7 +63,9 @@ bool tryReplaceAliasWithAliasee(GlobalAlias &GA) {
     return false;
   }
 
-  if (AO->isInterposable()) {
+  // noipa doesn't affect which definition is used at link time, so it doesn't
+  // prevent replacing the alias.
+  if (AO->isInterposable(/*CheckNoIPA=*/false)) {
     LLVM_DEBUG(dbgs() << "Skipping interposable aliasee: " << AO->getName()
                       << "\n");
     return false;

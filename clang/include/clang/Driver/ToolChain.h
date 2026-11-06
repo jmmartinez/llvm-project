@@ -15,6 +15,7 @@
 #include "clang/Basic/Sanitizers.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Multilib.h"
+#include "clang/Driver/Tool.h"
 #include "clang/Driver/Types.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -52,10 +53,10 @@ class ObjCRuntime;
 
 namespace driver {
 
+class Compilation;
 class Driver;
 class InputInfo;
 class SanitizerArgs;
-class Tool;
 class XRayArgs;
 
 enum LTOKind : int;
@@ -209,6 +210,8 @@ private:
   mutable std::optional<CStdlibType> cStdlibType;
 
 protected:
+  // OpenMP creates a toolchain for each target arch. eg - gfx908
+  std::string TargetID;
   MultilibSet Multilibs;
   llvm::SmallVector<Multilib> SelectedMultilibs;
   SmallVector<std::string> MultilibMacroDefines;
@@ -316,6 +319,8 @@ public:
     return !EffectiveTriple.getTriple().empty();
   }
 
+  StringRef getTargetID() const { return TargetID; }
+
   path_list &getLibraryPaths() { return LibraryPaths; }
   const path_list &getLibraryPaths() const { return LibraryPaths; }
 
@@ -402,8 +407,9 @@ public:
   /// TranslateOpenMPTargetArgs - Create a new derived argument list for
   /// that contains the OpenMP target specific flags passed via
   /// -Xopenmp-target -opt=val OR -Xopenmp-target=<triple> -opt=val
+  /// HostTriple is the resolved host target, including architecture overrides.
   virtual llvm::opt::DerivedArgList *TranslateOpenMPTargetArgs(
-      const llvm::opt::DerivedArgList &Args, bool SameTripleAsHost,
+      const llvm::opt::DerivedArgList &Args, const llvm::Triple &HostTriple,
       SmallVectorImpl<llvm::opt::Arg *> &AllocatedArgs) const;
 
   /// Append the argument following \p A to \p DAL assuming \p A is an Xarch

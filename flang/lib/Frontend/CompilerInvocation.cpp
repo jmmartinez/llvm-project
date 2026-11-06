@@ -29,6 +29,8 @@
 #include "clang/Options/OptionUtils.h"
 #include "clang/Options/Options.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Frontend/Debug/Options.h"
@@ -46,6 +48,7 @@
 #include "llvm/TargetParser/Triple.h"
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -199,7 +202,7 @@ static bool parseDoConcurrentMapping(Fortran::frontend::CodeGenOptions &opts,
                                      llvm::opt::ArgList &args,
                                      clang::DiagnosticsEngine &diags) {
   llvm::opt::Arg *arg =
-      args.getLastArg(clang::options::OPT_fdo_concurrent_to_openmp_EQ);
+      args.getLastArg(clang::options::OPT_fdo_concurrent_EQ);
   if (!arg)
     return true;
 
@@ -342,6 +345,10 @@ static void parseCodeGenArgs(Fortran::frontend::CodeGenOptions &opts,
   if (args.hasFlag(clang::options::OPT_floop_versioning,
                    clang::options::OPT_fno_loop_versioning, false))
     opts.LoopVersioning = 1;
+
+  if (args.hasFlag(clang::options::OPT_floop_tripcount_versioning,
+                   clang::options::OPT_fno_loop_tripcount_versioning, false))
+    opts.LoopTripCountVersioning = 1;
 
   opts.UnrollLoops = args.hasFlag(clang::options::OPT_funroll_loops,
                                   clang::options::OPT_fno_unroll_loops,
@@ -559,6 +566,17 @@ static void parseCodeGenArgs(Fortran::frontend::CodeGenOptions &opts,
                    clang::options::OPT_funderscoring, false)) {
     opts.Underscoring = 0;
   }
+
+  if (args.hasFlag(clang::options::OPT_foffload_global_filtering,
+                   clang::options::OPT_fno_offload_global_filtering, false)) {
+    opts.OffloadGlobalFiltering = 1;
+  }
+
+  parseDoConcurrentMapping(opts, args, diags);
+
+  opts.DeferDescriptorMapping =
+      args.hasFlag(clang::options::OPT_fdefer_desc_map,
+                   clang::options::OPT_fno_defer_desc_map, true);
 
   if (const llvm::opt::Arg *arg =
           args.getLastArg(clang::options::OPT_complex_range_EQ)) {
@@ -869,7 +887,12 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
     if (argValue == "none") {
       columns = 0;
     } else if (argValue.getAsInteger(/*Radix=*/10, columns)) {
-      columns = -1;
+      if (!argValue.empty() && llvm::all_of(argValue, llvm::isDigit)) {
+        // Route oversized positive decimals to the large-columns diagnostic.
+        columns = std::numeric_limits<std::int64_t>::max();
+      } else {
+        columns = -1;
+      }
     }
     if (columns < 0) {
       diags.Report(clang::diag::err_drv_negative_columns)
@@ -879,6 +902,10 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
     } else if (columns < 7) {
       diags.Report(clang::diag::err_drv_small_columns)
           << arg->getOption().getName() << arg->getValue() << "7";
+    } else if (columns > std::numeric_limits<int>::max()) {
+      diags.Report(clang::diag::err_drv_large_columns)
+          << arg->getOption().getName() << arg->getValue()
+          << std::numeric_limits<int>::max();
     } else {
       opts.fixedFormColumns = columns;
     }
@@ -906,6 +933,12 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
                                     clang::options::OPT_fno_implicit_none_ext,
                                     false));
 
+  // -f{no-}implicit-module-prefix
+  opts.features.Enable(
+      Fortran::common::LanguageFeature::ImplicitModulePrefix,
+      args.hasFlag(clang::options::OPT_fimplicit_module_prefix,
+                   clang::options::OPT_fno_implicit_module_prefix, false));
+
   // -f{no-}backslash
   opts.features.Enable(Fortran::common::LanguageFeature::BackslashEscapes,
                        args.hasFlag(clang::options::OPT_fbackslash,
@@ -927,12 +960,6 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
       Fortran::common::LanguageFeature::OutOfBoundsSubscripts,
       args.hasFlag(clang::options::OPT_fout_of_bounds_subscripts,
                    clang::options::OPT_fno_out_of_bounds_subscripts, true));
-
-  // -f{no-}enumeration-type (experimental; FIR lowering is incomplete)
-  opts.features.Enable(Fortran::common::LanguageFeature::EnumerationType,
-                       args.hasFlag(clang::options::OPT_fenumeration_type,
-                                    clang::options::OPT_fno_enumeration_type,
-                                    false));
 
   // -frelaxed-c-loc-checks
   if (args.hasArg(clang::options::OPT_relaxed_c_loc)) {
@@ -979,6 +1006,19 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
                        args.hasFlag(clang::options::OPT_fsave_main_program,
                                     clang::options::OPT_fno_save_main_program,
                                     false));
+
+  // -fopenmp-default-allocate={target,host}
+  if (const auto *arg =
+          args.getLastArg(clang::options::OPT_fopenmp_default_allocate_EQ)) {
+    llvm::StringRef val = arg->getValue();
+    if (val == "target") {
+      opts.features.Enable(
+          Fortran::common::LanguageFeature::OpenMPDefaultAllocator);
+    } else if (val != "host") {
+      diags.Report(clang::diag::err_drv_invalid_value)
+          << arg->getAsString(args) << val;
+    }
+  }
 
   if (args.hasArg(clang::options::OPT_falternative_parameter_statement)) {
     opts.features.Enable(Fortran::common::LanguageFeature::OldStyleParameter);
@@ -1082,6 +1122,26 @@ static bool parseSemaArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
   }
   if (moduleDirList.size() == 1)
     res.setModuleDir(moduleDirList[0]);
+
+  // -fmodule-mismatch-check=<value>
+  if (const auto *arg =
+          args.getLastArg(clang::options::OPT_fmodule_mismatch_check_EQ)) {
+    using ModuleMismatchCheckTy =
+        Fortran::common::LangOptions::ModuleMismatchCheckTy;
+    auto check = llvm::StringSwitch<std::optional<ModuleMismatchCheckTy>>(
+                     arg->getValue())
+                     .Case("on", Fortran::common::LangOptions::MMC_On)
+                     .Case("warn", Fortran::common::LangOptions::MMC_Warn)
+                     .Case("non-intrinsic",
+                           Fortran::common::LangOptions::MMC_NonIntrinsic)
+                     .Default(std::nullopt);
+    if (check) {
+      res.getLangOpts().setModuleMismatchCheck(*check);
+    } else {
+      diags.Report(clang::diag::err_drv_invalid_value)
+          << arg->getAsString(args) << arg->getValue();
+    }
+  }
 
   // -fdebug-module-writer option
   if (args.hasArg(clang::options::OPT_fdebug_module_writer)) {
@@ -1310,7 +1370,8 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
 
   llvm::Triple t(res.getTargetOpts().triple);
 
-  constexpr unsigned newestFullySupported = 31;
+  constexpr unsigned newestFullySupported = 52;
+  // By default OpenMP is set to 5.2 version
   constexpr unsigned latestFinalized = 60;
   // By default OpenMP is set to the most recent fully supported version
   res.getLangOpts().OpenMPVersion = newestFullySupported;
@@ -1319,7 +1380,7 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
   if (auto *arg = args.getLastArg(clang::options::OPT_fopenmp_version_EQ)) {
     llvm::SmallVector<unsigned> ompVersions;
     for (llvm::omp::Version v : llvm::omp::getOpenMPVersions()) {
-      ompVersions.push_back(static_cast<unsigned>(v));
+      ompVersions.push_back(v.value());
     }
     unsigned oldVersions[] = {11, 20, 25, 30};
     unsigned version = 0;
@@ -1341,10 +1402,12 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
       if (llvm::is_contained(ompVersions, version)) {
         res.getLangOpts().OpenMPVersion = version;
 
+#if ENABLED_FOR_STAGING
         if (version > latestFinalized)
           diags.Report(clang::diag::warn_openmp_spec_incomplete) << version;
         else if (version > newestFullySupported)
           diags.Report(clang::diag::warn_openmp_impl_incomplete) << version;
+#endif
       } else if (llvm::is_contained(oldVersions, version)) {
         const unsigned diagID =
             diags.getCustomDiagID(clang::DiagnosticsEngine::Warning,
@@ -1446,6 +1509,7 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
         res.getLangOpts().OMPTargetTriples.push_back(tt);
     }
   }
+
   return !diags.hasUncompilableErrorOccurred();
 }
 
@@ -1978,6 +2042,7 @@ void CompilerInvocation::setDefaultPredefinitions() {
   auto &fortranOptions = getFortranOpts();
   const auto &frontendOptions = getFrontendOpts();
   // Populate the macro list with version numbers and other predefinitions.
+  fortranOptions.predefinitions.emplace_back("__amdflang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang_major__",
                                              FLANG_VERSION_MAJOR_STRING);
@@ -2007,9 +2072,8 @@ void CompilerInvocation::setDefaultPredefinitions() {
   }
   if (frontendOptions.features.IsEnabled(
           Fortran::common::LanguageFeature::OpenMP)) {
-    Fortran::common::setOpenMPMacro(
-        static_cast<unsigned>(getLangOpts().getOpenMPVersion()),
-        fortranOptions.predefinitions);
+    Fortran::common::setOpenMPMacro(getLangOpts().getOpenMPVersion().value(),
+                                    fortranOptions.predefinitions);
   }
 
   if (frontendOptions.features.IsEnabled(

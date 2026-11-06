@@ -22,6 +22,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <variant>
+
+#ifdef OMPT_SUPPORT
+#include "OpenMP/OMPT/OmptEventInfoTy.h"
+#include <omp-tools.h>
+#endif
 #include <mutex>
 #include <utility>
 
@@ -62,11 +69,6 @@ struct __tgt_target_table {
       *EntriesEnd; // End of the table with all the entries (non inclusive)
 };
 
-/// This struct contains a handle to a loaded binary in the plugin device.
-struct __tgt_device_binary {
-  uintptr_t handle;
-};
-
 // clang-format on
 
 /// This struct contains information exchanged between different asynchronous
@@ -88,6 +90,14 @@ struct __tgt_async_info {
   /// ensure it is a valid location while the transfer to the device is
   /// happening.
   KernelLaunchEnvironmentTy KernelLaunchEnvironment;
+
+  /// Use for sync interface. When false => synchronous execution
+  bool ExecAsync = true;
+
+  /// Opaque handle for profiler-specific data (e.g., OMPT trace record info).
+  /// Owned by the profiler; the runtime threads this pointer through the plugin
+  /// layer to associate async operations with trace records.
+  void *ProfilerData = nullptr;
 };
 
 /// This struct contains all of the arguments to a target kernel region launch.
@@ -110,8 +120,8 @@ struct KernelArgsTy {
     uint64_t Cooperative : 1; // Was this kernel spawned as cooperative.
     uint64_t IsPtrArgs : 1;   // Arguments are laid out as an array of pointers.
     uint64_t StrictBlocks : 1; // The user-requested number of blocks is strict.
-    uint64_t StrictThreads
-        : 1; // The user-requested number of threads is strict.
+    uint64_t
+        StrictThreads : 1; // The user-requested number of threads is strict.
     uint64_t Unused : 56;
   } Flags = {0, 0, 0, 0, 0, 0, 0, 0};
   // User-requested number of blocks (for x,y,z dimension).

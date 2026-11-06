@@ -72,6 +72,7 @@ defm real_8_real_16 : BooleanFFlag<"real-8-real-16">, Group<gfortran_Group>;
 defm real_8_real_4 : BooleanFFlag<"real-8-real-4">, Group<gfortran_Group>;
 defm recursive : BooleanFFlag<"recursive">, Group<gfortran_Group>;
 defm second_underscore : BooleanFFlag<"second-underscore">, Group<gfortran_Group>;
+defm offload_global_filtering : OptInFC1FFlag<"offload-global-filtering", "Enable/disable OpenMP global filtering pass">;
 defm sign_zero : BooleanFFlag<"sign-zero">, Group<gfortran_Group>;
 defm whole_file : BooleanFFlag<"whole-file">, Group<gfortran_Group>;
 
@@ -136,6 +137,18 @@ def module_dir : JoinedOrSeparate<["-"], "module-dir">, MetaVarName<"<dir>">,
   DocBrief<[{This option specifies where to put .mod files for compiled modules.
 It is also added to the list of directories to be searched by an USE statement.
 The default is the current directory.}]>;
+def fmodule_mismatch_check_EQ : Joined<["-"], "fmodule-mismatch-check=">,
+  Group<f_Group>,
+  HelpText<"Check consistency of used modules (option: on, non-intrinsic, warn)">,
+  DocBrief<[{Normally, when loading a .mod file, Flang checks whether the
+modules it itself depends on are the same modules from when the .mod file was
+created. If there is a mismatch, compilation fails. The option converts this
+error into a warning instead. The warning can be silenced using
+-Wno-module-file-mismatch and thus mismatches are completely ignored.
+-fmodule-mismatch-check=non-intrinsic still keeps the error for user modules
+where mismatches hint towards a build dependency problem. Mismatches of
+intrinsic modules are expected after a compiler upgrade. Upgraded intrinsic
+modules are supposed to be backwards-compatible.}]>;
 
 def ffixed_form : Flag<["-"], "ffixed-form">, Group<f_Group>,
   HelpText<"Process source files in fixed form">;
@@ -183,6 +196,8 @@ defm xor_operator : OptInFC1FFlag<"xor-operator", "Enable .XOR. as a synonym of 
 defm logical_abbreviations : OptInFC1FFlag<"logical-abbreviations", "Enable logical abbreviations">;
 defm implicit_none : OptInFC1FFlag<"implicit-none", "No implicit typing allowed unless overridden by IMPLICIT statements">;
 defm implicit_none_ext : OptInFC1FFlag<"implicit-none-ext", "No implicit externals allowed">;
+defm implicit_module_prefix : OptInFC1FFlag<"implicit-module-prefix",
+  "Treat a submodule procedure as if it had a missing MODULE prefix when it matches an ancestor interface">;
 defm underscoring : OptInFC1FFlag<"underscoring", "Appends one trailing underscore to external names">;
 defm ppc_native_vec_elem_order: BoolOptionWithoutMarshalling<"f", "ppc-native-vector-element-order",
   PosFlag<SetTrue, [], [ClangOption], "Specifies PowerPC native vector element order (default)">,
@@ -191,7 +206,6 @@ defm unsigned : OptInFC1FFlag<"unsigned", "Enables UNSIGNED type">;
 defm out_of_bounds_subscripts : OptOutFC1FFlag<"out-of-bounds-subscripts",
   "Accept a constant subscript that is out of bounds, with a warning (default)",
   "Reject a constant subscript that is out of bounds with an error">;
-defm enumeration_type : OptInFC1FFlag<"enumeration-type", "Enables F2023 ENUMERATION TYPE (experimental; FIR lowering is incomplete)">;
 defm openacc_default_none_scalars_strict : OptOutFC1FFlag<"openacc-default-none-scalars-strict",
   "Require explicit data clauses for all variables (including scalars) under OpenACC DEFAULT(NONE)",
   "Allow scalars without explicit data clauses under OpenACC DEFAULT(NONE) (default, pre-OpenACC-3.2 behavior)">;
@@ -276,6 +290,10 @@ defm loop_versioning : BoolOptionWithoutMarshalling<"f", "version-loops-for-stri
   PosFlag<SetTrue, [], [ClangOption], "Create unit-strided versions of loops">,
    NegFlag<SetFalse, [], [ClangOption], "Do not create unit-strided loops (default)">>;
 
+defm loop_tripcount_versioning : BoolOptionWithoutMarshalling<"f", "version-loops-for-trip-count",
+  PosFlag<SetTrue, [], [], "Create constant-trip-count versions of array section loops">,
+   NegFlag<SetFalse, [], [], "Do not create constant-trip-count loops (default)">>;
+
 defm stack_repack_arrays
     : BoolOptionWithoutMarshalling<
           "f", "stack-repack-arrays",
@@ -308,9 +326,18 @@ using such aliases may exhibit unexpected behavior.}]>;
 def fhermetic_module_files : Flag<["-"], "fhermetic-module-files">, Group<f_Group>,
   HelpText<"Emit hermetic module files (no nested USE association)">;
 
-def fdo_concurrent_to_openmp_EQ : Joined<["-"], "fdo-concurrent-to-openmp=">,
+def fdo_concurrent_EQ : Joined<["-"], "fdo-concurrent=">,
   HelpText<"Try to map `do concurrent` loops to OpenMP [none|host|device]">,
       Values<"none, host, device">;
+def fdo_concurrent_to_openmp_EQ : Joined<["-"], "fdo-concurrent-to-openmp=">, Flags<[HelpHidden]>, HelpText<"Alias for -fdo-concurrent">, Alias<fdo_concurrent_EQ>;
+
+def fdefer_desc_map : Flag<["-"], "fdefer-desc-map">, Group<f_Group>,
+  HelpText<"Enable deferred descriptor mapping, which puts off top-level descriptor "
+    "mapping until target regions, this is the default behaviour">;
+
+def fno_defer_desc_map : Flag<["-"], "fno-defer-desc-map">, Group<f_Group>,
+  HelpText<"Disable deferred deferred descriptor mapping, which puts off top-level "
+          " descriptor mapping till target regions">;
 
 def J : JoinedOrSeparate<["-"], "J">,
   Flags<[RenderJoined]>, Group<gfortran_Group>, Alias<module_dir>;
@@ -330,7 +357,7 @@ defm fp_sum_reassociation
           PosFlag<SetTrue, [], [],
                   "Enable Fortran-standard compliant reassociation within "
                   "individual REAL and COMPLEX sum expressions. This may "
-                  "change exact floating-point results. Enabled by default">,
+                  "change exact floating-point results">,
           NegFlag<SetFalse, [], [],
                   "Disable reassociation within individual REAL and COMPLEX "
                   "sum expressions">>,

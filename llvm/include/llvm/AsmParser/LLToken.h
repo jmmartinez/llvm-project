@@ -186,6 +186,7 @@ enum Kind {
   kw_amdgpu_gfx_whole_wave,
   kw_tailcc,
   kw_m68k_rtdcc,
+  kw_wasm_emscripten_invokecc,
   kw_graalcc,
   kw_riscv_vector_cc,
   kw_riscv_vls_cc,
@@ -431,6 +432,7 @@ enum Kind {
   kw_unknown,
   kw_critical,
   kw_relbf,
+  kw_indirect,
   kw_variable,
   kw_vTableFuncs,
   kw_virtFunc,
@@ -516,6 +518,7 @@ enum Kind {
   DwarfSourceLangName, // DW_LNAME_foo
   DwarfLangDialect,    // DW_LLVM_LANG_DIALECT_foo
   DwarfCC,             // DW_CC_foo
+  DwarfMSpaceLLVM,     // DW_MSPACE_LLVM_foo
   EmissionKind,        // lineTablesOnly
   NameTableKind,       // GNU
   FixedPointKind,      // Fixed point
@@ -524,6 +527,7 @@ enum Kind {
   DISPFlag,            // DISPFlagFoo
   DwarfMacinfo,        // DW_MACINFO_foo
   ChecksumKind,        // CSK_foo
+  DIOp,                // DIOpFoo
   DbgRecordType,       // dbg_foo
   DwarfEnumKind,       // DW_APPLE_ENUM_KIND_foo
   FloatLiteral,        // Unparsed float literal

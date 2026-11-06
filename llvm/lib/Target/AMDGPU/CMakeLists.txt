@@ -76,6 +76,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPULibFunc.cpp
   AMDGPULowerBufferFatPointers.cpp
   AMDGPULowerIntrinsics.cpp
+  AMDGPUSQTTLower.cpp
   AMDGPULowerKernelArguments.cpp
   AMDGPULowerKernelAttributes.cpp
   AMDGPULowerModuleLDSPass.cpp
@@ -132,6 +133,7 @@ add_llvm_target(AMDGPUCodeGen
   GCNIterativeScheduler.cpp
   GCNMinRegStrategy.cpp
   GCNNSAReassign.cpp
+  GCNPreRAAntiHints.cpp
   GCNPreRAOptimizations.cpp
   GCNPreRALongBranchReg.cpp
   GCNRegPressure.cpp
@@ -196,6 +198,7 @@ add_llvm_target(AMDGPUCodeGen
   LINK_COMPONENTS
   AMDGPUDesc
   AMDGPUInfo
+  AMDGPUSQTT
   AMDGPUUtils
   Analysis
   AsmPrinter
@@ -229,4 +232,5 @@ add_subdirectory(Disassembler)
 add_subdirectory(MCA)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
+add_subdirectory(SQTT)
 add_subdirectory(Utils)

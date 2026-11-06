@@ -35,8 +35,18 @@
   X(hsa_signal_store_screlease)           \
   X(hsa_signal_wait_scacquire)
 
+#if defined(SANITIZER_AMDHSA) && SANITIZER_AMDHSA && \
+    __has_include(<hsa.h>) && __has_include(<hsa_ext_amd.h>) &&              \
+    __has_include(<hsa_ven_amd_loader.h>)
+#  include <hsa.h>
+#  include <hsa_ext_amd.h>
+#  include <hsa_ven_amd_loader.h>
+#  define SANITIZER_USE_SYSTEM_HSA
+#endif
+
 extern "C" {
 
+#ifndef SANITIZER_USE_SYSTEM_HSA
 typedef struct hsa_agent_s {
   uint64_t handle;
 } hsa_agent_t;
@@ -124,6 +134,7 @@ typedef enum {
 typedef enum {
   HSA_VEN_AMD_LOADER_CODE_OBJECT_STORAGE_TYPE_MEMORY = 2,
 } hsa_ven_amd_loader_code_object_storage_type_t;
+#endif
 
 // Version 1.01 of HSA_EXTENSION_AMD_LOADER. Slot order is the extension ABI.
 struct LoaderApi {
@@ -140,6 +151,7 @@ struct LoaderApi {
 };
 static_assert(sizeof(LoaderApi) == 5 * sizeof(void*), "layout drift");
 
+#ifndef SANITIZER_USE_SYSTEM_HSA
 hsa_status_t hsa_init(void);
 hsa_status_t hsa_shut_down(void);
 hsa_status_t hsa_iterate_agents(hsa_status_t (*callback)(hsa_agent_t, void*),
@@ -186,7 +198,10 @@ hsa_signal_value_t hsa_signal_wait_scacquire(hsa_signal_t signal,
                                              hsa_signal_value_t compare_value,
                                              uint64_t timeout_hint,
                                              hsa_wait_state_t wait_state_hint);
+#endif
 
 }  // extern "C"
+
+#undef SANITIZER_USE_SYSTEM_HSA
 
 #endif  // SANITIZER_OFFLOAD_HSA_H

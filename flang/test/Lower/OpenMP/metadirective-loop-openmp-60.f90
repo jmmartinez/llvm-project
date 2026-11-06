@@ -40,7 +40,7 @@
 subroutine test_metadirective_simd_v60(n, a, after)
   integer :: n, a(n), after, i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: simd) &
+  !$omp & when(implementation={vendor(amd)}: simd) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i

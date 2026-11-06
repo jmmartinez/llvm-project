@@ -47,7 +47,7 @@ end subroutine
 subroutine test_loop(n, a)
   integer :: n, a(n), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: loop bind(thread)) &
+  !$omp & when(implementation={vendor(amd)}: loop bind(thread)) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i
@@ -58,7 +58,7 @@ end subroutine
 subroutine test_target_loop()
   integer :: i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: target teams distribute parallel do) &
+  !$omp & when(implementation={vendor(amd)}: target teams distribute parallel do) &
   !$omp & otherwise(nothing)
   do i = 1, 100
   end do
@@ -68,7 +68,7 @@ end subroutine
 subroutine test_empty_delimited_body(n, a)
   integer :: n, a(n), i
   !$omp begin metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   !$omp end metadirective
   do i = 1, n
@@ -80,7 +80,7 @@ end subroutine
 subroutine test_trailing_static(n, a, x)
   integer :: n, a(n), x, i
   !$omp begin metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
 #ifdef OMP_52
   !$omp & otherwise(nothing)
 #else
@@ -97,7 +97,7 @@ end subroutine
 subroutine test_nested_openmp(n, a)
   integer :: n, a(n), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
 #ifdef OMP_52
   !$omp & otherwise(nothing)
 #else

@@ -35,7 +35,7 @@ class MappingConfig {
     UseEventsForAtomicTransfers = ForceAtomic;
 
     BoolEnvar TreatAttachAutoAsAlwaysEnvar(
-        "LIBOMPTARGET_TREAT_ATTACH_AUTO_AS_ALWAYS", false);
+        "LIBOMPTARGET_TREAT_ATTACH_AUTO_AS_ALWAYS", true);
     TreatAttachAutoAsAlways = TreatAttachAutoAsAlwaysEnvar;
   }
 
@@ -671,7 +671,8 @@ struct MappingInfoTy {
       bool HasFlagTo, bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
       bool HasCloseModifier, bool HasPresentModifier, bool HasHoldModifier,
       AsyncInfoTy &AsyncInfo, HostDataToTargetTy *OwnedTPR = nullptr,
-      bool ReleaseHDTTMap = true, StateInfoTy *StateInfo = nullptr);
+      bool ReleaseHDTTMap = true, StateInfoTy *StateInfo = nullptr,
+      const ident_t *Loc = nullptr);
 
   /// Return the target pointer for \p HstPtrBegin in \p HDTTMap. The accessor
   /// ensures exclusive access to the HDTT map.
@@ -717,7 +718,8 @@ struct MappingInfoTy {
   /// is set, the associated metadata will be printed as well.
   void printCopyInfo(void *TgtPtr, void *HstPtr, int64_t Size, bool H2D,
                      HostDataToTargetTy *Entry,
-                     MappingInfoTy::HDTTMapAccessorTy *HDTTMapPtr);
+                     MappingInfoTy::HDTTMapAccessorTy *HDTTMapPtr,
+                     const ident_t *Loc = nullptr, const char *Name = nullptr);
 
 private:
   DeviceTy &Device;

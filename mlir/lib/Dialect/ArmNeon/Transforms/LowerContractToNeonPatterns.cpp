@@ -49,7 +49,7 @@ std::optional<Value> getExtOperand(Value v) {
 
   // If the operand is not defined by an explicit extend operation of the
   // accepted operation type allow for an implicit sign-extension.
-  auto extOp = v.getDefiningOp<Op>();
+  auto extOp = dyn_cast_or_null<Op>(v.getDefiningOp());
   if (!extOp) {
     if constexpr (std::is_same<Op, arith::ExtSIOp>::value) {
       auto eltTy = cast<VectorType>(v.getType()).getElementType();
@@ -395,7 +395,7 @@ public:
                                  rewriter);
 
     // Initialize parameters for unrolling.
-    iterationBounds = *op.getShapeForUnroll();
+    iterationBounds = *op.getIterationShapeToUnroll();
     if (iterationBounds.size() == 3)
       subTileShape = SmallVector<int64_t>({dimM == 1 ? 1 : 2, 2, 8});
     else
@@ -436,7 +436,7 @@ public:
     acc = op.getAcc();
 
     // Initialize parameters for unrolling.
-    iterationBounds = *op.getShapeForUnroll();
+    iterationBounds = *op.getIterationShapeToUnroll();
     if (iterationBounds.size() == 3)
       subTileShape = SmallVector<int64_t>({dimM == 1 ? 1 : 2, 2, 4});
     else
@@ -454,7 +454,7 @@ public:
 class LowerContractionToNeonI8MMPattern
     : public OpRewritePattern<vector::ContractionOp> {
 public:
-  using OpRewritePattern::OpRewritePattern;
+  using Base::Base;
   LogicalResult matchAndRewrite(vector::ContractionOp op,
                                 PatternRewriter &rewriter) const override {
     if (cast<vector::MaskableOpInterface>(op.getOperation()).isMasked())
@@ -473,7 +473,7 @@ public:
 class LowerContractionToNeonBFMMLAPattern
     : public OpRewritePattern<vector::ContractionOp> {
 public:
-  using OpRewritePattern::OpRewritePattern;
+  using Base::Base;
   LogicalResult matchAndRewrite(vector::ContractionOp op,
                                 PatternRewriter &rewriter) const override {
     if (cast<vector::MaskableOpInterface>(op.getOperation()).isMasked())

@@ -15,14 +15,14 @@
 #include "OffloadPolicy.h"
 #include "OpenMP/OMPT/Callback.h"
 #include "OpenMP/OMPT/Interface.h"
-#include "PluginManager.h"
+#include "OpenMP/OffloadRTL.h"
 #include "Shared/Debug.h"
 #include "Shared/EnvironmentVar.h"
-#include "Shared/Utils.h"
 #include "device.h"
 #include "private.h"
 #include "rtl.h"
 
+#include "Shared/APITypes.h"
 #include "Shared/Profile.h"
 
 #include "OpenMP/Mapping.h"
@@ -33,11 +33,13 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Object/ObjectFile.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <vector>
 
 using llvm::SmallVector;
+
 #ifdef OMPT_SUPPORT
 using namespace llvm::omp::target::ompt;
 #endif
@@ -100,34 +102,12 @@ void handleTargetOutcome(bool Success, ident_t *Loc) {
         FAILURE_MESSAGE("Consult https://openmp.llvm.org/design/Runtimes.html "
                         "for debugging options.\n");
 
-      if (!PM->getNumActivePlugins()) {
+      if (!PM->getNumActivePlugins())
         FAILURE_MESSAGE(
             "No images found compatible with the installed hardware. ");
 
-        llvm::SmallVector<llvm::StringRef> Archs;
-        for (auto &Image : PM->deviceImages()) {
-          const char *Start = reinterpret_cast<const char *>(
-              Image.getExecutableImage().ImageStart);
-          uint64_t Length =
-              utils::getPtrDiff(Start, Image.getExecutableImage().ImageEnd);
-          llvm::MemoryBufferRef Buffer(llvm::StringRef(Start, Length),
-                                       /*Identifier=*/"");
-
-          auto ObjectOrErr = llvm::object::ObjectFile::createObjectFile(Buffer);
-          if (auto Err = ObjectOrErr.takeError()) {
-            llvm::consumeError(std::move(Err));
-            continue;
-          }
-
-          if (auto CPU = (*ObjectOrErr)->tryGetCPUName())
-            Archs.push_back(*CPU);
-        }
-        fprintf(stderr, "Found %zu image(s): (%s)\n", Archs.size(),
-                llvm::join(Archs, ",").c_str());
-      }
-
       SourceInfo Info(Loc);
-      if (Info.isAvailible())
+      if (Info.isAvailable())
         fprintf(stderr, "%s:%d:%d: ", Info.getFilename(), Info.getLine(),
                 Info.getColumn());
       else
@@ -215,20 +195,19 @@ void *targetLockExplicit(void *HostPtr, size_t Size, int DeviceNum,
     return NULL;
   }
 
-  void *RC = NULL;
-
   auto DeviceOrErr = PM->getDevice(DeviceNum);
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
-  int32_t Err = 0;
-  Err = DeviceOrErr->RTL->data_lock(DeviceNum, HostPtr, Size, &RC);
-  if (Err) {
-    ODBG(ODT_Interface) << "Could not lock ptr " << HostPtr;
+  // Register and page-lock the memory.
+  auto LockedPtrOrErr = DeviceOrErr->registerMemory(HostPtr, Size);
+  if (!LockedPtrOrErr) {
+    [[maybe_unused]] std::string ErrStr = toString(LockedPtrOrErr.takeError());
+    ODBG(ODT_Interface) << "Could not lock ptr " << HostPtr << ": " << ErrStr;
     return nullptr;
   }
-  ODBG(ODT_Interface) << Name << " returns device ptr " << RC;
-  return RC;
+  ODBG(ODT_Interface) << Name << " returns device ptr " << *LockedPtrOrErr;
+  return *LockedPtrOrErr;
 }
 
 void targetUnlockExplicit(void *HostPtr, int DeviceNum, const char *Name) {
@@ -239,7 +218,11 @@ void targetUnlockExplicit(void *HostPtr, int DeviceNum, const char *Name) {
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
-  DeviceOrErr->RTL->data_unlock(DeviceNum, HostPtr);
+  // Unregister and unlock the memory.
+  if (auto Err = DeviceOrErr->unregisterMemory(HostPtr)) {
+    [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
+    ODBG(ODT_Interface) << "Could not unlock ptr " << HostPtr << ": " << ErrStr;
+  }
   ODBG(ODT_Interface) << Name << " returns";
 }
 
@@ -261,11 +244,11 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
   // Construct new arrays for args_base, args, arg_sizes and arg_types
   // using the information in MapperComponents and call the corresponding
   // targetData* function using these new arrays.
-  SmallVector<void *> MapperArgsBase(MapperComponents.Components.size());
-  SmallVector<void *> MapperArgs(MapperComponents.Components.size());
-  SmallVector<int64_t> MapperArgSizes(MapperComponents.Components.size());
-  SmallVector<int64_t> MapperArgTypes(MapperComponents.Components.size());
-  SmallVector<void *> MapperArgNames(MapperComponents.Components.size());
+  std::vector<void *> MapperArgsBase(MapperComponents.Components.size());
+  std::vector<void *> MapperArgs(MapperComponents.Components.size());
+  std::vector<int64_t> MapperArgSizes(MapperComponents.Components.size());
+  std::vector<int64_t> MapperArgTypes(MapperComponents.Components.size());
+  std::vector<void *> MapperArgNames(MapperComponents.Components.size());
 
   for (unsigned I = 0, E = MapperComponents.Components.size(); I < E; ++I) {
     auto &C = MapperComponents.Components[I];
@@ -574,10 +557,10 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       // when HasPresentModifier.
       PointerTpr = Device.getMappingInfo().getTargetPointer(
           HDTTMap, HstPtrBase, HstPtrBase, /*TgtPadding=*/0, sizeof(void *),
-          /*HstPtrName=*/nullptr,
-          /*HasFlagTo=*/false, /*HasFlagAlways=*/false, IsImplicit, UpdateRef,
-          HasCloseModifier, HasPresentModifier, HasHoldModifier, AsyncInfo,
-          /*OwnedTPR=*/nullptr, /*ReleaseHDTTMap=*/false);
+          /*HstPtrName=*/nullptr, /*HasFlagTo=*/false,
+          /*HasFlagAlways=*/false, IsImplicit, UpdateRef, HasCloseModifier,
+          HasPresentModifier, HasHoldModifier, AsyncInfo, /*OwnedTPR=*/nullptr,
+          /*ReleaseHDTTMap=*/false);
       PointerTgtPtrBegin = PointerTpr.TargetPointer;
       IsHostPtr = PointerTpr.Flags.IsHostPointer;
       if (!PointerTgtPtrBegin) {
@@ -602,8 +585,8 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       HstPtrBase = *reinterpret_cast<void **>(HstPtrBase);
       // No need to update pointee ref count for the first element of the
       // subelement that comes from mapper.
-      UpdateRef =
-          (!FromMapper || I != 0); // subsequently update ref count of pointee
+      // subsequently update ref count of pointee
+      UpdateRef = (!FromMapper || I != 0);
     }
 
     const bool HasFlagTo = ArgTypes[I] & OMP_TGT_MAPTYPE_TO;
@@ -613,7 +596,7 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
         HDTTMap, HstPtrBegin, HstPtrBase, TgtPadding, DataSize, HstPtrName,
         HasFlagTo, HasFlagAlways, IsImplicit, UpdateRef, HasCloseModifier,
         HasPresentModifier, HasHoldModifier, AsyncInfo, PointerTpr.getEntry(),
-        /*ReleaseHDTTMap=*/true, StateInfo);
+        /*ReleaseHDTTMap=*/true, StateInfo, Loc);
     void *TgtPtrBegin = TPR.TargetPointer;
     IsHostPtr = TPR.Flags.IsHostPointer;
     // If data_size==0, then the argument could be a zero-length pointer to
@@ -693,7 +676,15 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       ArgsBase[I] = TgtPtrBase;
     }
 
-    if (ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ && !IsHostPtr) {
+    // The || part of the if condition covers flang dope vectors that
+    // have different host and target addresses when USM is enabled. The
+    // pointer to the array is IsHostPtr but the dope vector is not.
+    // This happens  with dope vectors in Fortran modules.
+    // The pointer has to be copied into the
+    // target dope vector.
+    if ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
+        (!IsHostPtr || (PointerTpr.getEntry() != nullptr &&
+                        PointerHstPtrBegin != PointerTgtPtrBegin))) {
       int Ret = performPointerAttachment(
           Device, AsyncInfo, reinterpret_cast<void **>(PointerHstPtrBegin),
           HstPtrBase, HstPtrBegin,
@@ -759,10 +750,10 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
 ///
 /// (4) and (1) are both trying to modify the device memory corresponding to
 /// `&p`. So, if we decide that (4) should do an attachment, we also need to
-/// ensure that (4) happens after (1) is complete.
-///
-/// For this purpose, we insert a data_fence before the first
-/// pointer-attachment, (3), to ensure that all pending transfers finish first.
+/// ensure that (4) happens after (1) is complete. Since all supported
+/// backends execute enqueued work on a given queue in submission order, this
+/// is already guaranteed as long as (1) and (4) are submitted to the same
+/// queue, without requiring an explicit fence.
 int processAttachEntries(DeviceTy &Device, StateInfoTy &StateInfo,
                          AsyncInfoTy &AsyncInfo) {
   // Report all tracked allocations from both main loop and ATTACH processing
@@ -789,7 +780,6 @@ int processAttachEntries(DeviceTy &Device, StateInfoTy &StateInfo,
                       << "LIBOMPTARGET_TREAT_ATTACH_AUTO_AS_ALWAYS is true";
 
   int Ret = OFFLOAD_SUCCESS;
-  bool IsFirstPointerAttachment = true;
   for (size_t EntryIdx = 0; EntryIdx < StateInfo.AttachEntries.size();
        ++EntryIdx) {
     const auto &AttachEntry = StateInfo.AttachEntries[EntryIdx];
@@ -878,18 +868,6 @@ int processAttachEntries(DeviceTy &Device, StateInfoTy &StateInfo,
     TargetPointerResultTy &PtrTPR = *PtrTPROpt;
     void **TgtPtrBase = reinterpret_cast<void **>(PtrTPR.TargetPointer);
 
-    // Insert a data-fence before the first pointer-attachment.
-    if (IsFirstPointerAttachment) {
-      IsFirstPointerAttachment = false;
-      ODBG(ODT_Mapping)
-          << "Inserting a data fence before the first pointer attachment.";
-      Ret = Device.dataFence(AsyncInfo);
-      if (Ret != OFFLOAD_SUCCESS) {
-        REPORT() << "Failed to insert data fence.";
-        return OFFLOAD_FAIL;
-      }
-    }
-
     // Do the pointer-attachment, i.e. update the device pointer to point to
     // device pointee.
     Ret = performPointerAttachment(Device, AsyncInfo, HstPtr, HstPteeBase,
@@ -927,6 +905,11 @@ struct PostProcessingInfo {
       : HstPtrBegin(HstPtr), DataSize(Size), ArgType(ArgType),
         TPR(std::move(TPR)) {}
 };
+
+static bool rangesOverlap(uintptr_t LBegin, uintptr_t LEnd, uintptr_t RBegin,
+                          uintptr_t REnd) {
+  return std::max(LBegin, RBegin) < std::min(LEnd, REnd);
+}
 
 } // namespace
 
@@ -982,6 +965,11 @@ postProcessingTargetDataEnd(DeviceTy *Device,
     const bool HasFrom = ArgType & OMP_TGT_MAPTYPE_FROM;
     if (HasFrom) {
       Entry->foreachShadowPointerInfo([&](const ShadowPtrInfoTy &ShadowPtr) {
+        const bool isZeroCopy = PM->getRequirements() & OMPX_REQ_AUTO_ZERO_COPY;
+        const bool isUSMMode =
+            PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY;
+        if (isZeroCopy || isUSMMode)
+          return OFFLOAD_SUCCESS;
         constexpr int64_t VoidPtrSize = sizeof(void *);
         if (ShadowPtr.PtrSize > VoidPtrSize) {
           ODBG(ODT_Mapping)
@@ -1184,7 +1172,8 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
         }
       }
 
-      int Ret = Device.retrieveData(HstPtr, TgtPtr, Size, AsyncInfo, Entry);
+      int Ret = Device.retrieveData(HstPtr, TgtPtr, Size, AsyncInfo, Entry,
+                                    /*HDTTMapPtr=*/nullptr, Loc);
       if (Ret != OFFLOAD_SUCCESS) {
         REPORT() << "Copying data from device failed.";
         return OFFLOAD_FAIL;
@@ -1361,18 +1350,41 @@ static int targetDataContiguous(ident_t *Loc, DeviceTy &Device, void *ArgsBase,
     return OFFLOAD_SUCCESS;
   }
 
+  if (ArgSize == 0) {
+    ODBG(ODT_Mapping) << "hst data:" << HstPtrBegin
+                      << " zero size, becomes a noop";
+    return OFFLOAD_SUCCESS;
+  }
+
   if (ArgType & OMP_TGT_MAPTYPE_TO) {
     ODBG(ODT_Mapping) << "Moving " << ArgSize << " bytes (hst:" << HstPtrBegin
                       << ") -> (tgt:" << TgtPtrBegin << ")";
     int Ret = Device.submitData(TgtPtrBegin, HstPtrBegin, ArgSize, AsyncInfo,
-                                TPR.getEntry());
+                                TPR.getEntry(), /*HDTTMapPtr=*/nullptr, Loc);
     if (Ret != OFFLOAD_SUCCESS) {
       REPORT() << "Copying data to device failed.";
       return OFFLOAD_FAIL;
     }
     if (TPR.getEntry()) {
+      uintptr_t UpdatedBegin = reinterpret_cast<uintptr_t>(TgtPtrBegin);
+      uintptr_t UpdatedEnd = UpdatedBegin + ArgSize;
       int Ret = TPR.getEntry()->foreachShadowPointerInfo(
           [&](ShadowPtrInfoTy &ShadowPtr) {
+            uintptr_t ShadowBegin =
+                reinterpret_cast<uintptr_t>(ShadowPtr.TgtPtrAddr);
+            uintptr_t ShadowEnd = ShadowBegin + ShadowPtr.PtrSize;
+
+            // The TO/update path has already issued an H2D memcpy for
+            // [UpdatedBegin, UpdatedEnd). If that memcpy did not touch this
+            // shadow pointer/descriptor slot on the device, there is nothing to
+            // fix up. If it did touch any byte, restore the whole saved target
+            // pointer/descriptor: a partially overwritten pointer/descriptor is
+            // not meaningful, and preserving the device attachment is safer
+            // than leaving mixed host/device descriptor bytes behind.
+            if (!rangesOverlap(UpdatedBegin, UpdatedEnd, ShadowBegin,
+                               ShadowEnd))
+              return OFFLOAD_SUCCESS;
+
             constexpr int64_t VoidPtrSize = sizeof(void *);
             if (ShadowPtr.PtrSize > VoidPtrSize) {
               ODBG(ODT_Mapping)
@@ -1406,7 +1418,7 @@ static int targetDataContiguous(ident_t *Loc, DeviceTy &Device, void *ArgsBase,
     ODBG(ODT_Mapping) << "Moving " << ArgSize << " bytes (tgt:" << TgtPtrBegin
                       << ") -> (hst:" << HstPtrBegin << ")";
     int Ret = Device.retrieveData(HstPtrBegin, TgtPtrBegin, ArgSize, AsyncInfo,
-                                  TPR.getEntry());
+                                  TPR.getEntry(), /*HDTTMapPtr=*/nullptr, Loc);
     if (Ret != OFFLOAD_SUCCESS) {
       REPORT() << "Copying data from device failed.";
       return OFFLOAD_FAIL;
@@ -1418,6 +1430,12 @@ static int targetDataContiguous(ident_t *Loc, DeviceTy &Device, void *ArgsBase,
       AsyncInfo.addPostProcessingFunction([=]() -> int {
         int Ret = Entry->foreachShadowPointerInfo(
             [&](const ShadowPtrInfoTy &ShadowPtr) {
+              const bool isZeroCopy =
+                  PM->getRequirements() & OMPX_REQ_AUTO_ZERO_COPY;
+              const bool isUSMMode =
+                  PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY;
+              if (isZeroCopy || isUSMMode)
+                return OFFLOAD_SUCCESS;
               constexpr int64_t VoidPtrSize = sizeof(void *);
               if (ShadowPtr.PtrSize > VoidPtrSize) {
                 ODBG(ODT_Mapping)
@@ -1641,7 +1659,7 @@ class PrivateArgumentManagerTy {
   };
 
   /// A vector of target pointers for all private arguments
-  SmallVector<void *> TgtPtrs;
+  std::vector<void *> TgtPtrs;
 
   /// A vector of information of all first-private arguments to be packed
   SmallVector<FirstPrivateArgInfoTy> FirstPrivateArgInfo;
@@ -2035,7 +2053,7 @@ static int processDataBefore(ident_t *Loc, int64_t DeviceId, void *HostPtr,
   }
 
   // List of (first-)private arrays allocated for this target region
-  SmallVector<int> TgtArgsPositions(ArgNum, -1);
+  std::vector<int> TgtArgsPositions(ArgNum, -1);
 
   for (int32_t I = 0; I < ArgNum; ++I) {
     if (!(ArgTypes[I] & OMP_TGT_MAPTYPE_TARGET_PARAM)) {
@@ -2311,8 +2329,18 @@ int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
     // No need to guard this with OMPT_IF_BUILT
     InterfaceRAII TargetSubmitRAII(
         RegionInterface.getCallbacks<ompt_callback_target_submit>(), NumTeams);
-#endif
 
+    // Calls "begin" for the OMPT trace record and let the plugin
+    // enqueue the stop operation for after the kernel is done. The stop
+    // operation completes the trace record entry with the information from
+    // within the plugin, eg., kernel timing info.
+    // Only if 'TracedDeviceId' is actually traced, AsyncInfo->OmptEventInfo is
+    // set and a trace record generated. Otherwise: No OMPT device tracing.
+    TracerInterfaceRAII TargetTraceRAII(
+        RegionInterface.getTraceGenerators<ompt_callback_target_submit>(),
+        AsyncInfo, Device.RTL->getProfiler(), /*TracedDeviceId=*/DeviceId,
+        /*EventType=*/ompt_callback_target_submit, DeviceId, NumTeams);
+#endif
     Ret = Device.launchKernel(TgtEntryPtr, TgtArgs.data(), TgtOffsets.data(),
                               KernelArgs, nullptr, AsyncInfo);
   }

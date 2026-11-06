@@ -43,12 +43,14 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/llvm-config.h"
+#include "llvm/Object/Archive.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
@@ -65,6 +67,23 @@ using namespace clang::driver;
 using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
+
+static bool addRPathCmdArg(const llvm::opt::ArgList &Args,
+                           ArgStringList &CmdArgs,
+                           const std::string pathCandidate,
+                           bool onlyIfPathExists = true) {
+  SmallString<0> simplifiedPathCandidate(pathCandidate);
+  llvm::sys::path::remove_dots(simplifiedPathCandidate, true);
+
+  bool pathExists = llvm::sys::fs::exists(simplifiedPathCandidate);
+
+  if (onlyIfPathExists && !pathExists)
+    return false;
+
+  CmdArgs.push_back("-rpath");
+  CmdArgs.push_back(Args.MakeArgString(simplifiedPathCandidate));
+  return pathExists;
+}
 
 OffloadJobsOpt tools::parseOffloadJobs(const ArgList &Args) {
   Arg *A = Args.getLastArg(options::OPT_offload_jobs_EQ);
@@ -211,10 +230,10 @@ static bool mustMaintainValidFrameChain(const llvm::opt::ArgList &Args,
     return false;
 
   case llvm::Triple::aarch64:
-    // Arm64 Windows requires that the frame chain is valid, as there is no
-    // way to indicate during a stack walk that a frame has used the frame
-    // pointer as a general purpose register.
-    return Triple.isOSWindows();
+    // Arm64 Windows (and UEFI, which follows the same ABI) requires that the
+    // frame chain is valid, as there is no way to indicate during a stack walk
+    // that a frame has used the frame pointer as a general purpose register.
+    return Triple.isOSWindowsOrUEFI();
   }
 }
 
@@ -374,14 +393,14 @@ static void renderRemarksHotnessOptions(const ArgList &Args,
 }
 
 static bool shouldIgnoreUnsupportedTargetFeature(const Arg &TargetFeatureArg,
-                                                 const llvm::Triple &T) {
+                                                 llvm::Triple T,
+                                                 StringRef Processor) {
   // Warn no-cumode for AMDGCN processors not supporing WGP mode.
   if (!T.isAMDGCN())
     return false;
-
-  llvm::AMDGPU::GPUKind GK =
-      llvm::AMDGPU::getGPUKindFromSubArch(T.getSubArch());
-  if (llvm::AMDGPU::getFeatureBitset(GK).test(llvm::AMDGPU::FEAT_SUPPORTS_WGP))
+  llvm::AMDGPU::GPUKind GPUKind = llvm::AMDGPU::parseArchAMDGCN(Processor);
+  if (llvm::AMDGPU::getFeatureBitset(GPUKind).test(
+          llvm::AMDGPU::FEAT_SUPPORTS_WGP))
     return false;
   return TargetFeatureArg.getOption().matches(options::OPT_mno_cumode);
 }
@@ -406,11 +425,12 @@ void tools::handleTargetFeaturesGroup(const Driver &D,
     assert(Name.starts_with("m") && "Invalid feature name.");
     Name = Name.substr(1);
 
-    if (shouldIgnoreUnsupportedTargetFeature(*A, Triple)) {
+    auto Proc = getCPUName(D, Args, Triple);
+    if (shouldIgnoreUnsupportedTargetFeature(*A, Triple, Proc)) {
       if (Warned.count(Name) == 0) {
         D.getDiags().Report(
             clang::diag::warn_drv_unsupported_option_for_processor)
-            << A->getAsString(Args) << Triple.getArchName();
+            << A->getAsString(Args) << Proc;
         Warned.insert(Name);
       }
       continue;
@@ -725,21 +745,14 @@ void tools::AddTargetFeature(const ArgList &Args,
 }
 
 /// Get the (LLVM) name of the AMDGPU gpu we are targeting.
-static StringRef getAMDGPUTargetGPU(const llvm::Triple &T,
-                                    const ArgList &Args) {
-  // When the triple already encodes a specific subarch (e.g.
-  // amdgpu9.0a-amd-amdhsa), the processor is implied by the triple and there is
-  // no need to additionally pass -target-cpu. A major-family subarch (e.g.
-  // amdgpu9) is not specific enough, so fall through to -mcpu in that case.
-  if (T.isAMDGCN()) {
-    llvm::Triple::SubArchType SubArch = T.getSubArch();
-    if (SubArch != llvm::Triple::NoSubArch &&
-        SubArch != llvm::AMDGPU::getMajorSubArch(SubArch))
-      return "";
-  }
-
-  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
-    return getProcessorFromTargetID(T, A->getValue());
+static std::string getAMDGPUTargetGPU(const llvm::Triple &T,
+                                      const ArgList &Args) {
+  Arg *A = Args.getLastArg(options::OPT_mcpu_EQ);
+  if (!A)
+    A = Args.getLastArg(options::OPT_offload_arch_EQ);
+  if (A) {
+    auto GPUName = getProcessorFromTargetID(T, A->getValue());
+    return std::string(GPUName);
   }
   return "";
 }
@@ -865,7 +878,7 @@ std::string tools::getCPUName(const Driver &D, const ArgList &Args,
 
   case llvm::Triple::amdgpu:
   case llvm::Triple::r600:
-    return getAMDGPUTargetGPU(T, Args).str();
+    return std::string(getAMDGPUTargetGPU(T, Args));
 
   case llvm::Triple::wasm32:
   case llvm::Triple::wasm64:
@@ -1303,7 +1316,7 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
                                 options::OPT_fno_split_machine_functions)) {
     if (A->getOption().matches(options::OPT_fsplit_machine_functions))
       CmdArgs.push_back(Args.MakeArgString(Twine(PluginOptPrefix) +
-                                           "-split-machine-functions"));
+                                           "-function-splitting=all"));
   }
 
   if (auto *A =
@@ -1450,6 +1463,69 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
   addDTLTOOptions(ToolChain, Args, CmdArgs);
 }
 
+void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
+                                          const ArgList &Args,
+                                          ArgStringList &CmdArgs) {
+  const Driver &D = TC.getDriver();
+  std::string LibSuffix = "lib";
+  if (TC.getSanitizerArgs(Args).needsAsanRt())
+    LibSuffix.append("/asan");
+  if (Arg *A = Args.getLastArg(options::OPT_fopenmp_runtimelib_EQ)) {
+    LibSuffix = A->getValue();
+    if (LibSuffix != "lib-perf" && LibSuffix != "lib-debug" && LibSuffix != "lib")
+      D.Diag(diag::err_drv_unsupported_option_argument)
+        << A->getSpelling() << LibSuffix;
+    if (TC.getSanitizerArgs(Args).needsAsanRt())
+      LibSuffix.append("/asan");
+  }
+
+  // Check if the device library can be found in
+  // one of the LIBRARY_PATH directories.
+  ArgStringList EnvLibraryPaths;
+  addDirectoryList(Args, EnvLibraryPaths, "", "LIBRARY_PATH");
+  for (auto &EnvLibraryPath : EnvLibraryPaths)
+    addRPathCmdArg(Args, CmdArgs, EnvLibraryPath);
+
+  if (Args.hasFlag(options::OPT_fopenmp_implicit_rpath,
+                   options::OPT_fno_openmp_implicit_rpath, true)) {
+    // Default to clang lib / lib64 folder, i.e. the same location as device
+    // runtime
+    SmallString<256> DefaultLibPath =
+        llvm::sys::path::parent_path(TC.getDriver().Dir);
+    llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
+    if (TC.getSanitizerArgs(Args).needsAsanRt())
+      addRPathCmdArg(Args, CmdArgs, TC.getCompilerRTPath(),
+                     /*onlyIfPathExists=*/false);
+
+    // In case LibSuffix was not built, try lib
+    std::string CandidateRPath_suf = D.Dir + "/../" + LibSuffix;
+    // Add lib directory in case LibSuffix does not exist
+    std::string CandidateRPath_lib = D.Dir + "/../lib";
+    if (!addRPathCmdArg(Args, CmdArgs, CandidateRPath_suf,
+                        /*onlyIfPathExists=*/false))
+      addRPathCmdArg(Args, CmdArgs, CandidateRPath_lib);
+
+    std::string rocmPath =
+        Args.getLastArgValue(clang::options::OPT_rocm_path_EQ).str();
+    if (rocmPath.size() != 0) {
+      std::string rocmPath_lib = rocmPath + "/lib";
+      std::string rocmPath_suf = rocmPath + "/" + LibSuffix;
+      if (!addRPathCmdArg(Args, CmdArgs, rocmPath_suf))
+        addRPathCmdArg(Args, CmdArgs, rocmPath_lib);
+    }
+
+    // Add Default lib path to ensure llvm dynamic library is picked up for
+    // lib-debug/lib-perf
+    if (LibSuffix != "lib")
+      addRPathCmdArg(Args, CmdArgs, DefaultLibPath.c_str());
+
+    if (llvm::find_if(CmdArgs, [](StringRef str) {
+          return !str.compare("--enable-new-dtags");
+        }) == CmdArgs.end())
+      CmdArgs.push_back("--disable-new-dtags");
+  }
+}
+
 void tools::addOpenMPRuntimeLibraryPath(const ToolChain &TC,
                                         const ArgList &Args,
                                         ArgStringList &CmdArgs) {
@@ -1458,7 +1534,15 @@ void tools::addOpenMPRuntimeLibraryPath(const ToolChain &TC,
   SmallString<256> DefaultLibPath =
       llvm::sys::path::parent_path(TC.getDriver().Dir);
   llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
-  CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
+  if (TC.getSanitizerArgs(Args).needsAsanRt()) {
+    SmallString<256> ASanLibPath[2];
+    ASanLibPath[0].assign((DefaultLibPath + "/../../asan").str());
+    ASanLibPath[1].assign((DefaultLibPath + "/asan").str());
+    for (auto Path : ASanLibPath)
+      if (llvm::sys::fs::exists(Path))
+        CmdArgs.push_back(Args.MakeArgString("-L" + Path));
+  } else
+    CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
 }
 
 void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
@@ -1484,11 +1568,38 @@ void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
     CandidateRPaths.emplace_back(*StdlibPath);
   }
   for (const auto &CandidateRPath : CandidateRPaths) {
-    if (TC.getVFS().exists(CandidateRPath)) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(CandidateRPath));
+    if (TC.getVFS().exists(CandidateRPath))
+      addRPathCmdArg(Args, CmdArgs, CandidateRPath, /*onlyIfPathExists=*/false);
+  }
+}
+
+bool requiresCOMGrLinking(const ToolChain &TC, const ArgList &Args) {
+  std::vector<std::string> extractValues =
+      Args.getAllArgValues(options::OPT_Xopenmp_target_EQ);
+  std::vector<std::string>::iterator itr;
+  if (!extractValues.empty()) {
+    itr = extractValues.begin();
+    while ((itr = std::find(itr, extractValues.end(), "amdgcn-amd-amdhsa")) !=
+           extractValues.end()) {
+      StringRef archVal(*(itr + 1));
+      if (archVal.contains("xnack+") && TC.getSanitizerArgs(Args).needsAsanRt())
+        return true;
+      itr += 2;
+    }
+  } else {
+    std::string tgtArch =
+        getAMDGPUTargetGPU(llvm::Triple("amdgcn-amd-amdhsa"), Args);
+    extractValues = Args.getAllArgValues(options::OPT_offload_arch_EQ);
+    itr = extractValues.begin();
+    while (itr != extractValues.end()) {
+      StringRef archVal(*itr);
+      if (!tgtArch.empty() && archVal.contains("xnack+") &&
+          TC.getSanitizerArgs(Args).needsAsanRt())
+        return true;
+      itr++;
     }
   }
+  return false;
 }
 
 bool tools::addLLVMOffloadingRuntime(const Compilation &C,
@@ -1535,6 +1646,9 @@ bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
   case Driver::OMPRT_IOMP5:
     CmdArgs.push_back("-liomp5");
     break;
+  case Driver::OMPRT_BOLT:
+    CmdArgs.push_back("-lbolt");
+    break;
   case Driver::OMPRT_Unknown:
     break;
   }
@@ -1545,9 +1659,18 @@ bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
   if (RTKind == Driver::OMPRT_GOMP && GompNeedsRT)
       CmdArgs.push_back("-lrt");
 
-  if (IsOffloadingHost)
-    CmdArgs.push_back("-lomptarget");
+  if (RTKind == Driver::OMPRT_BOLT)
+    CmdArgs.push_back("-lbolt");
 
+  if (IsOffloadingHost) {
+    if (requiresCOMGrLinking(TC, Args)) {
+      CmdArgs.push_back("-lamd_comgr");
+    }
+    CmdArgs.push_back("-lomptarget");
+  }
+
+  if (RTKind == Driver::OMPRT_OMP || RTKind == Driver::OMPRT_BOLT)
+    addOpenMPRuntimeSpecificRPath(TC, Args, CmdArgs);
   addOpenMPRuntimeLibraryPath(TC, Args, CmdArgs);
 
   return true;
@@ -2161,6 +2284,10 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
       break;
     }
   }
+
+  // AMDGPU-specific defaults for PIC.
+  if (Triple.isAMDGCN())
+    PIC = true;
 
   // The last argument relating to either PIC or PIE wins, and no
   // other argument is used. If the last argument is any flavor of the
@@ -2937,7 +3064,7 @@ bool tools::addOpenCLBuiltinsLib(const Driver &D, const llvm::Triple &TT,
       CC1Args.push_back(DriverArgs.MakeArgString(LibclcFile));
       return true;
     }
-    D.Diag(diag::err_drv_libclc_not_found) << LibclcFile;
+    D.Diag(diag::err_drv_device_lib_not_found) << "libclc" << LibclcFile;
     return false;
   }
 
@@ -3004,7 +3131,7 @@ bool tools::addOpenCLBuiltinsLib(const Driver &D, const llvm::Triple &TT,
       return true;
   }
 
-  D.Diag(diag::err_drv_libclc_not_found) << "libclc.bc";
+  D.Diag(diag::err_drv_device_lib_not_found) << "libclc" << "libclc.bc";
   return false;
 }
 
@@ -3034,15 +3161,24 @@ void tools::addOutlineAtomicsArgs(const Driver &D, const ToolChain &TC,
 }
 
 void tools::addOffloadCompressArgs(const llvm::opt::ArgList &TCArgs,
-                                   llvm::opt::ArgStringList &CmdArgs) {
+                                   llvm::opt::ArgStringList &CmdArgs,
+                                   bool EmitCompressionFormat) {
   if (TCArgs.hasFlag(options::OPT_offload_compress,
                      options::OPT_no_offload_compress, false))
     CmdArgs.push_back("--compress");
-  if (TCArgs.hasArg(options::OPT_v))
-    CmdArgs.push_back("--verbose");
-  if (auto *Arg = TCArgs.getLastArg(options::OPT_offload_compression_level_EQ))
+  if (auto *Arg =
+          TCArgs.getLastArg(options::OPT_offload_compression_level_EQ)) {
+    // llvm-offload-binary rejects a level unless the format is named. Pick the
+    // same default the tool would: zstd, or zlib when zstd is not built.
+    if (EmitCompressionFormat) {
+      const char *Format =
+          llvm::compression::zstd::isAvailable() ? "zstd" : "zlib";
+      CmdArgs.push_back(
+          TCArgs.MakeArgString(Twine("--compression-format=") + Format));
+    }
     CmdArgs.push_back(
         TCArgs.MakeArgString(Twine("--compression-level=") + Arg->getValue()));
+  }
 }
 
 void tools::addMCModel(const Driver &D, const llvm::opt::ArgList &Args,

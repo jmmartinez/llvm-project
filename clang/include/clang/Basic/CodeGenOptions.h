@@ -142,6 +142,12 @@ public:
     All,
   };
 
+  enum class HLSLSemanticSignaturePackingMode {
+    Default,
+    PrefixStable,
+    Optimized,
+  };
+
   enum InlineAsmDialectKind {
     IAD_ATT,
     IAD_Intel,
@@ -245,6 +251,14 @@ public:
     Never,    // No loop is assumed to be finite.
   };
 
+  enum class HeterogeneousDwarfOpts {
+    Disabled,     //< Do not emit any heterogeneous dwarf metadata.
+    DIExpression, //< Enable DIExpression-based metadata.
+  };
+  bool isHeterogeneousDwarfEnabled() const {
+    return getHeterogeneousDwarfMode() != HeterogeneousDwarfOpts::Disabled;
+  }
+
   enum AssignmentTrackingOpts {
     Disabled,
     Enabled,
@@ -291,6 +305,9 @@ public:
 
   /// The filename with path we use for coverage notes files.
   std::string CoverageNotesFile;
+
+  /// Whether to force absolute paths in coverage notes files.
+  bool UseAbsolutePathsInNotesFile;
 
   /// Regexes separated by a semi-colon to filter the files to instrument.
   std::string ProfileFilterFiles;
@@ -378,6 +395,10 @@ public:
 
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
+
+  /// Prefix for callbacks from -finstrument-functions{,-after-inlining} and
+  /// -finstrument-function-entry-bare. Defaults to "__cyg_profile".
+  std::string InstrumentFunctionPrefix;
 
   /// The name of the relocation model to use.
   llvm::Reloc::Model RelocationModel;

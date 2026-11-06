@@ -1,4 +1,4 @@
-//===- MapInfoFinalization.cpp -----------------------------------------===//
+//===- MapInfoFinalization.cpp --------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -58,6 +58,12 @@ namespace {
 class MapInfoFinalizationPass
     : public flangomp::impl::MapInfoFinalizationPassBase<
           MapInfoFinalizationPass> {
+public:
+  MapInfoFinalizationPass() = default;
+
+  MapInfoFinalizationPass(
+      const flangomp::MapInfoFinalizationPassOptions &options)
+      : MapInfoFinalizationPassBase(options) {}
 
   /// Helper class tracking a members parent and its
   /// placement in the parents member list
@@ -400,6 +406,15 @@ class MapInfoFinalizationPass
                     });
   }
 
+  // Check if the declaration operation we have refers to a dummy
+  // function argument.
+  bool isDummyArgument(mlir::Operation *op) {
+    if (auto declareOp = mlir::dyn_cast<hlfir::DeclareOp>(op))
+      if (auto dummyScope = declareOp.getDummyScope())
+        return true;
+    return false;
+  }
+
   /// An absent optional passed by reference must retain its null address and
   /// must not cause an allocation or transfer. Descriptor maps handle this when
   /// expanding the descriptor. For non-descriptor arguments, express absence
@@ -486,8 +501,13 @@ class MapInfoFinalizationPass
     canOptimizeDescViaPrivatization = isDummyArgument(descriptor) &&
                                       fir::isAssumedShape(descriptor.getType());
 
-    if (!mlir::isa<fir::BaseBoxType>(descriptor.getType()) &&
-        !fir::factory::isOptionalArgument(descriptor.getDefiningOp()))
+    // A restricted subset of canDeferDescriptorMapping for the moment
+    // can extend to encompass more as we find acceptable cases.
+    canOptimizeDescViaPrivatization = isDummyArgument(descriptor) &&
+                                      fir::isAssumedShape(descriptor.getType());
+
+    if ((!mlir::isa<fir::BaseBoxType>(descriptor.getType()) &&
+         !fir::factory::isOptionalArgument(descriptor.getDefiningOp())))
       return descriptor;
 
     mlir::Value &alloca = localBoxAllocas[descriptor.getDefiningOp()];
@@ -553,10 +573,9 @@ class MapInfoFinalizationPass
   /// important thing to note is that we normally move the bounds from
   /// the descriptor map onto the base address map.
   ///
-  /// \p mapInfoOpLoc is the location of the MapInfoOp being expanded (the
-  /// descriptor map before this pass splits it). Lowering attaches a NameLoc
-  /// there for the Fortran map text. This is used with new Ops being
-  /// created by this function.
+  /// \p parentOp is the MapInfoOp being expanded (the descriptor map before
+  /// this pass splits it). Lowering attaches a NameLoc there for the Fortran
+  /// map text. New ops created here use its location so NameLoc is preserved.
   mlir::omp::MapInfoOp
   genBaseAddrMap(mlir::Location mapInfoOpLoc, mlir::Value descriptor,
                  mlir::omp::MapInfoOp parentOp,
@@ -590,7 +609,7 @@ class MapInfoFinalizationPass
         isRefPtee ? parentOp.getMembersIndexAttr() : mlir::ArrayAttr{},
         parentOp.getBounds(),
         /*mapperId=*/mapperId,
-        /*name=*/builder.getStringAttr(""),
+        /*name=*/parentOp.getNameAttr(),
         /*partial_map=*/builder.getBoolAttr(false));
   }
 
@@ -920,12 +939,6 @@ class MapInfoFinalizationPass
 
     flags |= MapFlags::to | (mapTypeFlag & MapFlags::implicit);
 
-    // Descriptors for objects will always be copied. This is because the
-    // descriptor can be rematerialized by the compiler, and so the address
-    // of the descriptor for a given object at one place in the code may
-    // differ from that address in another place. The contents of the
-    // descriptor (the base address in particular) will remain unchanged
-    // though.
     // TODO/FIXME: We currently cannot have MAP_CLOSE and MAP_ALWAYS on
     // the descriptor at once, these are mutually exclusive and when
     // both are applied the runtime will fail to map.
@@ -1814,14 +1827,16 @@ class MapInfoFinalizationPass
       // within a target region. At which point we map the relevant descriptor
       // data and the runtime should correctly associate the data with the
       // descriptor and bind together and allow clean mapping and execution.
-      for (auto deferrableAndAttach : deferrableDesc) {
-        auto mapOp = llvm::dyn_cast<mlir::omp::MapInfoOp>(
-            std::get<0>(deferrableAndAttach));
-        mlir::Operation *targetUser = getFirstTargetUser(mapOp);
-        assert(targetUser && "expected user of map operation was not found");
-        builder.setInsertionPoint(mapOp);
-        removeTopLevelDescriptor(deferrableAndAttach, builder, targetUser);
-        addImplicitDescriptorMapToTargetDataOp(mapOp, builder, *targetUser);
+      if (deferDescMapping) {
+        for (auto deferrableAndAttach : deferrableDesc) {
+          auto mapOp = llvm::dyn_cast<mlir::omp::MapInfoOp>(
+              std::get<0>(deferrableAndAttach));
+          mlir::Operation *targetUser = getFirstTargetUser(mapOp);
+          assert(targetUser && "expected user of map operation was not found");
+          builder.setInsertionPoint(mapOp);
+          removeTopLevelDescriptor(deferrableAndAttach, builder, targetUser);
+          addImplicitDescriptorMapToTargetDataOp(mapOp, builder, *targetUser);
+        }
       }
 
       // Wait until after we have generated all of our maps to add them onto
@@ -1835,5 +1850,11 @@ class MapInfoFinalizationPass
     });
   }
 };
-
 } // namespace
+
+std::unique_ptr<mlir::Pass>
+flangomp::createMapInfoFinalizationPass(bool deferDescMap) {
+  MapInfoFinalizationPassOptions options;
+  options.deferDescMapping = deferDescMap;
+  return std::make_unique<MapInfoFinalizationPass>(options);
+}

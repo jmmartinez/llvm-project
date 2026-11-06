@@ -276,6 +276,18 @@ void transform::ApplyEraseUnusedOperandsAndResultsPatternsOp::populatePatterns(
   linalg::populateEraseUnusedOperandsAndResultsPatterns(patterns);
 }
 
+void transform::ApplyFoldReshapeOpsByExpansionPatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  linalg::ControlFusionFn controlFn =
+      [foldSingleUseOnly = getFoldSingleUseOnly()](OpOperand *fusedOperand) {
+        if (!foldSingleUseOnly)
+          return true;
+        Operation *producer = fusedOperand->get().getDefiningOp();
+        return producer && producer->hasOneUse();
+      };
+  linalg::populateFoldReshapeOpsByExpansionPatterns(patterns, controlFn);
+}
+
 //===----------------------------------------------------------------------===//
 // BufferizeToAllocationOp
 //===----------------------------------------------------------------------===//
@@ -2095,7 +2107,7 @@ transform::PackTransposeOp::apply(transform::TransformRewriter &rewriter,
     assert(!packOp && "packOp must be null on entry when unPackOp is not null");
     OpOperand *packUse = linalgOp.getDpsInitOperand(
         cast<OpResult>(unPackOp.getSource()).getResultNumber());
-    packOp = packUse->get().getDefiningOp<linalg::PackOp>();
+    packOp = dyn_cast_or_null<linalg::PackOp>(packUse->get().getDefiningOp());
     if (!packOp || !packOp.getResult().hasOneUse())
       return emitSilenceableError() << "could not find matching pack op";
   }

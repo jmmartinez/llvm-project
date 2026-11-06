@@ -33,6 +33,8 @@
 #include <cstring>
 
 RT_OFFLOAD_VAR_GROUP_BEGIN
+/// Value used for asyncId when no specific stream is specified.
+static constexpr std::int64_t kNoAsyncId = -1;
 /// Value used for asyncObject when no specific stream is specified.
 static constexpr std::int64_t *kNoAsyncObject = nullptr;
 RT_OFFLOAD_VAR_GROUP_END
@@ -418,12 +420,7 @@ public:
     if (!pointer) {
       return CFI_ERROR_BASE_ADDR_NULL;
     } else {
-      int allocIndex{MapAllocIdx()};
-      if (allocIndex == kDefaultAllocator) {
-        std::free(pointer);
-      } else {
-        allocatorRegistry.GetDeallocator(MapAllocIdx())(pointer);
-      }
+      allocatorRegistry.Deallocate(MapAllocIdx(), pointer);
       descriptor.base_addr = nullptr;
       return CFI_SUCCESS;
     }

@@ -169,7 +169,7 @@ public:
 
   /// Add an integer attribute data and value; value may be any width.
   void addInt(DIE &Die, dwarf::Attribute Attribute, const APInt &Integer,
-	      bool Unsigned);
+              bool Unsigned, std::optional<dwarf::Form> Form = std::nullopt);
 
   /// Add a string attribute data and value.
   ///
@@ -329,6 +329,9 @@ public:
   /// Get context owner's DIE.
   DIE *createTypeDIE(const DICompositeType *Ty);
 
+  /// Adds the DW_AT_memory_space tag to a DIE
+  void addMemorySpaceAttribute(DIE &D, dwarf::MemorySpace MS);
+
   /// If this is a named finished type then include it in the list of types for
   /// the accelerator tables.
   void updateAcceleratorTables(const DIScope *Context, const DIType *Ty,
@@ -370,7 +373,8 @@ private:
 
   /// A helper to add a wide integer constant to a DIE using a block
   /// form.
-  void addIntAsBlock(DIE &Die, dwarf::Attribute Attribute, const APInt &Val);
+  void addIntAsBlock(DIE &Die, dwarf::Attribute Attribute, const APInt &Val,
+                     bool Unsigned);
 
   // Add discriminant constants to a DW_TAG_variant DIE.
   void addDiscriminant(DIE &Variant, Constant *Discriminant, bool IsUnsigned);

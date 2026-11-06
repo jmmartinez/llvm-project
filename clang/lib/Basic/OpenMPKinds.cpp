@@ -847,7 +847,7 @@ bool clang::isOpenMPLoopBoundSharingDirective(OpenMPDirectiveKind Kind) {
          Kind == OMPD_teams_distribute_parallel_for ||
          Kind == OMPD_target_teams_distribute_parallel_for ||
          Kind == OMPD_target_teams_distribute_parallel_for_simd ||
-         Kind == OMPD_teams_loop || Kind == OMPD_target_teams_loop;
+         Kind == OMPD_target_teams_loop;
 }
 
 bool clang::isOpenMPCanonicalLoopNestTransformationDirective(
@@ -946,11 +946,38 @@ bool clang::isOpenMPOrderConcurrentNestableDirective(
   return false;
 }
 
+bool clang::isOpenMPSimdizableDirective(OpenMPDirectiveKind DKind,
+                                        OpenMPBindClauseKind BindKind,
+                                        const LangOptions &LangOpts) {
+  if (DKind == OMPD_loop) // binding region undefined: bind(thread)
+    return BindKind == OMPC_BIND_thread;
+  // Directives that may be encountered during execution of a simd region are:
+  // OpenMP 5.x: ordered simd, simd, scan and atomic
+  // OpenMP 6.0: above plus all loop-transformation directives
+  if (DKind == OMPD_ordered_blockassoc || DKind == OMPD_simd ||
+      DKind == OMPD_scan || DKind == OMPD_atomic)
+    return true;
+
+  if (LangOpts.OpenMP >= 60)
+    return isOpenMPLoopTransformationDirective(DKind);
+
+  return false;
+}
+
 void clang::getOpenMPCaptureRegions(
     SmallVectorImpl<OpenMPDirectiveKind> &CaptureRegions,
     OpenMPDirectiveKind DKind) {
   assert(unsigned(DKind) < llvm::omp::Directive_enumSize);
   assert(isOpenMPCapturingDirective(DKind) && "Expecting capturing directive");
+
+  auto IsTeamsLoop = [&]() {
+    // Assume the current leaf is OMPD_loop, check if the CaptureRegions
+    // contains only OMPD_teams.
+    // Upstream OMPD_teams_loop has two regions: OMPD_teams, OMPD_parallel.
+    // Downstream, it has only one: OMPD_teams. Avoid adding the parallel
+    // region in this specific case.
+    return CaptureRegions.size() == 1 && CaptureRegions[0] == OMPD_teams;
+  };
 
   auto GetRegionsForLeaf = [&](OpenMPDirectiveKind LKind) {
     assert(isLeafConstruct(LKind) && "Epecting leaf directive");
@@ -987,7 +1014,8 @@ void clang::getOpenMPCaptureRegions(
       // If any of the directives that push regions here are parents of 'loop',
       // assume 'parallel'. Otherwise do nothing.
       if (!CaptureRegions.empty() &&
-          !llvm::is_contained(CaptureRegions, OMPD_parallel))
+          !llvm::is_contained(CaptureRegions, OMPD_parallel) &&
+          !IsTeamsLoop())
         CaptureRegions.push_back(OMPD_parallel);
       else
         return true;
@@ -1028,7 +1056,7 @@ void clang::getOpenMPCaptureRegions(
   // constructs were present. Push a single OMPD_unknown as the capture
   /// region.
   if (CaptureRegions.empty() && MayNeedUnknownRegion)
-    CaptureRegions.push_back(OMPD_unknown);
+    CaptureRegions.push_back(OMPD_unknown);  
 
   // OMPD_unknown is only expected as the only region. If other regions
   // are present OMPD_unknown should not be present.

@@ -386,9 +386,9 @@ define weak ptx_kernel void @spmd_and_non_spmd_callee(i1 %c) #0 {
 ; AMDGPU-LABEL: define weak ptx_kernel void @spmd_and_non_spmd_callee(
 ; AMDGPU-SAME: i1 [[C:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  [[ENTRY:.*:]]
-; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
-; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
+; AMDGPU-NEXT:    [[DOTZERO_ADDR1:%.*]] = alloca ptr, align 8, addrspace(5)
+; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR1]] to ptr
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP__CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTTHREADID_TEMP_]] to ptr
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @spmd_and_non_spmd_callee_kernel_environment, ptr null)
@@ -400,7 +400,7 @@ define weak ptx_kernel void @spmd_and_non_spmd_callee(i1 %c) #0 {
 ; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label %[[WORKER_STATE_MACHINE_BEGIN:.*]], label %[[WORKER_STATE_MACHINE_FINISHED:.*]]
 ; AMDGPU:       [[WORKER_STATE_MACHINE_BEGIN]]:
 ; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
-; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
 ; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
 ; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
 ; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
@@ -425,7 +425,7 @@ define weak ptx_kernel void @spmd_and_non_spmd_callee(i1 %c) #0 {
 ; AMDGPU-NEXT:    ret void
 ; AMDGPU:       [[USER_CODE_ENTRY]]:
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(ptr @[[GLOB1]]) #[[ATTR10]]
-; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR]], align 4
+; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR1]], align 4
 ; AMDGPU-NEXT:    store i32 [[TMP1]], ptr addrspace(5) [[DOTTHREADID_TEMP_]], align 4, !tbaa [[INT_TBAA12]]
 ; AMDGPU-NEXT:    [[FP:%.*]] = select i1 [[C]], ptr @__omp_outlined_spmd_amenable3, ptr @__omp_outlined_not_spmd_amenable
 ; AMDGPU-NEXT:    [[TMP2:%.*]] = icmp eq ptr [[FP]], @__omp_outlined_not_spmd_amenable
@@ -675,8 +675,8 @@ define weak ptx_kernel void @spmd_callees_metadata(ptr %fp) #0 {
 ; AMDGPU-LABEL: define weak ptx_kernel void @spmd_callees_metadata(
 ; AMDGPU-SAME: ptr [[FP:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  [[ENTRY:.*:]]
-; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
-; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
+; AMDGPU-NEXT:    [[DOTZERO_ADDR1:%.*]] = alloca ptr, align 8, addrspace(5)
+; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR1]] to ptr
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP__CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTTHREADID_TEMP_]] to ptr
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @spmd_callees_metadata_kernel_environment, ptr null)
@@ -686,7 +686,7 @@ define weak ptx_kernel void @spmd_callees_metadata(ptr %fp) #0 {
 ; AMDGPU-NEXT:    ret void
 ; AMDGPU:       [[USER_CODE_ENTRY]]:
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(ptr @[[GLOB1]]) #[[ATTR10]]
-; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR]], align 4
+; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR1]], align 4
 ; AMDGPU-NEXT:    store i32 [[TMP1]], ptr addrspace(5) [[DOTTHREADID_TEMP_]], align 4, !tbaa [[INT_TBAA12]]
 ; AMDGPU-NEXT:    call void @__omp_outlined_spmd_amenable_external(ptr [[DOTTHREADID_TEMP__CAST]], ptr [[DOTZERO_ADDR_CAST]])
 ; AMDGPU-NEXT:    call void @__kmpc_target_deinit()
@@ -738,9 +738,9 @@ define weak ptx_kernel void @spmd_and_non_spmd_callees_metadata(ptr %fp) #0 {
 ; AMDGPU-LABEL: define weak ptx_kernel void @spmd_and_non_spmd_callees_metadata(
 ; AMDGPU-SAME: ptr [[FP:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  [[ENTRY:.*:]]
-; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
-; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
+; AMDGPU-NEXT:    [[DOTZERO_ADDR1:%.*]] = alloca ptr, align 8, addrspace(5)
+; AMDGPU-NEXT:    [[DOTZERO_ADDR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR1]] to ptr
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP__CAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTTHREADID_TEMP_]] to ptr
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @spmd_and_non_spmd_callees_metadata_kernel_environment, ptr null)
@@ -752,7 +752,7 @@ define weak ptx_kernel void @spmd_and_non_spmd_callees_metadata(ptr %fp) #0 {
 ; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label %[[WORKER_STATE_MACHINE_BEGIN:.*]], label %[[WORKER_STATE_MACHINE_FINISHED:.*]]
 ; AMDGPU:       [[WORKER_STATE_MACHINE_BEGIN]]:
 ; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
-; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
 ; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
 ; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
 ; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
@@ -777,7 +777,7 @@ define weak ptx_kernel void @spmd_and_non_spmd_callees_metadata(ptr %fp) #0 {
 ; AMDGPU-NEXT:    ret void
 ; AMDGPU:       [[USER_CODE_ENTRY]]:
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(ptr @[[GLOB1]]) #[[ATTR10]]
-; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR]], align 4
+; AMDGPU-NEXT:    store i32 0, ptr addrspace(5) [[DOTZERO_ADDR1]], align 4
 ; AMDGPU-NEXT:    store i32 [[TMP1]], ptr addrspace(5) [[DOTTHREADID_TEMP_]], align 4, !tbaa [[INT_TBAA12]]
 ; AMDGPU-NEXT:    [[TMP2:%.*]] = icmp eq ptr [[FP]], @__omp_outlined_spmd_amenable_external
 ; AMDGPU-NEXT:    br i1 [[TMP2]], label %[[BB3:.*]], label %[[BB4:.*]]

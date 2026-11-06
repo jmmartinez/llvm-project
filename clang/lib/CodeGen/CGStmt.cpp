@@ -12,6 +12,7 @@
 
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
+#include "CGOpenMPRuntimeGPU.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
@@ -26,6 +27,7 @@
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/CodeGenUtils/StmtUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
@@ -53,6 +55,339 @@ void CodeGenFunction::EmitStopPoint(const Stmt *S) {
 
     LastStopPoint = Loc;
   }
+}
+
+llvm::Value *CodeGenFunction::applyNoLoopInc(const Expr *Inc,
+                                             const VarDecl *IVDecl,
+                                             llvm::Value *CurrVal) {
+  // If we reach here, it must be a unary increment or a binary
+  // step expression. For a binary expression, generate myid = step * myid
+  const Expr *StepExpr = CGM.getBinaryExprStep(Inc, IVDecl);
+  if (StepExpr == nullptr)
+    return CurrVal; // nothing to do
+  llvm::Value *StepVal = EmitScalarExpr(StepExpr);
+  return Builder.CreateMul(
+      Builder.CreateIntCast(CurrVal, ConvertTypeForMem(StepExpr->getType()),
+                            false),
+      StepVal);
+}
+
+std::pair<const VarDecl *, Address>
+CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt,
+                                              const FunctionArgList *Args) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+  std::pair<const VarDecl *, Address> IVPair = EmitNoLoopIV(LD);
+  const VarDecl *LoopVD = IVPair.first;
+  Address IvAddr = IVPair.second;
+
+  // Generate idx = workgroup_id * workgroup_size + workitem_id
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // workitem_id
+  llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
+
+  // workgroup_size
+  llvm::Value *WorkGroupSize = RT.getGPUNumThreads(*this);
+
+  // workgroup_id
+  llvm::Value *WorkGroupId = RT.getGPUBlockID(*this);
+
+  llvm::Value *WorkGroup = Builder.CreateMul(WorkGroupId, WorkGroupSize);
+  llvm::Value *GlobalGpuThreadId = Builder.CreateAdd(WorkGroup, GpuThreadId);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), LoopVD) && "Loop incr check failed");
+
+  // Handle stride
+  GlobalGpuThreadId = applyNoLoopInc(LD.getInc(), LoopVD, GlobalGpuThreadId);
+
+  // Generate my_index = my_index + myid. Note that my_index was already
+  // initialized
+  llvm::Value *Gtid =
+      Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
+
+  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+
+  // Set the initial value of the loop iteration
+  Builder.CreateStore(Iv, IvAddr);
+
+  return std::make_pair(LoopVD, IvAddr);
+}
+
+void CodeGenFunction::EmitBigJumpLoopUpdates(const ForStmt &FStmt) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+  // Emit updates of the original loop indices
+  for (const Expr *UE : LD.updates())
+    EmitIgnoredExpr(UE);
+}
+
+void CodeGenFunction::EmitBigJumpLoopInc(const ForStmt &FStmt,
+                                         const VarDecl *LoopVD,
+                                         const Address &NoLoopIvAddr) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  llvm::Value *BlockSize = RT.getGPUNumThreads(*this);
+  llvm::Value *NumBlocks = RT.getGPUNumBlocks(*this);
+  assert(NumBlocks && "Number of blocks cannot be null");
+  // prod = block_size * num_blocks
+  llvm::Value *Prod = Builder.CreateMul(BlockSize, NumBlocks);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), LoopVD) && "Loop incr check failed");
+
+  // Handle stride
+  Prod = applyNoLoopInc(LD.getInc(), LoopVD, Prod);
+
+  // *iv = *iv + prod
+  llvm::Value *ProdRes =
+      Builder.CreateIntCast(Prod, NoLoopIvAddr.getElementType(), false);
+  llvm::Value *NoLoopInc =
+      Builder.CreateAdd(ProdRes, Builder.CreateLoad(NoLoopIvAddr));
+  Builder.CreateStore(NoLoopInc, NoLoopIvAddr);
+}
+
+std::pair<const VarDecl *, Address>
+CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
+  // Emit the original loop indices
+  for (const Expr *CE : LD.counters()) {
+    const auto *CEDecl = cast<VarDecl>(cast<DeclRefExpr>(CE)->getDecl());
+    if (!hasAddrOfLocalVar(CEDecl)) {
+      if (CEDecl->hasLocalStorage())
+        EmitVarDecl(*CEDecl);
+      else {
+        llvm::Type *CEDeclType = ConvertTypeForMem(CEDecl->getType());
+        llvm::AllocaInst *LocalForGlobal =
+            Builder.CreateAlloca(CEDeclType, nullptr, "lglobal");
+        setAddrOfLocalVar(CEDecl, Address(LocalForGlobal, CEDeclType,
+                                          getContext().getTypeAlignInChars(
+                                              CEDecl->getType())));
+      }
+    }
+  }
+
+  // Emit the preinits
+  const DeclStmt *PreInits = cast_or_null<DeclStmt>(LD.getPreInits());
+  if (PreInits) {
+    for (const auto *I : PreInits->decls()) {
+      EmitVarDecl(cast<VarDecl>(*I));
+    }
+  }
+
+  // Emit the inits of original loop indices
+  for (const Expr *CIE : LD.inits()) {
+    EmitIgnoredExpr(CIE);
+  }
+
+  // Emit the lower and upper bounds
+  const auto *LBDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getLowerBoundVariable())->getDecl());
+  EmitVarDecl(*LBDecl);
+
+  const auto *UBDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getUpperBoundVariable())->getDecl());
+  EmitVarDecl(*UBDecl);
+
+  // Emit the iteration variable of the loop
+  const auto *IVDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getIterationVariable())->getDecl());
+  EmitVarDecl(*IVDecl);
+
+  // Emit init of the iteration variable
+  EmitIgnoredExpr(LD.getInit());
+
+  return std::make_pair(IVDecl, GetAddrOfLocalVar(IVDecl));
+}
+
+const CodeGenModule::OptKernelNestDirectives &
+CodeGenModule::getOptKernelDirectives(
+    const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode) {
+  assert(
+      OptKernelMode ==
+          llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP ||
+      OptKernelMode ==
+          llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP);
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
+    return getNoLoopNestDirs(CapturedForStmt);
+  return getBigJumpLoopNestDirs(CapturedForStmt);
+}
+
+void CodeGenFunction::EmitOptKernel(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode, SourceLocation Loc,
+    const FunctionArgList *Args) {
+  if (!HaveInsertPoint())
+    EnsureInsertPoint();
+
+  assert(CapturedForStmt && "Cannot generate kernel for null captured stmt");
+  const CodeGenModule::OptKernelNestDirectives &NestDirs =
+      CGM.getOptKernelDirectives(CapturedForStmt, OptKernelMode);
+
+  // We support at most 3 levels of nesting.
+  assert((NestDirs.size() > 0 && NestDirs.size() < 4) &&
+         "Unexpected number of nested directives for optimized kernel codegen");
+
+  // No private scope must be destroyed before the kernel codegen is done.
+  if (NestDirs.size() == 1) {
+    OMPPrivateScope PrivateScope(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScope);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScope);
+    (void)PrivateScope.Privatize();
+
+    EmitOptKernelCode(*NestDirs[0], CapturedForStmt, OptKernelMode, Loc, Args);
+  } else if (NestDirs.size() == 2) {
+    OMPPrivateScope PrivateScopeZero(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScopeZero);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScopeZero);
+    (void)PrivateScopeZero.Privatize();
+
+    OMPPrivateScope PrivateScopeOne(*this);
+    EmitOMPFirstprivateClause(*NestDirs[1], PrivateScopeOne);
+    EmitOMPPrivateClause(*NestDirs[1], PrivateScopeOne);
+    (void)PrivateScopeOne.Privatize();
+
+    EmitOptKernelCode(*NestDirs[1], CapturedForStmt, OptKernelMode, Loc, Args);
+  } else {
+    OMPPrivateScope PrivateScopeZero(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScopeZero);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScopeZero);
+    (void)PrivateScopeZero.Privatize();
+
+    OMPPrivateScope PrivateScopeOne(*this);
+    EmitOMPFirstprivateClause(*NestDirs[1], PrivateScopeOne);
+    EmitOMPPrivateClause(*NestDirs[1], PrivateScopeOne);
+    (void)PrivateScopeOne.Privatize();
+
+    OMPPrivateScope PrivateScopeTwo(*this);
+    EmitOMPFirstprivateClause(*NestDirs[2], PrivateScopeTwo);
+    EmitOMPPrivateClause(*NestDirs[2], PrivateScopeTwo);
+    (void)PrivateScopeTwo.Privatize();
+
+    EmitOptKernelCode(*NestDirs[2], CapturedForStmt, OptKernelMode, Loc, Args);
+  }
+}
+
+void CodeGenFunction::EmitOptKernelCode(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode, SourceLocation Loc,
+    const FunctionArgList *Args) {
+  (void)Args;
+  assert(
+      OptKernelMode ==
+          llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP ||
+      OptKernelMode ==
+          llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP);
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
+    EmitNoLoopCode(D, CapturedForStmt, Loc);
+  else
+    EmitBigJumpLoopCode(D, CapturedForStmt, Loc);
+}
+
+void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
+                                     const ForStmt *CapturedForStmt,
+                                     SourceLocation Loc) {
+  assert(isa<OMPLoopDirective>(D) && "Unexpected directive");
+
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // Initialize a specialized kernel.
+  RT.initSpecializedKernel(*this);
+
+  auto IVPair = EmitNoLoopIV(LD);
+  const VarDecl *IVDecl = IVPair.first;
+  Address IvAddr = IVPair.second;
+
+  // Generate myid = workgroup_id * workgroup_size + workitem_id
+  // workitem_id
+  llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
+
+  // workgroup_size
+  assert(CGM.isNoLoopKernel(D) && "Unexpected optimized kernel type");
+  llvm::Value *WorkGroupSize = RT.getGPUNumThreads(*this);
+
+  // workgroup_id
+  llvm::Value *WorkGroupId = RT.getGPUBlockID(*this);
+
+  llvm::Value *WorkGroup = Builder.CreateMul(WorkGroupId, WorkGroupSize);
+  llvm::Value *GlobalGpuThreadId = Builder.CreateAdd(WorkGroup, GpuThreadId);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), IVDecl) && "Loop incr check failed");
+
+  // Handle stride
+  GlobalGpuThreadId = applyNoLoopInc(LD.getInc(), IVDecl, GlobalGpuThreadId);
+
+  // Generate my_index = my_index + myid. Note that my_index was already
+  // initialized
+  llvm::Value *Gtid =
+      Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
+
+  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+  Builder.CreateStore(Iv, IvAddr);
+
+  // Emit updates of the original loop indices
+  for (const Expr *UE : LD.updates())
+    EmitIgnoredExpr(UE);
+
+  // Branch to end if original loop condition not satisfied
+  llvm::Value *IvCmp = EvaluateExprAsBool(LD.getCond());
+
+  llvm::BasicBlock *ExecBB = createBasicBlock("omp.kernel.body");
+  llvm::BasicBlock *DoneBB = createBasicBlock("omp.kernel.done");
+
+  Builder.CreateCondBr(IvCmp, ExecBB, DoneBB);
+
+  // On a continue in the body, jump to the end.
+  // A break is not allowed in this scope but it would be the end anyways
+  JumpDest Continue = getJumpDestInCurrentScope(DoneBB);
+  BreakContinueStack.push_back(BreakContinue(cast<ForStmt>(*CapturedForStmt), Continue, Continue));
+
+  EmitBlock(ExecBB);
+
+  for (const Expr *E : LD.finals_conditions()) {
+    if (!E)
+      continue;
+    // Check that loop counter in non-rectangular nest fits into the iteration
+    // space.
+    llvm::BasicBlock *NextBB = createBasicBlock("omp.body.next");
+    EmitBranchOnBoolExpr(E, NextBB, Continue.getBlock(),
+                         getProfileCount(LD.getBody()));
+    EmitBlock(NextBB);
+  }
+
+  // Emit the kernel body block
+  EmitOMPNoLoopBody(LD);
+  EmitBranch(DoneBB);
+
+  EmitBlock(DoneBB);
+  Builder.CreateRetVoid();
+  Builder.ClearInsertionPoint();
+  BreakContinueStack.pop_back();
+}
+
+void CodeGenFunction::EmitBigJumpLoopCode(const OMPExecutableDirective &D,
+                                          const ForStmt *CapturedForStmt,
+                                          SourceLocation Loc) {
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  // Initialize a specialized kernel.
+  RT.initSpecializedKernel(*this);
+  EmitStmt(CapturedForStmt);
 }
 
 void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
@@ -1034,65 +1369,10 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
 
 bool CodeGenFunction::checkIfLoopMustProgress(const Expr *ControllingExpression,
                                               bool HasEmptyBody) {
-  if (CGM.getCodeGenOpts().getFiniteLoops() ==
-      CodeGenOptions::FiniteLoopsKind::Never)
-    return false;
-
-  // Now apply rules for plain C (see  6.8.5.6 in C11).
-  // Loops with constant conditions do not have to make progress in any C
-  // version.
-  // As an extension, we consisider loops whose constant expression
-  // can be constant-folded.
-  Expr::EvalResult Result;
-  bool CondIsConstInt =
-      !ControllingExpression ||
-      (ControllingExpression->EvaluateAsInt(Result, getContext()) &&
-       Result.Val.isInt());
-
-  bool CondIsTrue = CondIsConstInt && (!ControllingExpression ||
-                                       Result.Val.getInt().getBoolValue());
-
-  // Loops with non-constant conditions must make progress in C11 and later.
-  if (getLangOpts().C11 && !CondIsConstInt)
-    return true;
-
-  // [C++26][intro.progress] (DR)
-  // The implementation may assume that any thread will eventually do one of the
-  // following:
-  // [...]
-  // - continue execution of a trivial infinite loop ([stmt.iter.general]).
-  if (CGM.getCodeGenOpts().getFiniteLoops() ==
-          CodeGenOptions::FiniteLoopsKind::Always ||
-      getLangOpts().CPlusPlus11) {
-    if (HasEmptyBody && CondIsTrue) {
-      CurFn->removeFnAttr(llvm::Attribute::MustProgress);
-      return false;
-    }
-    return true;
-  }
-  return false;
-}
-
-// [C++26][stmt.iter.general] (DR)
-// A trivially empty iteration statement is an iteration statement matching one
-// of the following forms:
-//  - while ( expression ) ;
-//  - while ( expression ) { }
-//  - do ; while ( expression ) ;
-//  - do { } while ( expression ) ;
-//  - for ( init-statement expression(opt); ) ;
-//  - for ( init-statement expression(opt); ) { }
-template <typename LoopStmt> static bool hasEmptyLoopBody(const LoopStmt &S) {
-  if constexpr (std::is_same_v<LoopStmt, ForStmt>) {
-    if (S.getInc())
-      return false;
-  }
-  const Stmt *Body = S.getBody();
-  if (!Body || isa<NullStmt>(Body))
-    return true;
-  if (const CompoundStmt *Compound = dyn_cast<CompoundStmt>(Body))
-    return Compound->body_empty();
-  return false;
+  return CodeGenUtils::checkIfLoopMustProgress(
+      getLangOpts(), CGM.getCodeGenOpts(), getContext(), ControllingExpression,
+      HasEmptyBody,
+      [this] { CurFn->removeFnAttr(llvm::Attribute::MustProgress); });
 }
 
 void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
@@ -1137,10 +1417,10 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   llvm::ConstantInt *C = dyn_cast<llvm::ConstantInt>(BoolCondVal);
   bool EmitBoolCondBranch = !C || !C->isOne();
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(),
-                 WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
+  LoopStack.push(
+      LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(), WhileAttrs,
+      SourceLocToDebugLoc(R.getBegin()), SourceLocToDebugLoc(R.getEnd()),
+      checkIfLoopMustProgress(S.getCond(), CodeGenUtils::hasEmptyLoopBody(S)));
 
   // As long as the condition is true, go to the loop body.
   llvm::BasicBlock *LoopBody = createBasicBlock("while.body");
@@ -1253,10 +1533,10 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   bool EmitBoolCondBranch = !C || !C->isZero();
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
+  LoopStack.push(
+      LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
+      SourceLocToDebugLoc(R.getBegin()), SourceLocToDebugLoc(R.getEnd()),
+      checkIfLoopMustProgress(S.getCond(), CodeGenUtils::hasEmptyLoopBody(S)));
 
   auto *LoopFalse = (hasSkipCounter(&S) ? createBasicBlock("do.loopfalse")
                                         : LoopExit.getBlock());
@@ -1297,17 +1577,36 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
     ConvergenceTokenStack.pop_back();
 }
 
-void CodeGenFunction::EmitForStmt(const ForStmt &S,
-                                  ArrayRef<const Attr *> ForAttrs) {
+void CodeGenFunction::EmitForStmtWithArgs(const ForStmt &S,
+                                          const FunctionArgList *Args,
+                                          ArrayRef<const Attr *> ForAttrs) {
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
   std::optional<LexicalScope> ForScope;
   if (getLangOpts().C99 || getLangOpts().CPlusPlus)
     ForScope.emplace(*this, S.getSourceRange());
 
-  // Evaluate the first part before the loop.
-  if (S.getInit())
-    EmitStmt(S.getInit());
+  Address BigJumpLoopIvAddr = Address::invalid();
+  const VarDecl *LoopVar = nullptr;
+  const OMPLoopDirective *BigJumpLoopLD = nullptr;
+  if (CGM.getLangOpts().OpenMPIsTargetDevice && CGM.isBigJumpLoopKernel(&S)) {
+    const CodeGenModule::OptKernelNestDirectives &Directives =
+        CGM.getBigJumpLoopNestDirs(&S);
+    assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+           "Appropriate directive not found");
+    BigJumpLoopLD = cast<OMPLoopDirective>(Directives.back());
+
+    std::pair<const VarDecl *, Address> LoopVarInfo =
+        EmitBigJumpLoopStartingIndex(S, Args);
+    LoopVar = LoopVarInfo.first;
+    BigJumpLoopIvAddr = LoopVarInfo.second;
+  } else {
+    // Evaluate the first part before the loop.
+    if (S.getInit())
+      EmitStmt(S.getInit());
+  }
+
+  const Expr *CondExpr = BigJumpLoopLD ? BigJumpLoopLD->getCond() : S.getCond();
 
   // Start the loop with a block that tests the condition.
   // If there's an increment, the continue scope will be overwritten
@@ -1320,10 +1619,10 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     ConvergenceTokenStack.push_back(emitConvergenceLoopToken(CondBlock));
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
+  LoopStack.push(
+      CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
+      SourceLocToDebugLoc(R.getBegin()), SourceLocToDebugLoc(R.getEnd()),
+      checkIfLoopMustProgress(S.getCond(), CodeGenUtils::hasEmptyLoopBody(S)));
 
   // Create a cleanup scope for the condition variable cleanups.
   LexicalScope ConditionScope(*this, S.getSourceRange());
@@ -1342,7 +1641,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     Continue = getJumpDestInCurrentScope("for.inc");
   BreakContinueStack.push_back(BreakContinue(S, LoopExit, Continue));
 
-  if (S.getCond()) {
+  if (CondExpr) {
     // If the for statement has a condition scope, emit the local variable
     // declaration.
     if (S.getConditionVariable()) {
@@ -1363,26 +1662,21 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     // As long as the condition is true, iterate the loop.
     llvm::BasicBlock *ForBody = createBasicBlock("for.body");
 
-    // C99 6.8.5p2/p4: The first substatement is executed if the expression
-    // compares unequal to 0.  The condition must be a scalar type.
-    llvm::Value *BoolCondVal = EvaluateExprAsBool(S.getCond());
+    {
+      // C99 6.8.5p2/p4: The first substatement is executed if the expression
+      // compares unequal to 0.  The condition must be a scalar type.
+      llvm::Value *BoolCondVal = EvaluateExprAsBool(CondExpr);
 
-    MaybeEmitDeferredVarDeclInit(S.getConditionVariable());
+      MaybeEmitDeferredVarDeclInit(S.getConditionVariable());
 
-    llvm::MDNode *Weights =
-        createProfileWeightsForLoop(S.getCond(), getProfileCount(S.getBody()));
-    if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
-      BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
-          BoolCondVal, Stmt::getLikelihood(S.getBody()));
+      llvm::MDNode *Weights =
+          createProfileWeightsForLoop(CondExpr, getProfileCount(S.getBody()));
+      if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
+        BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
+            BoolCondVal, Stmt::getLikelihood(S.getBody()));
 
-    auto *I = Builder.CreateCondBr(BoolCondVal, ForBody, ExitBlock, Weights);
-    // Key Instructions: Emit the condition and branch as separate atoms to
-    // match existing loop stepping behaviour. FIXME: We could have the branch
-    // as the backup location for the condition, which would probably be a
-    // better experience (no jumping to the brace).
-    if (auto *CondI = dyn_cast<llvm::Instruction>(BoolCondVal))
-      addInstToNewSourceAtom(CondI, nullptr);
-    addInstToNewSourceAtom(I, nullptr);
+      Builder.CreateCondBr(BoolCondVal, ForBody, ExitBlock, Weights);
+    }
 
     if (ExitBlock != LoopExit.getBlock()) {
       EmitBlock(ExitBlock);
@@ -1403,17 +1697,40 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     // Create a separate cleanup scope for the body, in case it is not
     // a compound statement.
     RunCleanupsScope BodyScope(*this);
-    EmitStmt(S.getBody());
+
+    if (CGM.getLangOpts().OpenMPIsTargetDevice && CGM.isBigJumpLoopKernel(&S)) {
+      EmitBigJumpLoopUpdates(S);
+      for (auto C : BigJumpLoopLD->finals_conditions()) {
+        if (!C)
+          continue;
+        // Check that loop counter in non-rectangular nest fits into the
+        // iteration space.
+        llvm::BasicBlock *NextBB = createBasicBlock("omp.body.next");
+        EmitBranchOnBoolExpr(C, NextBB, Continue.getBlock(),
+                             getProfileCount(BigJumpLoopLD->getBody()));
+        EmitBlock(NextBB);
+      }
+      EmitOMPNoLoopBody(*BigJumpLoopLD);
+    } else {
+      EmitStmt(S.getBody());
+    }
   }
 
   // The last block in the loop's body (which unconditionally branches to the
   // `inc` block if there is one).
   auto *FinalBodyBB = Builder.GetInsertBlock();
 
-  // If there is an increment, emit it next.
-  if (S.getInc()) {
+  if (CGM.getLangOpts().OpenMPIsTargetDevice && CGM.isBigJumpLoopKernel(&S)) {
     EmitBlock(Continue.getBlock());
-    EmitStmt(S.getInc());
+    EmitBigJumpLoopInc(
+        S, LoopVar,
+        BigJumpLoopIvAddr); // *iv = *iv + num_teams * num_threads
+  } else {
+    // If there is an increment, emit it next.
+    if (S.getInc()) {
+      EmitBlock(Continue.getBlock());
+      EmitStmt(S.getInc());
+    }
   }
 
   BreakContinueStack.pop_back();
@@ -1439,6 +1756,11 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     // match existing behaviour.
     addInstToNewSourceAtom(FinalBodyBB->getTerminator(), nullptr);
   }
+}
+
+void CodeGenFunction::EmitForStmt(const ForStmt &S,
+                                  ArrayRef<const Attr *> ForAttrs) {
+  CodeGenFunction::EmitForStmtWithArgs(S, nullptr, ForAttrs);
 }
 
 void
@@ -1753,11 +2075,11 @@ void CodeGenFunction::EmitDeclStmt(const DeclStmt &S) {
 
 auto CodeGenFunction::GetDestForLoopControlStmt(const LoopControlStmt &S)
     -> const BreakContinue * {
-  if (!S.hasLabelTarget())
+  if (!S.isNamed())
     return &BreakContinueStack.back();
 
   const Stmt *LoopOrSwitch = S.getNamedLoopOrSwitch();
-  assert(LoopOrSwitch && "break/continue target not set?");
+  assert(LoopOrSwitch && "break/continue target label not available?");
   for (const BreakContinue &BC : llvm::reverse(BreakContinueStack))
     if (BC.LoopOrSwitch == LoopOrSwitch)
       return &BC;
@@ -1902,18 +2224,14 @@ void CodeGenFunction::EmitCaseStmt(const CaseStmt &S,
     Builder.getInt(S.getLHS()->EvaluateKnownConstInt(getContext()));
 
   // Emit debuginfo for the case value if it is an enum value.
-  const ConstantExpr *CE;
-  if (auto ICE = dyn_cast<ImplicitCastExpr>(S.getLHS()))
-    CE = dyn_cast<ConstantExpr>(ICE->getSubExpr());
-  else
-    CE = dyn_cast<ConstantExpr>(S.getLHS());
-  if (CE) {
-    if (auto DE = dyn_cast<DeclRefExpr>(CE->getSubExpr()))
-      if (CGDebugInfo *Dbg = getDebugInfo())
-        if (CGM.getCodeGenOpts().hasReducedDebugInfo())
-          Dbg->EmitGlobalVariable(DE->getDecl(),
-              APValue(llvm::APSInt(CaseVal->getValue())));
-  }
+  // Look through implicit casts and check the subexpression of ConstantExpr.
+  const auto *CE = dyn_cast<ConstantExpr>(S.getLHS()->IgnoreImpCasts());
+  const Expr *SubExpr = CE ? CE->getSubExpr() : S.getLHS()->IgnoreImpCasts();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr))
+    if (CGDebugInfo *Dbg = getDebugInfo())
+      if (CGM.getCodeGenOpts().hasReducedDebugInfo())
+        Dbg->EmitGlobalVariable(DRE->getDecl(),
+                                APValue(llvm::APSInt(CaseVal->getValue())));
 
   if (SwitchLikelihood)
     SwitchLikelihood->push_back(Stmt::getLikelihood(Attrs));
@@ -2910,7 +3228,7 @@ void AsmConstraintsInfo::EmitAsmStmt() {
   if (IsGCCAsmGoto && !CBRRegResults.empty()) {
     for (llvm::BasicBlock *Succ : CBR->getIndirectDests()) {
       llvm::IRBuilderBase::InsertPointGuard IPG(Builder);
-      Builder.SetInsertPoint(Succ, --(Succ->end()));
+      Builder.SetInsertPoint(--(Succ->end()));
       EmitAsmStores(CBRRegResults[Succ]);
     }
   }
@@ -3447,7 +3765,11 @@ void AsmConstraintsInfo::EmitAsmStores(
         return;
       }
 
-      Dest = CGF.MakeAddrLValue(A, Ty);
+      // The store writes all of the destination's members at once, so it must
+      // be allowed to alias an access to any of them. A TBAA access type must
+      // be a scalar, so use may-alias (char), which aliases any access.
+      Dest = CGF.MakeAddrLValue(A, Ty, Dest.getBaseInfo(),
+                                TBAAAccessInfo::getMayAliasInfo());
     }
 
     CGF.EmitStoreThroughLValue(RValue::get(Tmp), Dest);
@@ -3573,18 +3895,24 @@ static llvm::ConvergenceControlInst *getConvergenceToken(llvm::BasicBlock *BB) {
   return nullptr;
 }
 
-llvm::CallBase *
-CodeGenFunction::addConvergenceControlToken(llvm::CallBase *Input) {
+void CodeGenFunction::addConvergenceControlBundle(
+    SmallVectorImpl<llvm::OperandBundleDef> &Bundles) {
+  if (!CGM.shouldEmitConvergenceTokens())
+    return;
+
   llvm::ConvergenceControlInst *ParentToken = ConvergenceTokenStack.back();
   assert(ParentToken);
+  Bundles.emplace_back("convergencectrl", ParentToken);
+}
 
-  llvm::Value *bundleArgs[] = {ParentToken};
-  llvm::OperandBundleDef OB("convergencectrl", bundleArgs);
-  auto *Output = llvm::CallBase::addOperandBundle(
-      Input, llvm::LLVMContext::OB_convergencectrl, OB, Input->getIterator());
-  Input->replaceAllUsesWith(Output);
-  Input->eraseFromParent();
-  return Output;
+void CodeGenFunction::setConvergentCallSite(llvm::CallBase *Call,
+                                            bool IsConvergent) {
+  if (IsConvergent && !Call->isConvergent())
+    Call->setConvergent();
+
+  assert((IsConvergent || !Call->isConvergent() ||
+          !CGM.shouldEmitConvergenceTokens()) &&
+         "convergent call is missing a convergence control token");
 }
 
 llvm::ConvergenceControlInst *

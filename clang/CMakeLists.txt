@@ -190,6 +190,12 @@ if(CLANG_ENABLE_LIBXML2)
   endif()
 endif()
 
+# Standalone builds don't inherit this flag from the llvm/CMakeLists, so set it
+# here.
+if(CLANG_BUILT_STANDALONE)
+  option(CLANG_ENABLE_CIR "Build ClangIR support into the compiler" OFF)
+endif()
+
 if(CLANG_ENABLE_CIR)
   if (CLANG_BUILT_STANDALONE)
     message(FATAL_ERROR
@@ -199,6 +205,10 @@ if(CLANG_ENABLE_CIR)
     message(FATAL_ERROR
       "Cannot build ClangIR without MLIR enabled")
   endif()
+  # Number of translation units the TableGen-generated CIR operation
+  # definitions are split into. Shared by the CIROps.td TableGen invocations
+  # and the MLIRCIR library sources.
+  set(CLANG_CIR_OP_SHARD_COUNT 8)
 endif()
 
 include(CheckIncludeFile)
@@ -343,6 +353,31 @@ set(CLANG_DEFAULT_OBJCOPY "objcopy" CACHE STRING
 
 set(CLANG_DEFAULT_OPENMP_RUNTIME "libomp" CACHE STRING
   "Default OpenMP runtime used by -fopenmp.")
+
+# OpenMP offloading requires at least sm_35 because we use shuffle instructions
+# to generate efficient code for reductions and the atomicMax instruction on
+# 64-bit integers in the implementation of conditional lastprivate.
+set(CUDA_ARCH_FLAGS "sm_35")
+
+# Try to find the highest Nvidia GPU architecture the system supports
+if (NOT DEFINED CLANG_OPENMP_NVPTX_DEFAULT_ARCH)
+  find_package(CUDA QUIET)
+  if (CUDA_FOUND)
+    cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS)
+  endif()
+else()
+  set(CUDA_ARCH_FLAGS ${CLANG_OPENMP_NVPTX_DEFAULT_ARCH})
+endif()
+
+string(REGEX MATCH "sm_([0-9]+)" CUDA_ARCH_MATCH ${CUDA_ARCH_FLAGS})
+if (NOT DEFINED CUDA_ARCH_MATCH OR "${CMAKE_MATCH_1}" LESS 35)
+  set(CLANG_OPENMP_NVPTX_DEFAULT_ARCH "sm_35" CACHE STRING
+    "Default architecture for OpenMP offloading to Nvidia GPUs." FORCE)
+  message(WARNING "Resetting default architecture for OpenMP offloading to Nvidia GPUs to sm_35")
+else()
+  set(CLANG_OPENMP_NVPTX_DEFAULT_ARCH ${CUDA_ARCH_MATCH} CACHE STRING
+    "Default architecture for OpenMP offloading to Nvidia GPUs.")
+endif()
 
 set(CLANG_SYSTEMZ_DEFAULT_ARCH "z10" CACHE STRING "SystemZ Default Arch")
 
@@ -898,15 +933,7 @@ if (CLANG_ENABLE_BOOTSTRAP)
   # Populate the passthrough variables
   foreach(variableName ${CLANG_BOOTSTRAP_PASSTHROUGH} ${_BOOTSTRAP_DEFAULT_PASSTHROUGH})
     if(DEFINED ${variableName})
-      if(variableName STREQUAL "LLVM_ENABLE_PROJECTS")
-        # Forward only requested roots; the next stage re-adds dependencies.
-        set(llvm_enable_projects "${LLVM_ENABLE_PROJECTS}")
-        if(DEFINED LLVM_REQUESTED_PROJECTS)
-          set(llvm_enable_projects "${LLVM_REQUESTED_PROJECTS}")
-        endif()
-        string(REPLACE ";" "|" value "${llvm_enable_projects}")
-        unset(llvm_enable_projects)
-      elseif("${${variableName}}" STREQUAL "")
+      if("${${variableName}}" STREQUAL "")
         set(value "")
       else()
         string(REPLACE ";" "|" value "${${variableName}}")

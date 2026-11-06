@@ -187,6 +187,8 @@
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DIBuilder.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
@@ -280,7 +282,7 @@ class AMDGPULowerModuleLDS {
     // codegen would suffice for that, but one would still need to ensure that
     // the variables are allocated in the anticipated order.
     BasicBlock *Entry = &Func->getEntryBlock();
-    IRBuilder<> Builder(Entry, Entry->getFirstNonPHIIt());
+    IRBuilder<> Builder(Entry->getFirstNonPHIIt());
 
     Function *Decl = Intrinsic::getOrInsertDeclaration(
         Func->getParent(), Intrinsic::donothing, {});
@@ -402,7 +404,7 @@ public:
       GlobalVariable *LookupTable) {
 
     LLVMContext &Ctx = M.getContext();
-    IRBuilder<> Builder(Ctx);
+    IRBuilder<> Builder(M);
     Type *I32 = Type::getInt32Ty(Ctx);
 
     for (size_t Index = 0; Index < ModuleScopeVariables.size(); Index++) {
@@ -517,7 +519,7 @@ public:
     // block to spare deduplicating it later.
     auto [It, Inserted] = tableKernelIndexCache.try_emplace(F);
     if (Inserted) {
-      auto InsertAt = F->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+      auto InsertAt = F->getEntryBlock().getFirstNonPHIOrAlloca();
       IRBuilder<> Builder(&*InsertAt);
 
       It->second = Builder.CreateIntrinsic(Intrinsic::amdgcn_lds_kernel_id, {});
@@ -556,7 +558,7 @@ public:
 
       // Annotate the kernels with their order in this vector
       LLVMContext &Ctx = M->getContext();
-      IRBuilder<> Builder(Ctx);
+      IRBuilder<> Builder(*M);
 
       if (OrderedKernels.size() > UINT32_MAX) {
         // 32 bit keeps it in one SGPR. > 2**32 kernels won't fit on the GPU
@@ -777,7 +779,7 @@ public:
           (Twine("llvm.amdgcn.kernel.") + Func.getName() + ".lds").str();
 
       auto Replacement =
-          createLDSVariableReplacement(M, VarName, KernelUsedVariables);
+          createLDSVariableReplacement(M, VarName, KernelUsedVariables, &Func);
 
       // If any indirect uses, create a direct use to ensure allocation
       // TODO: Simpler to unconditionally mark used but that regresses
@@ -855,7 +857,7 @@ public:
     DenseMap<Function *, GlobalVariable *> KernelToCreatedDynamicLDS;
     if (!KernelsThatIndirectlyAllocateDynamicLDS.empty()) {
       LLVMContext &Ctx = M.getContext();
-      IRBuilder<> Builder(Ctx);
+      IRBuilder<> Builder(M);
       Type *LocalPtrTy = PointerType::get(Ctx, AMDGPUAS::LOCAL_ADDRESS);
 
       std::vector<Constant *> newDynamicLDS;
@@ -1138,8 +1140,7 @@ public:
                                       KernelsThatIndirectlyAllocateDynamicLDS);
 
     if (!KernelsThatAllocateTableLDS.empty()) {
-      LLVMContext &Ctx = M.getContext();
-      IRBuilder<> Builder(Ctx);
+      IRBuilder<> Builder(M);
 
       // The order must be consistent between lookup table and accesses to
       // lookup table
@@ -1310,7 +1311,8 @@ private:
 
   static LDSVariableReplacement createLDSVariableReplacement(
       Module &M, std::string VarName,
-      DenseSet<GlobalVariable *> const &LDSVarsToTransform) {
+      DenseSet<GlobalVariable *> const &LDSVarsToTransform,
+      Function *F = nullptr) {
     // Create a struct instance containing LDSVarsToTransform and map from those
     // variables to ConstantExprGEP
     // Variables may be introduced to meet alignment requirements. No aliasing
@@ -1337,6 +1339,14 @@ private:
     }
 
     performOptimizedStructLayout(LayoutFields);
+
+    struct DIExpressionVarInfo {
+      GlobalVariable *Var;
+      Metadata *DIVar;
+      DIExpression::NewElementsRef Expr;
+      uint64_t Offset;
+    };
+    SmallVector<DIExpressionVarInfo> DIExpressionVarInfos;
 
     std::vector<GlobalVariable *> LocalVars;
     BitVector IsPaddingField;
@@ -1366,6 +1376,16 @@ private:
           CurrentOffset += Padding;
         }
 
+        SmallVector<DIGlobalVariableExpression *, 1> OriginalGVEs;
+        FGV->getDebugInfo(OriginalGVEs);
+        for (const auto *OriginalGVE : OriginalGVEs) {
+          if (auto NewElementsRef =
+                  OriginalGVE->getExpression()->getNewElementsRef()) {
+            DIExpressionVarInfos.push_back({FGV, OriginalGVE->getRawVariable(),
+                                            *NewElementsRef, CurrentOffset});
+          }
+        }
+
         LocalVars.push_back(FGV);
         IsPaddingField.push_back(false);
         CurrentOffset += F.Size;
@@ -1387,6 +1407,36 @@ private:
         VarName, nullptr, GlobalValue::NotThreadLocal, AMDGPUAS::LOCAL_ADDRESS,
         false);
     SGV->setAlignment(StructAlign);
+
+    for (auto VarInfo : DIExpressionVarInfos) {
+      DIExprBuilder ExprBuilder(Ctx);
+      for (auto Op : VarInfo.Expr) {
+        if (auto *ArgOp = std::get_if<DIOp::Arg>(&Op)) {
+          assert(ArgOp->getIndex() == 0u &&
+                 "DIOp-based DIExpression in DIGlobalVariableExpression must "
+                 "have only one argument");
+          Type *ArgTy = SGV->getType();
+          assert(isa<PointerType>(ArgTy));
+          Type *ResultTy = VarInfo.Var->getType();
+          assert(isa<PointerType>(ResultTy));
+          assert(ArgTy->getPointerAddressSpace() ==
+                 ResultTy->getPointerAddressSpace());
+          unsigned PointerSizeInBits =
+              DL.getPointerSizeInBits(ArgTy->getPointerAddressSpace());
+          auto *IntTy = IntegerType::get(Ctx, PointerSizeInBits);
+          ConstantData *C = ConstantInt::get(IntTy, VarInfo.Offset, true);
+          ExprBuilder.append<DIOp::Arg>(0u, ArgTy);
+          ExprBuilder.append<DIOp::Reinterpret>(IntTy);
+          ExprBuilder.append<DIOp::Constant>(C);
+          ExprBuilder.append<DIOp::Add>();
+          ExprBuilder.append<DIOp::Reinterpret>(ResultTy);
+        } else {
+          ExprBuilder.append(Op);
+        }
+      }
+      SGV->addDebugInfo(DIGlobalVariableExpression::get(
+          Ctx, VarInfo.DIVar, ExprBuilder.intoExpression()));
+    }
 
     DenseMap<GlobalVariable *, Constant *> Map;
     Type *I32 = Type::getInt32Ty(Ctx);

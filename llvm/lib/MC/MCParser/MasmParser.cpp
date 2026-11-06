@@ -696,7 +696,6 @@ private:
     DK_ELSEIFIDNI,
     DK_ELSE,
     DK_ENDIF,
-
     DK_MACRO,
     DK_EXITM,
     DK_ENDM,
@@ -4629,11 +4628,11 @@ bool MasmParser::parseDirectiveComm(bool IsLocal) {
   // Create the Symbol as a common or local common with Size and Pow2Alignment.
   if (IsLocal) {
     getStreamer().emitLocalCommonSymbol(Sym, Size,
-                                        Align(1ULL << Pow2Alignment));
+                                        Align::fromLog2(Pow2Alignment));
     return false;
   }
 
-  getStreamer().emitCommonSymbol(Sym, Size, Align(1ULL << Pow2Alignment));
+  getStreamer().emitCommonSymbol(Sym, Size, Align::fromLog2(Pow2Alignment));
   return false;
 }
 

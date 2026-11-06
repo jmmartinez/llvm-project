@@ -1,5 +1,6 @@
 ## Test failing to write output file on non-windows platforms.
 
+# REQUIRES: jenkins-permissions-issue
 # UNSUPPORTED: system-windows
 # REQUIRES: non-root-user
 # RUN: rm -rf %t.TestDir
@@ -12,7 +13,7 @@
 
 --- !ifs-v1
 IfsVersion: 3.0
-Target: { ObjectFormat: ELF, Arch: AArch64, Endianness: little, BitWidth: 64 }
+Target: { ObjectFormat: ELF, Arch: aarch64, Endianness: little, BitWidth: 64 }
 Symbols: []
 ...
 

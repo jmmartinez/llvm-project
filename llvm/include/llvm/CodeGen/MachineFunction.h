@@ -649,6 +649,8 @@ public:
   void substituteDebugValuesForInst(const MachineInstr &Old, MachineInstr &New,
                                     unsigned MaxOperand = UINT_MAX);
 
+  using SalvageCopySSAResult = std::pair<DebugInstrOperandPair, MachineInstr *>;
+
   /// Find the underlying  defining instruction / operand for a COPY instruction
   /// while in SSA form. Copies do not actually define values -- they move them
   /// between registers. Labelling a COPY-like instruction with an instruction
@@ -660,11 +662,11 @@ public:
   /// \p MI The copy-like instruction to salvage.
   /// \p DbgPHICache A container to cache already-solved COPYs.
   /// \returns An instruction/operand pair identifying the defining value.
-  DebugInstrOperandPair
+  SalvageCopySSAResult
   salvageCopySSA(MachineInstr &MI,
-                 DenseMap<Register, DebugInstrOperandPair> &DbgPHICache);
+                 DenseMap<Register, SalvageCopySSAResult> &DbgPHICache);
 
-  DebugInstrOperandPair salvageCopySSAImpl(MachineInstr &MI);
+  SalvageCopySSAResult salvageCopySSAImpl(MachineInstr &MI);
 
   /// Finalise any partially emitted debug instructions. These are DBG_INSTR_REF
   /// instructions where we only knew the vreg of the value they use, not the
@@ -870,6 +872,14 @@ public:
 
   /// True if this function needs frame moves for debug or exceptions.
   bool needsFrameMoves() const;
+
+  /// True if this function describes its unwind information with Windows SEH
+  /// unwind opcodes (.seh_* directives, .pdata and .xdata) rather than CFI.
+  bool usesWindowsUnwindInfo() const;
+
+  /// True if this function uses SEH unwind opcodes and needs an unwind table
+  /// entry.
+  bool needsWinCFI() const;
 
   /// Get the function properties
   const MachineFunctionProperties &getProperties() const { return Properties; }
@@ -1331,6 +1341,10 @@ public:
   const std::vector<LandingPadInfo> &getLandingPads() const {
     return LandingPads;
   }
+
+  /// Forget the landing pads: a target turned them into ordinary blocks and
+  /// there is no exception table to emit.
+  void clearLandingPads() { LandingPads.clear(); }
 
   /// Provide the begin and end labels of an invoke style call and associate it
   /// with a try landing pad block.

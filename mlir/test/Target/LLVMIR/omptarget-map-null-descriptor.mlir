@@ -18,7 +18,7 @@ module attributes {omp.is_gpu = false, omp.is_target_device = false, omp.require
 }
 
 // CHECK: @.offload_sizes = private unnamed_addr constant [4 x i64] [i64 48, i64 0, i64 0, i64 0]
-// CHECK: @.offload_maptypes = private unnamed_addr constant [4 x i64] [i64 16544, i64 3, i64 16384, i64 288]
+// CHECK: @.offload_maptypes = private unnamed_addr constant [4 x i64] [i64 32928, i64 3, i64 32768, i64 288]
 // CHECK-LABEL: define void @map_optional_descriptor(
 // CHECK-SAME: ptr %[[DESCRIPTOR:.*]], ptr %[[BASE_ADDR:.*]])
 // CHECK: %[[PRIVATE_POINTEE:.*]] = load ptr, ptr %[[BASE_ADDR]], align 8

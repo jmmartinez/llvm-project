@@ -149,13 +149,16 @@ RValue EmitDevicePrintfCallExpr(const CallExpr *E, CodeGenFunction *CGF,
 }
 } // namespace
 
-RValue CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E) {
+RValue CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
+                                                      ReturnValueSlot ReturnValu) {
   assert(getTarget().getTriple().isNVPTX());
   return EmitDevicePrintfCallExpr(
       E, this, GetVprintfDeclaration(CGM.getModule()), false);
 }
 
-RValue CodeGenFunction::EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E) {
+RValue
+CodeGenFunction::EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E,
+                                                ReturnValueSlot ReturnValue) {
   assert(getTarget().getTriple().isAMDGCN() ||
          (getTarget().getTriple().isSPIRV() &&
           getTarget().getTriple().getVendor() == llvm::Triple::AMD));
@@ -181,12 +184,12 @@ RValue CodeGenFunction::EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E) {
     Args.push_back(Arg);
   }
 
-  llvm::IRBuilder<> IRB(Builder.GetInsertBlock(), Builder.GetInsertPoint());
+  llvm::IRBuilder<> IRB(Builder.GetInsertPoint());
   IRB.SetCurrentDebugLocation(Builder.getCurrentDebugLocation());
 
   bool isBuffered = (CGM.getTarget().getTargetOpts().AMDGPUPrintfKindVal ==
                      clang::TargetOptions::AMDGPUPrintfKind::Buffered);
   auto Printf = llvm::emitAMDGPUPrintfCall(IRB, Args, isBuffered);
-  Builder.SetInsertPoint(IRB.GetInsertBlock(), IRB.GetInsertPoint());
+  Builder.SetInsertPoint(IRB.GetInsertPoint());
   return RValue::get(Printf);
 }

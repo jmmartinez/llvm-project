@@ -19,7 +19,7 @@ module attributes {omp.is_gpu = false, omp.is_target_device = false, omp.require
   }
 }
 
-// CHECK: @.offload_maptypes = private unnamed_addr constant [4 x i64] [i64 16544, i64 3, i64 16384, i64 288]
+// CHECK: @.offload_maptypes = private unnamed_addr constant [4 x i64] [i64 32928, i64 3, i64 32768, i64 288]
 
 // CHECK: define void @assumed_shape_array_priv_(ptr %[[ARG0:.*]], ptr %[[ARG1:.*]])
 // CHECK:  %[[MEMBER_PTR:.*]] = load ptr, ptr %[[ARG1]], align 8

@@ -43,6 +43,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/SubtargetFeature.h"
 #include "llvm/Transforms/IPO/WholeProgramDevirt.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/SplitModule.h"
 #include <optional>
@@ -103,6 +104,10 @@ Error Config::addSaveTemps(std::string OutputFileName, bool UseInputModulePath,
       ResolutionFile.reset();
       return errorCodeToError(EC);
     }
+  }
+
+  if (SaveTempsArgs.contains("asm")) {
+    AsmFile = OutputFileName;
   }
 
   auto setHook = [&](std::string PathSuffix, ModuleHookFn &Hook) {
@@ -239,10 +244,13 @@ createTargetMachine(const Config &Conf, const Target *TheTarget, Module &M) {
   else
     CodeModel = M.getCodeModel();
 
+  assert(!Conf.Options.MCOptions.LibraryOptions &&
+         "set Config::LibraryOptions instead");
   TargetOptions TargetOpts = Conf.Options;
   if (TargetOpts.MCOptions.ABIName.empty()) {
     TargetOpts.MCOptions.ABIName = M.getTargetABIFromMD();
   }
+  TargetOpts.MCOptions.LibraryOptions = &M.getContext().getLibraryOptions();
 
   std::unique_ptr<TargetMachine> TM(TheTarget->createTargetMachine(
       TheTriple, Conf.CPU, Features.getString(), TargetOpts, RelocModel,
@@ -294,7 +302,7 @@ static void runNewPMPasses(const Config &Conf, Module &Mod, TargetMachine *TM,
   StandardInstrumentations SI(Mod.getContext(), Conf.DebugPassManager,
                               Conf.VerifyEach);
   SI.registerCallbacks(PIC, &MAM);
-  PassBuilder PB(TM, Conf.PTO, PGOOpt, &PIC);
+  PassBuilder PB(Mod.getContext(), TM, Conf.PTO, PGOOpt, &PIC);
 
   RegisterPassPlugins(Conf, PB);
 
@@ -378,7 +386,7 @@ static void runNewPMPasses(const Config &Conf, Module &Mod, TargetMachine *TM,
   if (!Conf.DisableVerify)
     MPM.addPass(VerifierPass());
 
-  if (PrintPipelinePasses) {
+  if (PB.getPrintPipelinePasses()) {
     std::string PipelineStr;
     raw_string_ostream OS(PipelineStr);
     MPM.printPipeline(OS, [&PIC](StringRef ClassName) {
@@ -437,7 +445,24 @@ bool lto::opt(const Config &Conf, TargetMachine *TM, unsigned Task, Module &Mod,
   return !Conf.PostOptModuleHook || Conf.PostOptModuleHook(Task, Mod);
 }
 
-static void codegen(const Config &Conf, TargetMachine *TM,
+struct CodegenConfig {
+  const Config &Conf;
+  CodeGenFileType CGFileType;
+  std::string DwoDir;
+  Config::ModuleHookFn PreCodeGenModuleHook;
+  std::function<void(legacy::PassManager &)> PreCodeGenPassesHook;
+  std::string SplitDwarfFile;
+  std::string SplitDwarfOutput;
+  CodegenConfig(const Config &Conf) : Conf(Conf) {
+    CGFileType           = Conf.CGFileType;
+    DwoDir               = Conf.DwoDir;
+    PreCodeGenModuleHook = Conf.PreCodeGenModuleHook;
+    PreCodeGenPassesHook = Conf.PreCodeGenPassesHook;
+    SplitDwarfFile       = Conf.SplitDwarfFile;
+    SplitDwarfOutput     = Conf.SplitDwarfOutput;
+  }
+};
+static void codegen(const CodegenConfig &Conf, TargetMachine *TM,
                     AddStreamFn AddStream, unsigned Task, Module &Mod,
                     const ModuleSummaryIndex &CombinedIndex) {
   llvm::TimeTraceScope timeScope("codegen");
@@ -514,7 +539,7 @@ static void codegen(const Config &Conf, TargetMachine *TM,
     report_fatal_error(std::move(Err));
 }
 
-static void splitCodeGen(const Config &C, TargetMachine *TM,
+static void splitCodeGen(const CodegenConfig &CodegenC, TargetMachine *TM,
                          AddStreamFn AddStream,
                          unsigned ParallelCodeGenParallelismLevel, Module &Mod,
                          const ModuleSummaryIndex &CombinedIndex) {
@@ -538,7 +563,7 @@ static void splitCodeGen(const Config &C, TargetMachine *TM,
         // Enqueue the task
         CodegenThreadPool.async(
             [&](const SmallString<0> &BC, unsigned ThreadId) {
-              LTOLLVMContext Ctx(C);
+              LTOLLVMContext Ctx(CodegenC.Conf);
               Expected<std::unique_ptr<Module>> MOrErr =
                   parseBitcodeFile(MemoryBufferRef(BC.str(), "ld-temp.o"), Ctx);
               if (!MOrErr)
@@ -546,9 +571,9 @@ static void splitCodeGen(const Config &C, TargetMachine *TM,
               std::unique_ptr<Module> MPartInCtx = std::move(MOrErr.get());
 
               std::unique_ptr<TargetMachine> TM =
-                  createTargetMachine(C, T, *MPartInCtx);
+                  createTargetMachine(CodegenC.Conf, T, *MPartInCtx);
 
-              codegen(C, TM.get(), AddStream, ThreadId, *MPartInCtx,
+              codegen(CodegenC, TM.get(), AddStream, ThreadId, *MPartInCtx,
                       CombinedIndex);
             },
             // Pass BC using std::move to ensure that it get moved rather than
@@ -594,6 +619,35 @@ Error lto::finalizeOptimizationRemarks(LLVMRemarkFileHandle DiagOutputFile) {
   return Error::success();
 }
 
+static bool backendOpt(
+    const Config &C, std::unique_ptr<TargetMachine> &TM, Module &Mod,
+    ModuleSummaryIndex *ExportSummary,
+    ArrayRef<StringRef> BitcodeLibFuncs) {
+  if (C.CodeGenOnly)
+    return true;
+  return opt(C, TM.get(), 0, Mod, /*IsThinLTO=*/false,
+             /*ExportSummary=*/ExportSummary, /*ImportSummary=*/nullptr,
+             /*CmdArgs*/ std::vector<uint8_t>(), BitcodeLibFuncs);
+}
+
+static std::unique_ptr<CachedFileStream> GenAsmFilename(
+    StringRef Basename, size_t Task, const Twine &ModuleName) {
+  int FD;
+  std::string AsmFilename = Basename.str();
+  if (Task > 0)
+    AsmFilename += std::to_string(Task) + ".";
+  AsmFilename += "lto.s";
+
+  std::error_code EC;
+  EC = sys::fs::openFileForWrite(AsmFilename, FD, sys::fs::CD_CreateAlways);
+  if (EC)
+    report_fatal_error(Twine("Failed to create asm file ") + AsmFilename +
+                       ": " + EC.message());
+
+  return std::make_unique<CachedFileStream>(
+      std::make_unique<llvm::raw_fd_ostream>(FD, true));
+}
+
 Error lto::backend(const Config &C, AddStreamFn AddStream,
                    unsigned ParallelCodeGenParallelismLevel, Module &Mod,
                    ModuleSummaryIndex &CombinedIndex,
@@ -605,20 +659,43 @@ Error lto::backend(const Config &C, AddStreamFn AddStream,
 
   std::unique_ptr<TargetMachine> TM = createTargetMachine(C, *TOrErr, Mod);
 
-  LLVM_DEBUG(dbgs() << "Running regular LTO\n");
-  if (!C.CodeGenOnly) {
-    if (!opt(C, TM.get(), 0, Mod, /*IsThinLTO=*/false,
-             /*ExportSummary=*/&CombinedIndex, /*ImportSummary=*/nullptr,
-             /*CmdArgs*/ std::vector<uint8_t>(), BitcodeLibFuncs))
-      return Error::success();
+  std::unique_ptr<Module> AsmMod;
+  if (C.AsmFile.size() && C.CGFileType != CodeGenFileType::AssemblyFile) {
+    AsmMod = CloneModule(Mod);
   }
 
-  if (ParallelCodeGenParallelismLevel == 1) {
-    codegen(C, TM.get(), AddStream, 0, Mod, CombinedIndex);
-  } else {
-    splitCodeGen(C, TM.get(), AddStream, ParallelCodeGenParallelismLevel, Mod,
-                 CombinedIndex);
+  LLVM_DEBUG(dbgs() << "Running regular LTO\n");
+  CodegenConfig CodegenC(C);
+  if (!backendOpt(C, TM, Mod, &CombinedIndex, BitcodeLibFuncs)) {
+    return Error::success();
   }
+  if (ParallelCodeGenParallelismLevel == 1) {
+    codegen(CodegenC, TM.get(), AddStream, 0, Mod, CombinedIndex);
+  } else {
+    splitCodeGen(CodegenC, TM.get(), AddStream,
+                 ParallelCodeGenParallelismLevel, Mod, CombinedIndex);
+  }
+
+  if (AsmMod) {
+    CodegenC.CGFileType = CodeGenFileType::AssemblyFile;
+    CodegenC.DwoDir.clear();
+    CodegenC.SplitDwarfFile.clear();
+    CodegenC.SplitDwarfOutput.clear();
+    auto AddAsmFile = [&](size_t Task, const Twine &ModuleName) {
+      return GenAsmFilename(C.AsmFile, Task, ModuleName);
+    };
+
+    if (!backendOpt(C, TM, *AsmMod, nullptr, BitcodeLibFuncs)) {
+      return Error::success();
+    }
+    if (ParallelCodeGenParallelismLevel == 1) {
+      codegen(CodegenC, TM.get(), AddAsmFile, 0, *AsmMod, CombinedIndex);
+    } else {
+      splitCodeGen(CodegenC, TM.get(), AddAsmFile,
+                   ParallelCodeGenParallelismLevel, *AsmMod, CombinedIndex);
+    }
+  }
+
   return Error::success();
 }
 
@@ -715,7 +792,7 @@ Error lto::thinBackend(const Config &Conf, unsigned Task, AddStreamFn AddStream,
   // When linking an ELF shared object, dso_local should be dropped. We
   // conservatively do this for -fpic.
   bool ClearDSOLocalOnDeclarations =
-      TM->getTargetTriple().isOSBinFormatELF() &&
+      Mod.getTargetTriple().isOSBinFormatELF() &&
       TM->getRelocationModel() != Reloc::Static &&
       Mod.getPIELevel() == PIELevel::Default;
   renameModuleForThinLTO(Mod, CombinedIndex, ClearDSOLocalOnDeclarations);

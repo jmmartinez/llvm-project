@@ -1,3 +1,4 @@
+// REQUIRES: fixforamd
 // RUN: %clang -fsyntax-only -Wall -Wextra -fdiagnostics-format=sarif %s > %t 2>&1 || true
 // RUN: cat %t | %normalize_sarif | diff -U1 -b %S/Inputs/expected-sarif/sarif-diagnostics.cpp.sarif -
 
@@ -26,3 +27,6 @@ struct t1 { };
 void f1(t1 x, t1 y) {
     x + y;
 }
+
+#define BAD ;
+int x = BAD;

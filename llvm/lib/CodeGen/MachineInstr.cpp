@@ -691,7 +691,7 @@ bool MachineInstr::isIdenticalTo(const MachineInstr &Other,
     assert(Other.isBundle() && "Expected that both instructions are bundles.");
     MachineBasicBlock::const_instr_iterator I1 = getIterator();
     MachineBasicBlock::const_instr_iterator I2 = Other.getIterator();
-    // Loop until we analysed the last intruction inside at least one of the
+    // Loop until we analysed the last instruction inside at least one of the
     // bundles.
     while (I1->isBundledWithSucc() && I2->isBundledWithSucc()) {
       ++I1;
@@ -771,6 +771,10 @@ bool MachineInstr::isIdenticalTo(const MachineInstr &Other,
 }
 
 bool MachineInstr::isEquivalentDbgInstr(const MachineInstr &Other) const {
+  // FIXME: Actually consider expression equality
+  if (getDebugExpression()->holdsNewElements() ||
+      Other.getDebugExpression()->holdsNewElements())
+    return false;
   if (!isDebugValueLike() || !Other.isDebugValueLike())
     return false;
   if (getDebugLoc() != Other.getDebugLoc())
@@ -1766,7 +1770,8 @@ LLT MachineInstr::getTypeToPrint(unsigned OpIdx, SmallBitVector &PrintedTypes,
   if (!OpInfo.isGenericType())
     return MRI.getType(Op.getReg());
 
-  if (PrintedTypes[OpInfo.getGenericTypeIndex()])
+  // The MIR parser requires a type on every generic register definition.
+  if (PrintedTypes[OpInfo.getGenericTypeIndex()] && !Op.isDef())
     return LLT{};
 
   LLT TypeToPrint = MRI.getType(Op.getReg());
@@ -2478,20 +2483,12 @@ static const DIExpression *computeExprForSpill(
          "Expected inlined-at fields to agree");
 
   const DIExpression *Expr = MI.getDebugExpression();
-  if (MI.isIndirectDebugValue()) {
-    assert(MI.getDebugOffset().getImm() == 0 &&
-           "DBG_VALUE with nonzero offset");
-    Expr = DIExpression::prepend(Expr, DIExpression::DerefBefore);
-  } else if (MI.isDebugValueList()) {
-    // We will replace the spilled register with a frame index, so
-    // immediately deref all references to the spilled register.
-    std::array<uint64_t, 1> Ops{{dwarf::DW_OP_deref}};
-    for (const MachineOperand *Op : SpilledOperands) {
-      unsigned OpIdx = MI.getDebugOperandIndex(Op);
-      Expr = DIExpression::appendOpsToArg(Expr, Ops, OpIdx);
-    }
-  }
-  return Expr;
+  SmallBitVector SpilledOpIndexes(MI.getNumDebugOperands());
+  for (const MachineOperand *Op : SpilledOperands)
+    SpilledOpIndexes.set(MI.getDebugOperandIndex(Op));
+  unsigned SpillAddrSpace = MI.getMF()->getDataLayout().getAllocaAddrSpace();
+
+  return DIExpression::spillArgs(Expr, SpilledOpIndexes, SpillAddrSpace);
 }
 static const DIExpression *computeExprForSpill(const MachineInstr &MI,
                                                Register SpillReg) {

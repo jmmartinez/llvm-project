@@ -106,6 +106,9 @@ class CGDebugInfo {
   /// Cache of previously constructed Types.
   llvm::DenseMap<const void *, llvm::TrackingMDRef> TypeCache;
 
+  /// DI element indices used by preserve-access intrinsics.
+  llvm::DenseMap<const FieldDecl *, unsigned> FieldIndexCache;
+
   /// Cache that maps VLA types to size expressions for that type,
   /// represented by instantiated Metadata nodes.
   llvm::SmallDenseMap<QualType, llvm::Metadata *> SizeExprCache;
@@ -579,8 +582,16 @@ public:
   /// Emit information about a global variable.
   void EmitGlobalVariable(llvm::GlobalVariable *GV, const VarDecl *Decl);
 
+  /// Emit information about a global variable (-gheterogeneous-dwarf).
+  void EmitGlobalVariableForHeterogeneousDwarf(llvm::GlobalVariable *GV,
+                                               const VarDecl *Decl);
+
   /// Emit a constant global variable's debug info.
   void EmitGlobalVariable(const ValueDecl *VD, const APValue &Init);
+
+  /// Emit a constant global variable's debug info (-gheterogeneous-dwarf).
+  void EmitGlobalVariableForHeterogeneousDwarf(const ValueDecl *VD,
+                                               const APValue &Init);
 
   /// Emit information about an external variable.
   void EmitExternalVariable(llvm::GlobalVariable *GV, const VarDecl *Decl);
@@ -626,8 +637,10 @@ public:
   /// Emit C++ namespace alias.
   llvm::DIImportedEntity *EmitNamespaceAlias(const NamespaceAliasDecl &NA);
 
-  /// Emit record type's standalone debug info.
-  llvm::DIType *getOrCreateRecordType(QualType Ty, SourceLocation L);
+  /// Return the complete record type and field index for preserve-access
+  /// intrinsics.
+  std::pair<llvm::DIType *, unsigned>
+  getOrCreatePreserveAccessInfo(QualType Ty, const FieldDecl *Field);
 
   /// Emit an Objective-C interface type standalone debug info.
   llvm::DIType *getOrCreateInterfaceType(QualType Ty, SourceLocation Loc);
@@ -726,6 +739,20 @@ private:
                                      CGBuilderTy &Builder,
                                      const bool UsePointerValue = false);
 
+  /// Emit call to llvm.dbg.declare for a variable definition.
+  /// Returns a pointer to the DILocalVariable associated with the
+  /// llvm.dbg.def, or nullptr otherwise.
+  llvm::DILocalVariable *EmitDeclareForHeterogeneousDwarf(
+      const VarDecl *decl, llvm::Value *AI, std::optional<unsigned> ArgNo,
+      CGBuilderTy &Builder, const bool UsePointerValue = false);
+
+  /// Emit call to llvm.dbg.declare for a structured binding definition.
+  /// Returns a pointer to the DILocalVariable associated with the
+  /// llvm.dbg.def, or nullptr otherwise.
+  llvm::DILocalVariable *EmitDeclareForHeterogeneousDwarf(
+      const BindingDecl *decl, llvm::Value *AI, std::optional<unsigned> ArgNo,
+      CGBuilderTy &Builder, const bool UsePointerValue = false);
+
   /// Emit call to llvm.dbg.declare for a binding declaration.
   /// Returns a pointer to the DILocalVariable associated with the
   /// llvm.dbg.declare, or nullptr otherwise.
@@ -733,6 +760,8 @@ private:
                                      std::optional<unsigned> ArgNo,
                                      CGBuilderTy &Builder,
                                      const bool UsePointerValue = false);
+
+  // FIXME: EmitDef(const BindingDecl *...
 
   struct BlockByRefType {
     /// The wrapper struct used inside the __block_literal struct.
@@ -858,7 +887,20 @@ private:
   llvm::DIGlobalVariableExpression *
   CollectAnonRecordDecls(const RecordDecl *RD, llvm::DIFile *Unit,
                          unsigned LineNo, StringRef LinkageName,
-                         llvm::GlobalVariable *Var, llvm::DIScope *DContext);
+                         llvm::dwarf::MemorySpace MS, llvm::GlobalVariable *Var,
+                         llvm::DIScope *DContext);
+
+  /// Return a global variable that represents one of the collection of global
+  /// variables created for an anonmyous union (-gheterogeneous-dwarf).
+  ///
+  /// Recursively collect all of the member fields of a global
+  /// anonymous decl and create static variables for them. The first
+  /// time this is called it needs to be on a union and then from
+  /// there we can have additional unnamed fields.
+  llvm::DIGlobalVariableExpression *CollectAnonRecordDeclsForHeterogeneousDwarf(
+      const RecordDecl *RD, llvm::DIFile *Unit, unsigned LineNo,
+      StringRef LinkageName, llvm::dwarf::MemorySpace MS,
+      llvm::GlobalVariable *Var, llvm::DIScope *DContext);
 
   /// Get the printing policy for producing names for debug info.
   PrintingPolicy getPrintingPolicy() const;

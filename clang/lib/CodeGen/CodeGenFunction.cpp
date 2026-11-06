@@ -36,7 +36,6 @@
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
-#include "clang/CodeGenUtils/CodeGenUtils.h"
 #include "clang/CodeGenUtils/FunctionUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -60,6 +59,11 @@
 
 using namespace clang;
 using namespace CodeGen;
+
+static std::string getInstrumentFunctionName(const CodeGenOptions &Opts,
+                                             llvm::StringRef Suffix) {
+  return (llvm::StringRef(Opts.InstrumentFunctionPrefix) + Suffix).str();
+}
 
 CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
     : CodeGenTypeCache(cgm), CGM(cgm), Target(cgm.getTarget()),
@@ -415,11 +419,13 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   llvm::DebugLoc Loc = EmitReturnBlock();
 
   if (ShouldInstrumentFunction()) {
-    if (CGM.getCodeGenOpts().InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-exit", "__cyg_profile_func_exit");
-    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
+    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
+    if (Opts.InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-exit",
+                       getInstrumentFunctionName(Opts, "_func_exit"));
+    if (Opts.InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-exit-inlined",
-                       "__cyg_profile_func_exit");
+                       getInstrumentFunctionName(Opts, "_func_exit"));
   }
 
   // Emit debug descriptor for function end.
@@ -1175,14 +1181,16 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   }
 
   if (ShouldInstrumentFunction()) {
-    if (CGM.getCodeGenOpts().InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-entry", "__cyg_profile_func_enter");
-    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
+    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
+    if (Opts.InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-entry",
+                       getInstrumentFunctionName(Opts, "_func_enter"));
+    if (Opts.InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       "__cyg_profile_func_enter");
-    if (CGM.getCodeGenOpts().InstrumentFunctionEntryBare)
+                       getInstrumentFunctionName(Opts, "_func_enter"));
+    if (Opts.InstrumentFunctionEntryBare)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       "__cyg_profile_func_enter_bare");
+                       getInstrumentFunctionName(Opts, "_func_enter_bare"));
   }
 
   // Since emitting the mcount call here impacts optimizations such as function
@@ -1225,6 +1233,11 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 
   if (!CGM.getCodeGenOpts().ZOSPPA1Name)
     Fn->addFnAttr("zos-ppa1-name", "");
+  else if (getContext().getTargetInfo().getTriple().isOSzOS() && FD &&
+           FD->hasAttr<AsmLabelAttr>()) {
+    std::string SrcName = CGM.getMangledNameIgnoringAsmLabel(GD, FD);
+    Fn->addFnAttr("zos-ppa1-name", SrcName);
+  }
 
   if (CGM.getCodeGenOpts().WarnStackSize != UINT_MAX &&
       !CGM.getDiags().isIgnored(diag::warn_fe_backend_frame_larger_than, Loc))
@@ -1501,6 +1514,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Clone = llvm::Function::Create(Fn->getFunctionType(),
                                      llvm::GlobalValue::InternalLinkage,
                                      Fn->getAddressSpace(), FDInlineName, M);
+      Clone->setCallingConv(Fn->getCallingConv());
+      Clone->setAttributes(Fn->getAttributes());
       Clone->addFnAttr(llvm::Attribute::AlwaysInline);
     }
     Fn->setLinkage(llvm::GlobalValue::ExternalLinkage);
@@ -2917,7 +2932,7 @@ void CodeGenFunction::EmitSanitizerStatReport(llvm::SanitizerStatKind SSK) {
   if (!CGM.getCodeGenOpts().SanitizeStats)
     return;
 
-  llvm::IRBuilder<> IRB(Builder.GetInsertBlock(), Builder.GetInsertPoint());
+  llvm::IRBuilder<> IRB(Builder.GetInsertPoint());
   IRB.SetCurrentDebugLocation(Builder.getCurrentDebugLocation());
   CGM.getSanStats().create(IRB, SSK);
 }
@@ -3040,7 +3055,6 @@ void CodeGenFunction::EmitPPCAIXMultiVersionResolver(
   // entry:
   llvm::BasicBlock *CurBlock = createBasicBlock("entry", Resolver);
 
-  SmallVector<std::pair<llvm::Value *, llvm::BasicBlock *>, 3> PhiArgs;
   for (const FMVResolverOption &RO : Options) {
     Builder.SetInsertPoint(CurBlock);
     // The 'default' or 'generic' case.
@@ -3229,6 +3243,10 @@ void CodeGenFunction::EmitAArch64MultiVersionResolver(
   llvm::BasicBlock *CurBlock = createBasicBlock("resolver_entry", Resolver);
 
   for (const FMVResolverOption &RO : Options) {
+    // Skip unreachable versions.
+    if (RO.Function == nullptr)
+      continue;
+
     Builder.SetInsertPoint(CurBlock);
     llvm::Value *Condition = FormAArch64ResolverCondition(RO);
 
@@ -3240,15 +3258,11 @@ void CodeGenFunction::EmitAArch64MultiVersionResolver(
     }
 
     if (!AArch64CpuInitialized) {
-      Builder.SetInsertPoint(CurBlock, CurBlock->begin());
+      Builder.SetInsertPoint(CurBlock->begin());
       EmitAArch64CpuInit();
       AArch64CpuInitialized = true;
       Builder.SetInsertPoint(CurBlock);
     }
-
-    // Skip unreachable versions.
-    if (RO.Function == nullptr)
-      continue;
 
     llvm::BasicBlock *RetBlock = createBasicBlock("resolver_return", Resolver);
     CGBuilderTy RetBuilder(CGM, RetBlock);
@@ -3312,9 +3326,8 @@ void CodeGenFunction::emitAlignmentAssumptionCheck(
     llvm::Instruction *Assumption) {
   assert(isa_and_nonnull<llvm::CallInst>(Assumption) &&
          cast<llvm::CallInst>(Assumption)->getCalledOperand() ==
-             llvm::Intrinsic::getOrInsertDeclaration(
-                 Builder.GetInsertBlock()->getParent()->getParent(),
-                 llvm::Intrinsic::assume) &&
+             llvm::Intrinsic::getOrInsertDeclaration(Builder.getModule(),
+                                                     llvm::Intrinsic::assume) &&
          "Assumption should be a call to llvm.assume().");
   assert(&(Builder.GetInsertBlock()->back()) == Assumption &&
          "Assumption should be the last instruction of the basic block, "

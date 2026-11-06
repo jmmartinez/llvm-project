@@ -9,7 +9,7 @@
 #    *to be installed* when `cmake --install` command is run or when CPack
 #    is invoked. This is the version that is distributed with LLVM packages.
 #    The key difference between this and (1) is that all paths must be
-#    relative the the installed "MLIRConfig.cmake" file.
+#    relative to the installed "MLIRConfig.cmake" file.
 
 include(GNUInstallPackageDir)
 include(ExtendPath)
@@ -37,9 +37,7 @@ set(llvm_cmake_builddir "${llvm_cmake_builddir}/cmake/llvm")
 
 # Generate the 'MLIRTarget.cmake' file.
 get_property(MLIR_EXPORTS GLOBAL PROPERTY MLIR_EXPORTS)
-if(NOT "mlir" IN_LIST LLVM_DEPENDENCY_ONLY_PROJECTS)
-  export(TARGETS ${MLIR_EXPORTS} FILE ${mlir_cmake_builddir}/MLIRTargets.cmake)
-endif()
+export(TARGETS ${MLIR_EXPORTS} FILE ${mlir_cmake_builddir}/MLIRTargets.cmake)
 
 # Declare all the variables required by the 'MLIRConfig.cmake.in' template.
 get_property(MLIR_ALL_LIBS GLOBAL PROPERTY MLIR_ALL_LIBS)
@@ -54,12 +52,24 @@ set(MLIR_CONFIG_CMAKE_DIR "${mlir_cmake_builddir}")
 set(MLIR_CONFIG_LLVM_CMAKE_DIR "${llvm_cmake_builddir}")
 if("mlir" IN_LIST LLVM_DEPENDENCY_ONLY_PROJECTS)
   # MLIR is enabled only to satisfy another project's dependency, so its
-  # targets file is not exported above. Leave the include out of the config
-  # rather than referring to a file that is never generated, which would make
-  # every find_package(MLIR) against this build tree fail.
+  # targets file is not exported above and this build tree does not provide
+  # a usable MLIR SDK. Make find_package(MLIR) against it report the package
+  # as not found with an explanation, rather than succeeding with no targets.
+  # The consumer project (e.g. Clang with ClangIR) carries the MLIR targets
+  # it needs in its own exports. Setting MLIR_FOUND to false lets CMake apply
+  # the caller's REQUIRED/QUIET handling.
   set(MLIR_CONFIG_INCLUDE_EXPORTS "")
+  string(CONCAT MLIR_CONFIG_DEPENDENCY_ONLY_CODE
+    "set(MLIR_FOUND FALSE)\n"
+    "string(CONCAT MLIR_NOT_FOUND_MESSAGE\n"
+    "  \"This LLVM build enabled MLIR only as a dependency of another project \"\n"
+    "  \"(LLVM_DEPENDENCY_ONLY_PROJECTS); it does not provide a full MLIR SDK. \"\n"
+    "  \"The MLIR targets required by that project are exported with it. \"\n"
+    "  \"To obtain a complete MLIR package, add 'mlir' to LLVM_ENABLE_PROJECTS.\")\n"
+    "return()")
 else()
   set(MLIR_CONFIG_INCLUDE_EXPORTS "include(\"\${MLIR_CMAKE_DIR}/MLIRTargets.cmake\")")
+  set(MLIR_CONFIG_DEPENDENCY_ONLY_CODE "")
 endif()
 set(MLIR_CONFIG_INCLUDE_DIRS
   "${MLIR_SOURCE_DIR}/include"
@@ -86,10 +96,12 @@ configure_file(
   @ONLY)
 
 # Reset the variables which are invalid for the installed version of
-# MLIRConfig.cmake.
+# MLIRConfig.cmake. The installed config is only generated and installed for
+# a fully enabled MLIR, so it never carries the dependency-only code.
 set(MLIR_CONFIG_CMAKE_DIR)
 set(MLIR_CONFIG_LLVM_CMAKE_DIR)
 set(MLIR_CONFIG_INCLUDE_DIRS)
+set(MLIR_CONFIG_DEPENDENCY_ONLY_CODE "")
 
 # For compatibility with projects that add '<build>/lib/cmake/mlir' to
 # their CMAKE_MODULE_PATH, place API modules next to it.
@@ -143,8 +155,7 @@ set(MLIR_CONFIG_CMAKE_DIR)
 set(MLIR_CONFIG_LLVM_CMAKE_DIR)
 set(MLIR_CONFIG_INCLUDE_DIRS)
 
-if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY AND
-    NOT "mlir" IN_LIST LLVM_DEPENDENCY_ONLY_PROJECTS)
+if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   # Not TOOLCHAIN ONLY, so install the MLIR parts as well
   # Include the cmake files so other tools can use mlir-tblgen, etc.
   install_distribution_exports(MLIR)

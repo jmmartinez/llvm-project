@@ -48,6 +48,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/AMDHSAKernelDescriptor.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/AMDGPUTargetParser.h"
@@ -118,6 +119,9 @@ AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM,
                                    std::unique_ptr<MCStreamer> Streamer)
     : AsmPrinter(TM, std::move(Streamer)) {
   assert(OutStreamer && "AsmPrinter constructed without streamer");
+  // AMDGPU describes a pointer's address space with its own attribute rather
+  // than DW_AT_address_class.
+  TypeAddressSpaceAttribute = dwarf::DW_AT_LLVM_address_space;
   GetResourceUsage = [this](MachineFunction &MF)
       -> const AMDGPUResourceUsageAnalysisImpl::SIFunctionResourceInfo * {
     if (auto *ResourceUsageW =
@@ -157,7 +161,7 @@ void AMDGPUAsmPrinter::initTargetStreamer(Module &M) {
   if (TT.getOS() != Triple::AMDHSA && TT.getOS() != Triple::AMDPAL)
     return;
 
-  getTargetStreamer()->EmitDirectiveAMDGCNTarget();
+  getTargetStreamer()->emitDirectiveAMDGCNTargetOnce();
 
   if (TT.getOS() == Triple::AMDHSA) {
     getTargetStreamer()->EmitDirectiveAMDHSACodeObjectVersion(
@@ -186,6 +190,105 @@ void AMDGPUAsmPrinter::emitEndOfAsmFile(Module &M) {
     (void)Success;
     assert(Success && "Malformed HSA Metadata");
   }
+
+  emitSQTTEventTable(M);
+}
+
+void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
+  NamedMDNode *Events = M.getNamedMetadata(sqtt::EventsTableMetadata);
+  if (!Events)
+    return;
+
+  OutStreamer->pushSection();
+  OutStreamer->switchSection(OutContext.getELFSection(
+      sqtt::EventsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
+
+  MCSymbol *CUBase = nullptr;
+  if (AMDGPUTargetMachine::EnableObjectLinking) {
+    CUBase = OutContext.getOrCreateSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        sqtt::EventsTableCUStart);
+    OutStreamer->emitLabel(CUBase);
+  }
+
+  const unsigned PtrSize = getPointerSize();
+  const unsigned NumEvents = Events->getNumOperands();
+
+  // {ptr record}
+  unsigned DataEntries = 0;
+  SmallVector<std::pair<sqtt::EventRecord, MCSymbol *>> EventRecordList;
+  for (unsigned I = 0; I != NumEvents; ++I) {
+    sqtt::EventRecord Record =
+        sqtt::EventRecord::fromMetadata(Events->getOperand(I));
+    MCSymbol *DataSym = OutContext.getOrCreateSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        "sqtt_data." + Twine(DataEntries++));
+    EventRecordList.emplace_back(std::move(Record), DataSym);
+    OutStreamer->emitSymbolValue(DataSym, PtrSize);
+  }
+  OutStreamer->popSection();
+
+  OutStreamer->switchSection(OutContext.getELFSection(
+      Twine(sqtt::DataTableSectionPrefix) + Twine(sqtt::FormatVersion),
+      ELF::SHT_PROGBITS, /*Flags=*/0));
+
+  // emit {ptr to label, i16 count, [type, payload_string]+}
+  unsigned Id = 0;
+  MapVector<StringRef, MCSymbol *> StrSet;
+  for (auto &[Record, DataSym] : EventRecordList) {
+    OutStreamer->emitLabel(DataSym);
+
+    MCSymbol *PC = OutContext.lookupSymbol(
+        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+        "sqtt_event." + Twine(Id++));
+    assert(PC && "SQTT event PC label should already exist");
+    OutStreamer->emitSymbolValue(PC, PtrSize);
+
+    OutStreamer->emitInt16(Record.size());
+    for (const sqtt::Event &Ev : Record.events()) {
+      OutStreamer->emitInt16(static_cast<uint16_t>(Ev.getType()));
+      if (Ev.isSetEventTableBase()) {
+        const MCExpr *NewEventTableBase;
+        if (Ev.getIndex() == sqtt::SectionBase) {
+          NewEventTableBase = MCSymbolRefExpr::create(
+              OutContext.getOrCreateSymbol(Twine("__start_") +
+                                           sqtt::EventsTableSection),
+              OutContext);
+        } else {
+          unsigned Offset = Ev.getIndex() * PtrSize;
+          const MCExpr *OffsetExpr = MCConstantExpr::create(Offset, OutContext);
+          NewEventTableBase = MCBinaryExpr::createAdd(
+              MCSymbolRefExpr::create(CUBase, OutContext), OffsetExpr,
+              OutContext);
+        }
+        OutStreamer->emitValue(NewEventTableBase, PtrSize);
+        continue;
+      }
+      StringRef Payload = Ev.getPayload();
+      auto [It, Inserted] = StrSet.try_emplace(Payload);
+      if (Inserted) {
+        It->second = OutContext.getOrCreateSymbol(
+            Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+            "sqtt_str." + Twine(StrSet.size() - 1));
+      }
+      MCSymbol *StrSym = It->second;
+      OutStreamer->emitSymbolValue(StrSym, PtrSize);
+    }
+  }
+
+  OutStreamer->popSection();
+
+  OutStreamer->switchSection(
+      OutContext.getELFSection(sqtt::DataStringsSection, ELF::SHT_PROGBITS,
+                               /*Flags=*/ELF::SHF_MERGE | ELF::SHF_STRINGS));
+
+  // emit the zero terminated strings
+  for (auto &[Payload, StrSym] : StrSet) {
+    OutStreamer->emitLabel(StrSym);
+    OutStreamer->emitBytes(Payload);
+    OutStreamer->emitInt8(0);
+  }
+  OutStreamer->popSection();
 }
 
 void AMDGPUAsmPrinter::emitFunctionBodyStart() {
@@ -832,7 +935,10 @@ const MCExpr *AMDGPUAsmPrinter::getAmdhsaKernelCodeProperties(
     KernelCodeProperties |=
         amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_PRIVATE_SEGMENT_SIZE;
   }
-  if (MF.getSubtarget<GCNSubtarget>().isWave32()) {
+  const GCNSubtarget &STM = MF.getSubtarget<GCNSubtarget>();
+  if (STM.isWave32() &&
+      STM.getFeatureBits().test(AMDGPU::FeatureSupportsWave32) &&
+      STM.getFeatureBits().test(AMDGPU::FeatureSupportsWave64)) {
     KernelCodeProperties |=
         amdhsa::KERNEL_CODE_PROPERTY_ENABLE_WAVEFRONT_SIZE32;
   }
@@ -1545,7 +1651,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
                 amdhsa::COMPUTE_PGM_RSRC3_GFX125_NAMED_BAR_CNT_SHIFT, Ctx);
 
   ProgInfo.Occupancy = createOccupancy(
-      STM.computeOccupancy(F, ProgInfo.LDSSize).second,
+      STM.getOccupancyWithWorkGroupSizes(MF).second,
       ProgInfo.NumSGPRsForWavesPerEU, ProgInfo.NumVGPRsForWavesPerEU,
       MFI->getDynamicVGPRBlockSize(), STM, Ctx);
 

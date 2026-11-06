@@ -5,6 +5,7 @@ set(LLVM_LINK_COMPONENTS
   Option
   ProfileData
   Support
+  Object
   TargetParser
   WindowsDriver
   )
@@ -24,6 +25,7 @@ endif()
 
 add_clang_library(clangDriver
   Action.cpp
+  ClangCLArgs.cpp
   Compilation.cpp
   CreateASTUnitFromArgs.cpp
   CreateInvocationFromArgs.cpp

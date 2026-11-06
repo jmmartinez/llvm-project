@@ -39,6 +39,7 @@
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/LibraryOptionsContext.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Path.h"
@@ -224,20 +225,34 @@ Expected<StringRef> createOutputFile(const Twine &Prefix, StringRef Extension) {
 }
 
 /// Execute the command \p ExecutablePath with the arguments \p Args.
-Error executeCommands(StringRef ExecutablePath, ArrayRef<StringRef> Args) {
+/// If \p Proc is set, launch without waiting and store the process handle.
+Error executeCommands(StringRef ExecutablePath, ArrayRef<StringRef> Args,
+                      sys::ProcessInfo *Proc = nullptr) {
   if (Verbose || DryRun)
     printCommands(Args);
 
   if (DryRun)
     return Error::success();
 
-  // If the command line fits within system limits, execute directly.
-  if (sys::commandLineFitsWithinSystemLimits(ExecutablePath, Args)) {
-    if (sys::ExecuteAndWait(ExecutablePath, Args))
+  auto Launch = [&](ArrayRef<StringRef> ExecArgs) -> Error {
+    if (Proc) {
+      bool ExecutionFailed = false;
+      *Proc = sys::ExecuteNoWait(ExecutablePath, ExecArgs, std::nullopt, {}, 0,
+                                 nullptr, &ExecutionFailed);
+      if (ExecutionFailed)
+        return createStringError(
+            "'%s' failed", sys::path::filename(ExecutablePath).str().c_str());
+      return Error::success();
+    }
+    if (sys::ExecuteAndWait(ExecutablePath, ExecArgs))
       return createStringError(
           "'%s' failed", sys::path::filename(ExecutablePath).str().c_str());
     return Error::success();
-  }
+  };
+
+  // If the command line fits within system limits, execute directly.
+  if (sys::commandLineFitsWithinSystemLimits(ExecutablePath, Args))
+    return Launch(Args);
 
   // Write the arguments to a response file and pass that instead.
   auto TempFileOrErr = createOutputFile("response", "rsp");
@@ -257,10 +272,7 @@ Error executeCommands(StringRef ExecutablePath, ArrayRef<StringRef> Args) {
 
   std::string ResponseFile = ("@" + *TempFileOrErr).str();
   SmallVector<StringRef, 2> NewArgs = {Args.front(), ResponseFile};
-  if (sys::ExecuteAndWait(ExecutablePath, NewArgs))
-    return createStringError("'%s' failed",
-                             sys::path::filename(ExecutablePath).str().c_str());
-  return Error::success();
+  return Launch(NewArgs);
 }
 
 Expected<std::string> findProgram(StringRef Name, ArrayRef<StringRef> Paths) {
@@ -585,7 +597,24 @@ Expected<StringRef> clang(ArrayRef<StringRef> InputFiles, const ArgList &Args,
   for (StringRef Arg : Args.getAllArgValues(OPT_compiler_arg_EQ))
     CmdArgs.push_back(Args.MakeArgString(Arg));
 
-  if (Error Err = executeCommands(*ClangPath, CmdArgs))
+  // We cannot generate temporary assembly files to satisfy `--save-temps`
+  // through the LTO pipeline. Launch a separate clang job to emit the file.
+  sys::ProcessInfo AsmProc;
+  if (SaveTemps && Triple.isAMDGPU()) {
+    SmallVector<StringRef, 16> AsmArgs(CmdArgs);
+    llvm::erase(AsmArgs, "-Wl,--save-temps");
+    AsmArgs.append({"-Xlinker", "--lto-emit-asm"});
+    if (Error Err = executeCommands(*ClangPath, AsmArgs, &AsmProc))
+      return std::move(Err);
+  }
+
+  Error Err = executeCommands(*ClangPath, CmdArgs);
+  if (SaveTemps && Triple.isAMDGPU() && !DryRun) {
+    if (sys::Wait(AsmProc, std::nullopt).ReturnCode && !Err)
+      Err = createStringError("'%s' failed",
+                              sys::path::filename(*ClangPath).str().c_str());
+  }
+  if (Err)
     return std::move(Err);
 
   return *TempFileOrErr;
@@ -1069,7 +1098,7 @@ Error handleOverrideImages(
 /// output directly without wrapping or host linking.
 Expected<SmallVector<StringRef>>
 linkAndWrapDeviceFiles(ArrayRef<SmallVector<OffloadFile>> LinkerInputFiles,
-                       const InputArgList &Args, char **Argv, int Argc,
+                       InputArgList &Args, char **Argv, int Argc,
                        bool NeedsWrapping) {
   llvm::TimeTraceScope TimeScope("Handle all device input");
 
@@ -1080,6 +1109,9 @@ linkAndWrapDeviceFiles(ArrayRef<SmallVector<OffloadFile>> LinkerInputFiles,
   if (Args.hasArg(OPT_override_image))
     if (Error Err = handleOverrideImages(Args, Images))
       return std::move(Err);
+
+  bool ExcludeNVPTX = Args.hasArg(OPT_no_nvptx_whole_archive);
+  bool ExcludeAMDGPU = Args.hasArg(OPT_no_amdgpu_whole_archive);
 
   auto Err = parallelForEachError(LinkerInputFiles, [&](auto &Input) -> Error {
     llvm::TimeTraceScope TimeScope("Link device input");
@@ -1094,6 +1126,13 @@ linkAndWrapDeviceFiles(ArrayRef<SmallVector<OffloadFile>> LinkerInputFiles,
           reportError(createStringError(Err));
         });
     auto LinkerArgs = getLinkerArgs(Input, BaseArgs);
+
+    const llvm::Triple Triple(LinkerArgs.getLastArgValue(OPT_triple_EQ));
+    if (Triple.isNVPTX() && ExcludeNVPTX)
+      return Error::success();
+
+    if (Triple.isAMDGPU() && ExcludeAMDGPU)
+      return Error::success();
 
     uint16_t ActiveOffloadKindMask = 0u;
     for (const auto &File : Input)
@@ -1157,6 +1196,13 @@ linkAndWrapDeviceFiles(ArrayRef<SmallVector<OffloadFile>> LinkerInputFiles,
   });
   if (Err)
     return std::move(Err);
+
+  // This option is specific to this link phase and the preceding link tools
+  // do not understand this option so we remove it now that we're done with it.
+  if (ExcludeNVPTX)
+    Args.eraseArg(OPT_no_nvptx_whole_archive);
+  if (ExcludeAMDGPU)
+    Args.eraseArg(OPT_no_amdgpu_whole_archive);
 
   // Create a binary image of each offloading image and either embed it into a
   // new object file, or if all inputs were direct offload binaries, emit the
@@ -1527,7 +1573,8 @@ int main(int Argc, char **Argv) {
     NewArgv.push_back(Arg->getValue());
   for (const opt::Arg *Arg : Args.filtered(OPT_offload_opt_eq_minus))
     NewArgv.push_back(Arg->getValue());
-  cl::ParseCommandLineOptions(NewArgv.size(), &NewArgv[0]);
+  cl::LibraryOptionsContext LibraryOptions;
+  cl::parseCommandLineOptions(LibraryOptions, NewArgv);
 
   Verbose = Args.hasArg(OPT_verbose);
   DryRun = Args.hasArg(OPT_dry_run);

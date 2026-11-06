@@ -144,10 +144,8 @@ set(LLVM_ALL_PROJECTS "bolt;clang;clang-tools-extra;cross-project-tests;lld;lldb
 set(LLVM_EXTRA_PROJECTS "flang" "libc" "compiler-rt")
 # List of all known projects in the mono repo
 set(LLVM_KNOWN_PROJECTS "${LLVM_ALL_PROJECTS};${LLVM_EXTRA_PROJECTS}")
-set(LLVM_REQUESTED_PROJECTS "${LLVM_ENABLE_PROJECTS}")
-set(LLVM_ENABLE_PROJECTS "${LLVM_REQUESTED_PROJECTS}" CACHE STRING
+set(LLVM_ENABLE_PROJECTS "" CACHE STRING
     "Semicolon-separated list of projects to build (${LLVM_KNOWN_PROJECTS}), or \"all\".")
-set(LLVM_ENABLE_PROJECTS "${LLVM_REQUESTED_PROJECTS}")
 # Make sure expansion happens first to not handle "all" in rest of the checks.
 if( LLVM_ENABLE_PROJECTS STREQUAL "all" )
   set( LLVM_ENABLE_PROJECTS ${LLVM_ALL_PROJECTS})
@@ -167,8 +165,6 @@ foreach(proj ${LLVM_ENABLE_PROJECTS})
      MESSAGE(FATAL_ERROR "${proj} isn't a known project: ${LLVM_KNOWN_PROJECTS}. Did you mean to enable it as a runtime in LLVM_ENABLE_RUNTIMES?")
   endif()
 endforeach()
-
-set(LLVM_DEPENDENCY_ONLY_PROJECTS)
 
 # Select the runtimes to build
 #
@@ -191,18 +187,11 @@ if ("flang" IN_LIST LLVM_ENABLE_PROJECTS)
   if (NOT "mlir" IN_LIST LLVM_ENABLE_PROJECTS)
     message(STATUS "Enabling MLIR as a dependency to flang")
     list(APPEND LLVM_ENABLE_PROJECTS "mlir")
-    list(APPEND LLVM_DEPENDENCY_ONLY_PROJECTS "mlir")
   endif()
 
   if (NOT "clang" IN_LIST LLVM_ENABLE_PROJECTS)
     message(STATUS "Enabling clang as a dependency to flang")
     list(APPEND LLVM_ENABLE_PROJECTS "clang")
-    # LLDB also consumes Clang libraries, and clang-tools-extra is nested under
-    # Clang. Keep their existing build and install behavior.
-    if(NOT "lldb" IN_LIST LLVM_ENABLE_PROJECTS AND
-       NOT "clang-tools-extra" IN_LIST LLVM_ENABLE_PROJECTS)
-      list(APPEND LLVM_DEPENDENCY_ONLY_PROJECTS "clang")
-    endif()
   endif()
 
   option(FLANG_ENABLE_FLANG_RT "Implicitly add LLVM_ENABLE_RUNTIMES=flang-rt when compiling Flang" ON)
@@ -219,6 +208,9 @@ if ("lldb" IN_LIST LLVM_ENABLE_PROJECTS)
   endif()
 endif ()
 
+# diable for staging
+#option(CLANG_ENABLE_CIR "Build ClangIR support into the compiler" ON)
+option(CLANG_ENABLE_CIR "Build ClangIR support into the compiler" OFF)
 if (CLANG_ENABLE_CIR AND "clang" IN_LIST LLVM_ENABLE_PROJECTS AND
     NOT "mlir" IN_LIST LLVM_ENABLE_PROJECTS)
   message(STATUS "Enabling MLIR as a dependency of ClangIR")
@@ -311,16 +303,7 @@ if (LLVM_ENABLE_PROJECTS_USED OR NOT LLVM_ENABLE_PROJECTS STREQUAL "")
     string(TOUPPER "${proj}" upper_proj)
     string(REGEX REPLACE "-" "_" upper_proj ${upper_proj})
     if ("${proj}" IN_LIST LLVM_ENABLE_PROJECTS)
-      if ("${proj}" IN_LIST LLVM_DEPENDENCY_ONLY_PROJECTS)
-        message(STATUS "${proj} project is enabled as a dependency")
-        # Do not cache this default: explicitly enabling the project on a later
-        # configure should restore its normal test defaults.
-        if(NOT DEFINED ${upper_proj}_INCLUDE_TESTS)
-          set(${upper_proj}_INCLUDE_TESTS OFF)
-        endif()
-      else()
-        message(STATUS "${proj} project is enabled")
-      endif()
+      message(STATUS "${proj} project is enabled")
       set(SHOULD_ENABLE_PROJECT TRUE)
       set(PROJ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../${proj}")
       if(NOT EXISTS "${PROJ_DIR}" OR NOT IS_DIRECTORY "${PROJ_DIR}")
@@ -973,7 +956,8 @@ else()
 endif()
 
 # Used to test building the llvm shared library with explicit symbol visibility on
-# Windows and Linux. For ELF platforms default symbols visibility is set to hidden.
+# Windows, Linux and macOS. For ELF and Mach-O platforms default symbol visibility
+# is set to hidden.
 set(LLVM_BUILD_LLVM_DYLIB_VIS FALSE CACHE BOOL "")
 mark_as_advanced(LLVM_BUILD_LLVM_DYLIB_VIS)
 
@@ -1231,25 +1215,29 @@ configure_file(
   )
 
 # They are not referenced. See set_output_directory().
-set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
-set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
-set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
+set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
+set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
+set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
 
 # For up-to-date instructions for installing the TFLite dependency, refer to
 # the bot setup script: https://github.com/google/ml-compiler-opt/blob/main/buildbot/buildbot_init.sh
 set(LLVM_HAVE_TFLITE "" CACHE BOOL "Use tflite")
 
 set(LLVM_MLGO_MODELS "" CACHE STRING "List of MLGO models")
-set(LLVM_MLGO_MLIR_OPT "mlir-opt" CACHE STRING "Path or system binary name for mlir-opt")
-set(LLVM_MLGO_MLIR_TRANSLATE "mlir-translate" CACHE STRING "Path or system binary name for mlir-translate")
-
-set(LLVM_HAVE_MLIR_LOWERING OFF)
-if (NOT LLVM_MLGO_MODELS STREQUAL "")
-  set(LLVM_HAVE_MLIR_LOWERING ON)
+set(LLVM_MLGO_MLIR_OPT "" CACHE STRING "Path or system binary name for mlir-opt")
+set(LLVM_MLGO_MLIR_TRANSLATE "" CACHE STRING "Path or system binary name for mlir-translate")
+if (LLVM_MLGO_MLIR_OPT STREQUAL "mlir-opt")
+  set(LLVM_MLGO_MLIR_OPT "" CACHE STRING "Path or system binary name for mlir-opt" FORCE)
+endif()
+if (LLVM_MLGO_MLIR_TRANSLATE STREQUAL "mlir-translate")
+  set(LLVM_MLGO_MLIR_TRANSLATE "" CACHE STRING "Path or system binary name for mlir-translate" FORCE)
 endif()
 
-if (LLVM_HAVE_MLIR_LOWERING AND LLVM_HAVE_TFLITE)
-  message(FATAL_ERROR "Only one of LLVM_HAVE_TFLITE and LLVM_HAVE_MLIR_LOWERING can be enabled.")
+set(LLVM_HAVE_MLIR_LOWERING OFF)
+if (NOT LLVM_MLGO_MLIR_OPT STREQUAL "" AND NOT LLVM_MLGO_MLIR_TRANSLATE STREQUAL "")
+  set(LLVM_HAVE_MLIR_LOWERING ON)
+elseif (NOT LLVM_MLGO_MLIR_OPT STREQUAL "" OR NOT LLVM_MLGO_MLIR_TRANSLATE STREQUAL "")
+  message(FATAL_ERROR "Both LLVM_MLGO_MLIR_OPT and LLVM_MLGO_MLIR_TRANSLATE must be specified together.")
 endif()
 
 if (LLVM_HAVE_TFLITE)
@@ -1284,6 +1272,7 @@ if (NOT TENSORFLOW_AOT_PATH STREQUAL "")
   if (LLVM_HAVE_TF_AOT AND LLVM_HAVE_MLIR_LOWERING)
     message(FATAL_ERROR "Only one of LLVM_HAVE_TF_AOT and LLVM_HAVE_MLIR_LOWERING can be enabled.")
   endif()
+
   # Once we add more modules, we should handle this more automatically.
   if (DEFINED LLVM_OVERRIDE_MODEL_HEADER_INLINERSIZEMODEL)
     set(LLVM_INLINER_MODEL_PATH "none")
@@ -1616,6 +1605,18 @@ endif()
 
 if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
+endif()
+
+# Following variables are required for ROCM backwards compatibility,
+# and should be removed in ROCM 7.0 release.
+set(ROCM_LLVM_BACKWARD_COMPAT_LINK "" CACHE STRING "Old rocm-llvm install path")
+set(ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET "" CACHE STRING "New rocm-llvm install path")
+if (NOT ROCM_LLVM_BACKWARD_COMPAT_LINK STREQUAL "" AND
+    NOT ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET STREQUAL "")
+  install(CODE "execute_process(\
+                COMMAND ${CMAKE_COMMAND} -E create_symlink \
+                ${ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET} \
+                ${ROCM_LLVM_BACKWARD_COMPAT_LINK})")
 endif()
 
 if (XCODE)

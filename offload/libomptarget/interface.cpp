@@ -14,11 +14,13 @@
 #include "OpenMP/OMPT/Interface.h"
 #include "OffloadPolicy.h"
 #include "OpenMP/OMPT/Callback.h"
+#include "OpenMP/OMPT/OmptCommonDefs.h"
+#include "OpenMP/OffloadRTL.h"
 #include "OpenMP/omp.h"
-#include "PluginManager.h"
 #include "omptarget.h"
 #include "private.h"
 
+#include "Shared/APITypes.h"
 #include "Shared/EnvironmentVar.h"
 #include "Shared/Profile.h"
 
@@ -33,10 +35,13 @@
 #include <memory>
 #include <vector>
 
+using llvm::SmallVector;
+
 #ifdef OMPT_SUPPORT
 using namespace llvm::omp::target::ompt;
 #endif
 using namespace llvm::omp::target::debug;
+using namespace llvm::omp::target::helpers;
 
 // If offload is enabled, ensure that device DeviceID has been initialized.
 //
@@ -106,6 +111,7 @@ EXTERN void __tgt_init_all_rtls() {
 ////////////////////////////////////////////////////////////////////////////////
 /// unloads a target shared library
 EXTERN void __tgt_unregister_lib(__tgt_bin_desc *Desc) {
+  TIMESCOPE();
   PM->unregisterLib(Desc);
 
   deinitRuntime();
@@ -122,8 +128,7 @@ targetData(ident_t *Loc, int64_t DeviceId, int32_t ArgNum, void **ArgsBase,
   static_assert(std::is_convertible_v<TargetAsyncInfoTy &, AsyncInfoTy &>,
                 "TargetAsyncInfoTy must be convertible to AsyncInfoTy.");
 
-  TIMESCOPE_WITH_DETAILS_AND_IDENT("Runtime: Data Copy",
-                                   "NumArgs=" + std::to_string(ArgNum), Loc);
+  TIMESCOPE_WITH_RTM_AND_IDENT(RegionTypeMsg, Loc);
 
   ODBG(ODT_Interface) << "Entering data " << RegionName << " region for device "
                       << DeviceId << " with " << ArgNum << " mappings";
@@ -153,19 +158,30 @@ targetData(ident_t *Loc, int64_t DeviceId, int32_t ArgNum, void **ArgsBase,
   AsyncInfoTy &AsyncInfo = TargetAsyncInfo;
 
   /// RAII to establish tool anchors before and after data begin / end / update
-  OMPT_IF_BUILT(assert((TargetDataFunction == targetDataBegin ||
-                        TargetDataFunction == targetDataEnd ||
-                        TargetDataFunction == targetDataUpdate) &&
-                       "Encountered unexpected TargetDataFunction during "
-                       "execution of targetData");
-                auto CallbackFunctions =
-                    (TargetDataFunction == targetDataBegin)
-                        ? RegionInterface.getCallbacks<ompt_target_enter_data>()
-                    : (TargetDataFunction == targetDataEnd)
-                        ? RegionInterface.getCallbacks<ompt_target_exit_data>()
-                        : RegionInterface.getCallbacks<ompt_target_update>();
-                InterfaceRAII TargetDataRAII(CallbackFunctions, DeviceId,
-                                             OMPT_GET_RETURN_ADDRESS);)
+  OMPT_IF_BUILT(
+      assert((TargetDataFunction == targetDataBegin ||
+              TargetDataFunction == targetDataEnd ||
+              TargetDataFunction == targetDataUpdate) &&
+             "Encountered unexpected TargetDataFunction during "
+             "execution of targetData");
+      auto CallbackFunctions =
+          (TargetDataFunction == targetDataBegin)
+              ? RegionInterface.getCallbacks<ompt_target_enter_data>()
+          : (TargetDataFunction == targetDataEnd)
+              ? RegionInterface.getCallbacks<ompt_target_exit_data>()
+              : RegionInterface.getCallbacks<ompt_target_update>();
+
+      auto TraceGenerators =
+          (TargetDataFunction == targetDataBegin)
+              ? RegionInterface.getTraceGenerators<ompt_target_enter_data>()
+          : (TargetDataFunction == targetDataEnd)
+              ? RegionInterface.getTraceGenerators<ompt_target_exit_data>()
+              : RegionInterface.getTraceGenerators<ompt_target_update>();
+
+      InterfaceRAII TargetDataRAII(CallbackFunctions, DeviceId,
+                                   /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);
+      InterfaceRAII TargetDataTraceRAII(TraceGenerators, DeviceId,
+                                        /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);)
 
   int Rc = OFFLOAD_SUCCESS;
 
@@ -186,8 +202,10 @@ targetData(ident_t *Loc, int64_t DeviceId, int32_t ArgNum, void **ArgsBase,
     if (StateInfo && !StateInfo->AttachEntries.empty())
       Rc = processAttachEntries(*DeviceOrErr, *StateInfo, AsyncInfo);
 
-    if (Rc == OFFLOAD_SUCCESS)
+    if (Rc == OFFLOAD_SUCCESS) {
+      printSyncInfo(Loc, DeviceId, AsyncInfo);
       Rc = AsyncInfo.synchronize();
+    }
   }
 
   handleTargetOutcome(Rc == OFFLOAD_SUCCESS, Loc);
@@ -202,6 +220,7 @@ EXTERN void __tgt_target_data_begin_mapper(ident_t *Loc, int64_t DeviceId,
                                            int64_t *ArgTypes,
                                            map_var_info_t *ArgNames,
                                            void **ArgMappers) {
+  TIMESCOPE_WITH_IDENT(Loc);
   OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   targetData<AsyncInfoTy>(Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes,
                           ArgTypes, ArgNames, ArgMappers, targetDataBegin,
@@ -230,6 +249,7 @@ EXTERN void __tgt_target_data_end_mapper(ident_t *Loc, int64_t DeviceId,
                                          int64_t *ArgTypes,
                                          map_var_info_t *ArgNames,
                                          void **ArgMappers) {
+  TIMESCOPE_WITH_IDENT(Loc);
   OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   targetData<AsyncInfoTy>(Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes,
                           ArgTypes, ArgNames, ArgMappers, targetDataEnd,
@@ -254,6 +274,7 @@ EXTERN void __tgt_target_data_update_mapper(ident_t *Loc, int64_t DeviceId,
                                             int64_t *ArgTypes,
                                             map_var_info_t *ArgNames,
                                             void **ArgMappers) {
+  TIMESCOPE_WITH_IDENT(Loc);
   OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   targetData<AsyncInfoTy>(
       Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes, ArgTypes, ArgNames,
@@ -374,6 +395,7 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
   assert(PM && "Runtime not initialized");
   static_assert(std::is_convertible_v<TargetAsyncInfoTy &, AsyncInfoTy &>,
                 "Target AsyncInfoTy must be convertible to AsyncInfoTy.");
+
   ODBG(ODT_Interface) << "Entering target region for device " << DeviceId
                       << " with entry point " << HostPtr;
 
@@ -430,21 +452,28 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
 
   TargetAsyncInfoTy TargetAsyncInfo(*DeviceOrErr);
   AsyncInfoTy &AsyncInfo = TargetAsyncInfo;
-  /// RAII to establish tool anchors before and after target region
   OMPT_IF_BUILT(InterfaceRAII TargetRAII(
                     RegionInterface.getCallbacks<ompt_target>(), DeviceId,
+                    /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);
+                InterfaceRAII TargetTraceRAII(
+                    RegionInterface.getTraceGenerators<ompt_target>(), DeviceId,
                     /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);)
 
   int Rc = OFFLOAD_SUCCESS;
   Rc = target(Loc, *DeviceOrErr, HostPtr, *KernelArgs, AsyncInfo);
   { // required to show synchronization
     TIMESCOPE_WITH_DETAILS_AND_IDENT("Runtime: synchronize", "", Loc);
-    if (Rc == OFFLOAD_SUCCESS)
+    if (Rc == OFFLOAD_SUCCESS) {
+      printSyncInfo(Loc, DeviceId, AsyncInfo);
       Rc = AsyncInfo.synchronize();
-
-    handleTargetOutcome(Rc == OFFLOAD_SUCCESS, Loc);
-    assert(Rc == OFFLOAD_SUCCESS && "__tgt_target_kernel unexpected failure!");
+    }
   }
+#if 1
+  handleTargetOutcome(Rc == OFFLOAD_SUCCESS, Loc);
+  assert(Rc == OFFLOAD_SUCCESS && "offload failed");
+  assert(Rc == OFFLOAD_SUCCESS && "__tgt_target_kernel unexpected failure!");
+#endif//>>>>>>> ec94ac53962a569a9d26cf107c3663a6880fe446
+
   return OMP_TGT_SUCCESS;
 }
 
@@ -542,6 +571,9 @@ EXTERN int __tgt_target_kernel_replay(
   /// RAII to establish tool anchors before and after target region
   OMPT_IF_BUILT(InterfaceRAII TargetRAII(
                     RegionInterface.getCallbacks<ompt_target>(), DeviceId,
+                    /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);
+                InterfaceRAII TargetTraceRAII(
+                    RegionInterface.getTraceGenerators<ompt_target>(), DeviceId,
                     /*CodePtr=*/OMPT_GET_RETURN_ADDRESS);)
 
   AsyncInfoTy AsyncInfo(*DeviceOrErr);
@@ -563,6 +595,8 @@ EXTERN int __tgt_target_kernel_replay(
 
 // Get the current number of components for a user-defined mapper.
 EXTERN int64_t __tgt_mapper_num_components(void *RtMapperHandle) {
+  TIMESCOPE();
+  OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   auto *MapperComponentsPtr = (struct MapperComponentsTy *)RtMapperHandle;
   int64_t Size = MapperComponentsPtr->Components.size();
   ODBG(ODT_Interface) << "__tgt_mapper_num_components(Handle=" << RtMapperHandle
@@ -574,6 +608,7 @@ EXTERN int64_t __tgt_mapper_num_components(void *RtMapperHandle) {
 EXTERN void __tgt_push_mapper_component(void *RtMapperHandle, void *Base,
                                         void *Begin, int64_t Size, int64_t Type,
                                         void *Name) {
+  TIMESCOPE();
   ODBG(ODT_Interface) << "__tgt_push_mapper_component(Handle=" << RtMapperHandle
                       << ") adds an entry (Base=" << Base << ", Begin=" << Begin
                       << ", Size=" << Size
@@ -587,17 +622,16 @@ EXTERN void __tgt_push_mapper_component(void *RtMapperHandle, void *Base,
 
 EXTERN void __tgt_set_info_flag(uint32_t NewInfoLevel) {
   assert(PM && "Runtime not initialized");
+  OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   std::atomic<uint32_t> &InfoLevel = getInfoLevelInternal();
   InfoLevel.store(NewInfoLevel);
 }
 
 EXTERN int __tgt_print_device_info(int64_t DeviceId) {
-  assert(PM && "Runtime not initialized");
-  auto DeviceOrErr = PM->getDevice(DeviceId);
-  if (!DeviceOrErr)
-    FATAL_MESSAGE(DeviceId, "%s", toString(DeviceOrErr.takeError()).c_str());
-
-  return DeviceOrErr->printDeviceInfo();
+  MESSAGE("The %s function is deprecated and no longer prints any "
+          "information. Use olGetDeviceInfo instead",
+          __PRETTY_FUNCTION__);
+  return false;
 }
 
 EXTERN void __tgt_target_nowait_query(void **AsyncHandle) {
@@ -646,12 +680,21 @@ EXTERN void __tgt_target_nowait_query(void **AsyncHandle) {
 
 EXTERN void __tgt_register_rpc_callback(unsigned (*Callback)(void *,
                                                              unsigned)) {
-  if (!PM)
+  if (!PM || !PM->isLibOffloadInitialized())
     return;
 
-  for (auto &Plugin : PM->plugins())
-    if (Plugin.is_initialized() && Plugin.getNumDevices() > 0)
-      Plugin.getRPCServer().registerCallback(Callback);
+  if (auto Err = iteratePlatforms(
+          [](ol_platform_handle_t Platform, void *Data) {
+            bool Active = false;
+            if (olGetPlatformInfo(Platform, OL_PLATFORM_INFO_ACTIVE,
+                                  sizeof(Active), &Active) == OL_SUCCESS &&
+                Active)
+              olPlatformRegisterRPCCallback(
+                  Platform, reinterpret_cast<ol_platform_rpc_cb_t>(Data));
+            return true;
+          },
+          reinterpret_cast<void *>(Callback)))
+    REPORT() << "Failed to iterate platforms: " << toString(std::move(Err));
 }
 
 EXTERN void *__tgt_get_mapped_ptr(int64_t DeviceId, const void *HostPtr) {

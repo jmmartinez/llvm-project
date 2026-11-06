@@ -138,7 +138,9 @@ void Flang::addFortranDialectOptions(const ArgList &Args,
                    options::OPT_finput_charset_EQ,
                    options::OPT_fimplicit_none,
                    options::OPT_fimplicit_none_ext,
+                   options::OPT_fimplicit_module_prefix,
                    options::OPT_fno_implicit_none,
+                   options::OPT_fno_implicit_module_prefix,
                    options::OPT_fbackslash,
                    options::OPT_fno_backslash,
                    options::OPT_flogical_abbreviations,
@@ -152,6 +154,7 @@ void Flang::addFortranDialectOptions(const ArgList &Args,
                    options::OPT_fdefault_integer_8,
                    options::OPT_fdefault_double_8,
                    options::OPT_flarge_sizes,
+                   options::OPT_fmodule_mismatch_check_EQ,
                    options::OPT_fno_automatic,
                    options::OPT_fhermetic_module_files,
                    options::OPT_frealloc_lhs,
@@ -173,13 +176,13 @@ void Flang::addPreprocessingOptions(const ArgList &Args,
 
 /// @C shouldLoopVersion
 ///
-/// Check if Loop Versioning should be enabled.
+/// Check if a loop versioning pass should be enabled.
 /// We look for the last of one of the following:
-///   -Ofast, -O4, -O<number> and -f[no-]version-loops-for-stride.
-/// Loop versioning is disabled if the last option is
-///  -fno-version-loops-for-stride.
+///   -Ofast, -O4, -O<number>, -O0 and the pass's -f[no-]version-loops-for-*
+///   flag.
+/// Loop versioning is disabled if the last option is the -fno- flag or -O0.
 /// Loop versioning is enabled if the last option is one of:
-///  -floop-versioning
+///  the -f flag
 ///  -Ofast
 ///  -O4
 ///  -O3
@@ -188,17 +191,19 @@ void Flang::addPreprocessingOptions(const ArgList &Args,
 /// The gfortran compiler automatically enables the option for -O3 or -Ofast.
 ///
 /// @return true if loop-versioning should be enabled, otherwise false.
-static bool shouldLoopVersion(const ArgList &Args) {
-  const Arg *LoopVersioningArg = Args.getLastArg(
-      options::OPT_Ofast, options::OPT_O, options::OPT_O4,
-      options::OPT_floop_versioning, options::OPT_fno_loop_versioning);
+static bool shouldLoopVersion(const ArgList &Args, options::ID PosFlag,
+                              options::ID NegFlag) {
+  const Arg *LoopVersioningArg =
+      Args.getLastArg(options::OPT_Ofast, options::OPT_O, options::OPT_O4,
+                      options::OPT_O0, PosFlag, NegFlag);
   if (!LoopVersioningArg)
     return false;
 
-  if (LoopVersioningArg->getOption().matches(options::OPT_fno_loop_versioning))
+  if (LoopVersioningArg->getOption().matches(NegFlag) ||
+      LoopVersioningArg->getOption().matches(options::OPT_O0))
     return false;
 
-  if (LoopVersioningArg->getOption().matches(options::OPT_floop_versioning))
+  if (LoopVersioningArg->getOption().matches(PosFlag))
     return true;
 
   if (LoopVersioningArg->getOption().matches(options::OPT_Ofast) ||
@@ -236,10 +241,10 @@ void Flang::addDebugOptions(const llvm::opt::ArgList &Args, const JobAction &JA,
                    options::OPT_fpass_plugin_EQ,
                    options::OPT_funderscoring,
                    options::OPT_fno_underscoring,
+                   options::OPT_foffload_global_filtering,
+                   options::OPT_fno_offload_global_filtering,
                    options::OPT_funsigned,
                    options::OPT_fno_unsigned,
-                   options::OPT_fenumeration_type,
-                   options::OPT_fno_enumeration_type,
                    options::OPT_fout_of_bounds_subscripts,
                    options::OPT_fno_out_of_bounds_subscripts,
                    options::OPT_fopenacc_default_none_scalars_strict,
@@ -247,6 +252,11 @@ void Flang::addDebugOptions(const llvm::opt::ArgList &Args, const JobAction &JA,
                    options::OPT_fopenacc_multiple_names_in_routine,
                    options::OPT_fno_openacc_multiple_names_in_routine,
                    options::OPT_finstrument_functions});
+
+  if (Args.hasArg(options::OPT_fopenacc)) {
+     const Driver &D = getToolChain().getDriver();
+     D.Diag(diag::warn_openacc_experimental);
+  }
 
   llvm::codegenoptions::DebugInfoKind DebugInfoKind;
   bool hasDwarfNArg = getDwarfNArg(Args) != nullptr;
@@ -365,8 +375,12 @@ void Flang::addCodegenOptions(const ArgList &Args,
   handleVectorizeLoopsArgs(Args, CmdArgs);
   handleVectorizeSLPArgs(Args, CmdArgs);
 
-  if (shouldLoopVersion(Args))
+  if (shouldLoopVersion(Args, options::OPT_floop_versioning,
+                        options::OPT_fno_loop_versioning))
     CmdArgs.push_back("-fversion-loops-for-stride");
+  if (shouldLoopVersion(Args, options::OPT_floop_tripcount_versioning,
+                        options::OPT_fno_loop_tripcount_versioning))
+    CmdArgs.push_back("-fversion-loops-for-trip-count");
 
   for (const auto &arg :
        Args.getAllArgValues(options::OPT_frepack_arrays_contiguity_EQ))
@@ -374,6 +388,12 @@ void Flang::addCodegenOptions(const ArgList &Args,
       getToolChain().getDriver().Diag(diag::err_drv_unsupported_option_argument)
           << "-frepack-arrays-contiguity=" << arg;
     }
+
+  // -fdo-concurrent and -fdo-concurrent-to-openmp are aliases. Make sure the
+  // correct alias (spelling) is added to the list of command arguments.
+  if (const Arg *A = Args.getLastArg(options::OPT_fdo_concurrent_EQ)) {
+    CmdArgs.push_back(Args.MakeArgString(A->getAsString(Args)));
+  }
 
   Args.addAllArgs(
       CmdArgs,
@@ -386,6 +406,7 @@ void Flang::addCodegenOptions(const ArgList &Args,
        options::OPT_fstack_repack_arrays, options::OPT_fno_stack_repack_arrays,
        options::OPT_ftime_report, options::OPT_ftime_report_EQ,
        options::OPT_funroll_loops, options::OPT_fno_unroll_loops,
+       options::OPT_fdefer_desc_map, options::OPT_fno_defer_desc_map,
        options::OPT_relaxed_c_loc});
 
   Args.addOptOutFlag(CmdArgs, options::OPT_foptimize_sibling_calls,
@@ -1357,6 +1378,21 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
 
   addFortranDialectOptions(Args, CmdArgs);
 
+  if (const Arg *A =
+          Args.getLastArg(options::OPT_fopenmp_default_allocate_EQ)) {
+    StringRef Val(A->getValue());
+    if (Val != "target" && Val != "host") {
+      D.Diag(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
+    } else {
+      D.Diag(diag::warn_openmp_default_allocate_experimental);
+      CmdArgs.push_back(Args.MakeArgString("-fopenmp-default-allocate=" + Val));
+      if (Val == "target") {
+        CmdArgs.push_back("-mmlir");
+        CmdArgs.push_back("-use-alloc-runtime");
+      }
+    }
+  }
+
   // 'flang -E' always produces output that is suitable for use as fixed form
   // Fortran. However it is only valid free form source if the original is also
   // free form. Ensure this logic does not incorrectly assume fixed-form for
@@ -1617,3 +1653,4 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
 Flang::Flang(const ToolChain &TC) : Tool("flang", "flang frontend", TC) {}
 
 Flang::~Flang() {}
+

@@ -35,6 +35,8 @@
 #include "flang/Runtime/pointer.h"
 #include "flang/Semantics/tools.h"
 #include "flang/Semantics/type.h"
+#include "mlir/Dialect/OpenMP/OpenMPInterfaces.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "flang/Support/Fortran-features.h"
 #include "llvm/Support/CommandLine.h"
 
@@ -161,6 +163,49 @@ static void genRuntimeInitCharacter(fir::FirOpBuilder &builder,
   const auto convertedArgs = fir::runtime::createArguments(
       builder, loc, callee.getFunctionType(), args);
   fir::CallOp::create(builder, loc, callee, convertedArgs);
+}
+
+/// Check if region is nested in omp.target or
+/// region nested in function with declare target
+bool isRegionNestedInOmpTarget(mlir::Region &region) {
+  mlir::Operation *parentOp = region.getParentOp();
+  while (parentOp) {
+    if (auto declareTargetOp =
+            llvm::dyn_cast<mlir::omp::DeclareTargetInterface>(parentOp)) {
+      if (declareTargetOp.getDeclareTarget())
+        return true;
+    }
+    if (llvm::isa<mlir::omp::TargetOp>(parentOp))
+      return true;
+    mlir::Region *parentRegion = parentOp->getParentRegion();
+    if (!parentRegion)
+      break;
+    parentOp = parentRegion->getParentOp();
+  }
+
+  return false;
+}
+
+static void genOpenMPRuntimeDescriptorSetAllocIdx(fir::FirOpBuilder &builder,
+                                                  mlir::Location loc,
+                                                  const fir::MutableBoxValue &box,
+                                                  int allocatorId) {
+  if (isRegionNestedInOmpTarget(builder.getRegion()))
+    return;
+  auto *context = builder.getContext();
+  mlir::Type descriptorTy = box.getAddr().getType();
+  mlir::IntegerType posTy = builder.getI32Type();
+  mlir::func::FuncOp callee = builder.createFunction(
+      loc, RTNAME_STRING(OpenMPAllocatableSetAllocIdx),
+      mlir::FunctionType::get(context, {descriptorTy, posTy}, {}));
+  llvm::SmallVector<mlir::Value> args{box.getAddr()};
+  args.push_back(
+      builder.createIntegerConstant(loc, builder.getI32Type(), allocatorId));
+  llvm::SmallVector<mlir::Value> operands;
+  for (auto [fst, snd] : llvm::zip(args, callee.getFunctionType().getInputs()))
+    operands.emplace_back(builder.createConvert(loc, snd, fst));
+  builder.create<fir::CallOp>(loc, callee, operands);
+  return;
 }
 
 /// Generate a sequence of runtime calls to allocate memory.
@@ -563,6 +608,9 @@ private:
                             !alloc.type.IsPolymorphic() &&
                             !alloc.hasCoarraySpec() && !useAllocateRuntime &&
                             !box.isPointer() && !implicitManagedBacking;
+    const auto &langFeatures = converter.getFoldingContext().languageFeatures();
+    bool isOpenMPAllocatorEnabled = langFeatures.IsEnabled(
+        Fortran::common::LanguageFeature::OpenMPDefaultAllocator);
 
     if (inlineAllocation && !alloc.hasCoarraySpec() &&
         ((isCudaAllocate && isCudaDeviceContext) || !isCudaAllocate)) {
@@ -598,6 +646,8 @@ private:
           alloc.getCoarraySpec(), errorManager.errMsgAddr,
           errorManager.hasStatSpec());
     } else if (!isCudaAllocate) {
+      if (isOpenMPAllocatorEnabled)
+        genOpenMPRuntimeDescriptorSetAllocIdx(builder, loc, box, 1);
       stat = genRuntimeAllocate(builder, loc, box, errorManager);
       setPinnedToFalse();
     } else {
@@ -729,6 +779,9 @@ private:
       isCudaAllocate = propagateCUDAAttrsFromParent(alloc, cudaSymForAlloc);
     unsigned allocatorIdx = Fortran::lower::getAllocatorIdx(*cudaSymForAlloc);
     fir::ExtendedValue exv = isSource ? sourceExv : moldExv;
+    const auto &langFeatures = converter.getFoldingContext().languageFeatures();
+    bool isOpenMPAllocatorEnabled = langFeatures.IsEnabled(
+        Fortran::common::LanguageFeature::OpenMPDefaultAllocator);
 
     bool sourceIsDevice = false;
     if (const Fortran::semantics::Symbol *sym{GetLastSymbol(sourceExpr)})
@@ -759,6 +812,8 @@ private:
     } else if (isCudaAllocate || sourceIsDevice) {
       stat = genCudaAllocate(builder, loc, box, errorManager, *cudaSymForAlloc);
     } else {
+      if (isOpenMPAllocatorEnabled)
+        genOpenMPRuntimeDescriptorSetAllocIdx(builder, loc, box, 1);
       if (isSource)
         stat = genRuntimeAllocateSource(builder, loc, box, exv, errorManager);
       else
@@ -1173,12 +1228,12 @@ void Fortran::lower::associateMutableBox(
   fir::FirOpBuilder &builder = converter.getFirOpBuilder();
   if (Fortran::evaluate::UnwrapExpr<Fortran::evaluate::NullPointer>(source)) {
     fir::factory::disassociateMutableBox(builder, loc, box);
-    cuf::genPointerSync(box.getAddr(), builder);
+    cuf::genPointerSync(loc, box.getAddr(), builder);
     return;
   }
   fir::ExtendedValue rhs = converter.genExprAddr(loc, source, stmtCtx);
   fir::factory::associateMutableBox(builder, loc, box, rhs, lbounds);
-  cuf::genPointerSync(box.getAddr(), builder);
+  cuf::genPointerSync(loc, box.getAddr(), builder);
 }
 
 bool Fortran::lower::isWholeAllocatable(const Fortran::lower::SomeExpr &expr) {

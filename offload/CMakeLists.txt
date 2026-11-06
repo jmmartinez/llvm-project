@@ -12,6 +12,14 @@ endif()
 
 set(LLVM_SUBPROJECT_TITLE "liboffload")
 
+if(DEFINED LIBOMP_SHARED_LINKER_FLAGS)
+  set(CMAKE_SHARED_LINKER_FLAGS "${LIBOMP_SHARED_LINKER_FLAGS}")
+endif()
+
+if(LIBOMPTARGET_NO_SANITIZER_AMDGPU)
+  set(SANITIZER_AMDGPU FALSE)
+endif()
+
 # The minimum versions required for dependencies.
 set(OFFLOAD_MIN_CUDA_VERSION 11.8.0)
 set(OFFLOAD_MIN_CUDA_VERSION_CODE 11080)
@@ -269,7 +277,7 @@ if(NOT LLVM_ENABLE_RTTI)
 endif()
 
 if(OFFLOAD_HAVE_WERROR_CTOR)
-  list(APPEND offload_compile_flags -Werror=global-constructors)
+#   list(APPEND offload_compile_flags -Werror=global-constructors)
 endif()
 
 # TODO: Consider enabling LTO by default if supported.
@@ -331,9 +339,12 @@ set(LIBOMPTARGET_LLVM_LIBRARY_DIR "${LLVM_LIBRARY_DIR}" CACHE STRING
 set(LIBOMPTARGET_LLVM_LIBRARY_INTDIR "${LIBOMPTARGET_LIBRARY_DIR}" CACHE STRING
   "Path to folder where intermediate libraries will be output")
 
+if(SANITIZER_AMDGPU)
+  add_definitions(-DSANITIZER_AMDHSA=1)
+endif()
 # If LLVM is dynamically linked we need to add its libraries.
 set(OFFLOAD_INSTALL_RPATH "$ORIGIN")
-if(LLVM_LINK_LLVM_DYLIB)
+if(LLVM_LINK_LLVM_DYLIB OR LLVM_ENABLE_SHARED_LIBS)
   file(RELATIVE_PATH llvm_libdir_relpath
        "${CMAKE_INSTALL_PREFIX}/${OFFLOAD_INSTALL_LIBDIR}"
        "${CMAKE_INSTALL_PREFIX}/lib${LLVM_LIBDIR_SUFFIX}")
@@ -375,6 +386,8 @@ if(OFFLOAD_INCLUDE_TESTS)
   add_subdirectory(test)
   add_subdirectory(unittests)
 endif()
+
+add_subdirectory(utils)
 
 foreach(target omptarget LLVMOffload LLVMOffloadKernel)
   if(TARGET ${target})

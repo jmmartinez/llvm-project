@@ -18,10 +18,10 @@
 #include "clang/Basic/TargetBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/IR/AMDGPUSQTTEventType.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/IR/IntrinsicsSPIRV.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MemoryModelRelaxationAnnotations.h"
 #include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/AtomicOrdering.h"
@@ -32,6 +32,19 @@ using namespace CodeGen;
 using namespace llvm;
 
 namespace {
+
+static Value *emitSQTTUserEvent(CodeGenFunction &CGF, sqtt::EventType Kind,
+                                StringRef Name) {
+  LLVMContext &C = CGF.getLLVMContext();
+  Metadata *TypeMD = ConstantAsMetadata::get(
+      ConstantInt::get(CGF.Int32Ty, static_cast<uint32_t>(Kind)));
+  Metadata *PayloadMD = MDString::get(C, Name);
+  return CGF.Builder.CreateIntrinsic(
+      Intrinsic::amdgcn_sqtt_event,
+      {MetadataAsValue::get(C, MDNode::get(C, {TypeMD, PayloadMD})),
+       /*ID=*/PoisonValue::get(CGF.Int32Ty),
+       /*IsCULocal=*/CGF.Builder.getTrue()});
+}
 
 static Value *emitAMDGPUSBufferLoadBuiltin(CodeGenFunction &CGF,
                                            const CallExpr *E) {
@@ -1035,6 +1048,26 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
     // argument.
     llvm::Function *F = CGM.getIntrinsic(IID, {Args[0]->getType()});
     return Builder.CreateCall(F, {Args});
+  }
+  case AMDGPU::BI__builtin_amdgcn_global_load_b128:
+  case AMDGPU::BI__builtin_amdgcn_global_store_b128: {
+    const bool IsStore =
+        BuiltinID == AMDGPU::BI__builtin_amdgcn_global_store_b128;
+    LLVMContext &Ctx = CGM.getLLVMContext();
+    SmallVector<Value *, 5> Args = {EmitScalarExpr(E->getArg(0))}; // addr
+    if (IsStore)
+      Args.push_back(EmitScalarExpr(E->getArg(1))); // data
+    const unsigned ScopeIdx = E->getNumArgs() - 1;
+    StringRef ScopeLit =
+        cast<StringLiteral>(E->getArg(ScopeIdx)->IgnoreParenCasts())
+            ->getString();
+    llvm::MDNode *MD =
+        llvm::MDNode::get(Ctx, {llvm::MDString::get(Ctx, ScopeLit)});
+    Args.push_back(llvm::MetadataAsValue::get(Ctx, MD)); // scope
+    llvm::Function *F =
+        CGM.getIntrinsic(IsStore ? Intrinsic::amdgcn_global_store_b128
+                                 : Intrinsic::amdgcn_global_load_b128);
+    return Builder.CreateCall(F, Args);
   }
   case AMDGPU::BI__builtin_amdgcn_av_load_b128:
   case AMDGPU::BI__builtin_amdgcn_av_store_b128: {
@@ -2047,9 +2080,7 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
 
       // Most targets require "atomic.ignore.denormal.mode" to emit the native
       // instruction, but this only matters for float fadd.
-      if (BinOp == llvm::AtomicRMWInst::FAdd && Val->getType()->isFloatTy())
-        RMW->setMetadata(llvm::LLVMContext::MD_atomic_ignore_denormal_mode,
-                         EmptyMD);
+      addAtomicIgnoreDenormalModeMetadata(*this, *RMW);
     }
 
     return Builder.CreateBitCast(RMW, OrigTy);
@@ -2286,6 +2317,16 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
   case AMDGPU::BI__builtin_amdgcn_permlane_xor:
     return emitBuiltinWithOneOverloadedType<3>(*this, E,
                                                Intrinsic::amdgcn_permlane_xor);
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_entry:
+  case AMDGPU::BI__builtin_amdgcn_sqtt_user_exit: {
+    const auto *Name = cast<StringLiteral>(E->getArg(0)->IgnoreParenImpCasts());
+    return emitSQTTUserEvent(*this,
+                             BuiltinID ==
+                                     AMDGPU::BI__builtin_amdgcn_sqtt_user_entry
+                                 ? sqtt::EventType::UserEntry
+                                 : sqtt::EventType::UserExit,
+                             Name->getString());
+  }
   default:
     return nullptr;
   }

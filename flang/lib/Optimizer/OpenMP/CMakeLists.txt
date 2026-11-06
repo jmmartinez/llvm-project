@@ -4,6 +4,7 @@ add_flang_library(FlangOpenMPTransforms
   AutomapToTargetData.cpp
   DoConcurrentConversion.cpp
   GenericLoopConversion.cpp
+  GlobalFiltering.cpp
   MapsForPrivatizedSymbols.cpp
   MapInfoFinalization.cpp
   LowerWorkdistribute.cpp
@@ -32,7 +33,9 @@ add_flang_library(FlangOpenMPTransforms
   ${dialect_libs}
 
   MLIR_LIBS
+  MLIRAnalysisBase
   MLIRFuncDialect
+  MLIRMathTransforms
   MLIROpenMPDialect
   MLIROpenMPTransforms
   MLIRIR

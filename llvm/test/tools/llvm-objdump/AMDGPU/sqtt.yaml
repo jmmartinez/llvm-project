@@ -1,0 +1,223 @@
+## Check that --sqtt is accepted for an AMDGPU ELF object.
+
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+
+# RUN: yaml2obj %t/elf-amdgpu.yaml -o %t/elf-amdgpu.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu.o 2>&1 | FileCheck %s --implicit-check-not={{.}}
+
+# CHECK: {{.*}}file format elf64-amdgpu
+# CHECK: []
+
+## Check that --sqtt warns if the data section has an unsupported format
+## version, a suffix that is not a version, or no version at all.
+
+# RUN: yaml2obj %t/elf-amdgpu.yaml -DVERSION=99 -o %t/elf-amdgpu-v99.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-v99.o 2>&1 | FileCheck %s --check-prefix=BAD-VERSION -DFILE=%t/elf-amdgpu-v99.o -DVERSION=99 --implicit-check-not={{.}}
+
+# RUN: yaml2obj %t/elf-amdgpu.yaml -DVERSION=x -o %t/elf-amdgpu-vx.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-vx.o 2>&1 | FileCheck %s --check-prefix=BAD-VERSION -DFILE=%t/elf-amdgpu-vx.o -DVERSION=x --implicit-check-not={{.}}
+
+# RUN: yaml2obj %t/elf-amdgpu.yaml -DVERSION= -o %t/elf-amdgpu-unversioned.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-unversioned.o 2>&1 | FileCheck %s --check-prefix=BAD-VERSION -DFILE=%t/elf-amdgpu-unversioned.o -DVERSION= --implicit-check-not={{.}}
+
+# BAD-VERSION: {{.*}}file format elf64-amdgpu
+# BAD-VERSION: {{.*}}warning: '[[FILE]]': SQTT section __sqtt_data_v[[VERSION]] has an unsupported format version
+
+## Check that --sqtt warns if compilation units with different format versions
+## were linked together.
+
+# RUN: yaml2obj %t/elf-amdgpu-two-versions.yaml -o %t/elf-amdgpu-two-versions.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-two-versions.o 2>&1 | FileCheck %s --check-prefix=TWO-VERSIONS -DFILE=%t/elf-amdgpu-two-versions.o --implicit-check-not={{.}}
+
+# TWO-VERSIONS: {{.*}}file format elf64-amdgpu
+# TWO-VERSIONS: {{.*}}warning: '[[FILE]]': multiple SQTT sections __sqtt_data_v{{$}}
+
+## Check that --sqtt stops at the first missing SQTT section.
+
+# RUN: yaml2obj %t/elf-amdgpu-no-sections.yaml -o %t/elf-amdgpu-no-sections.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-no-sections.o 2>&1 | FileCheck %s --check-prefix=NO-SECTIONS -DFILE=%t/elf-amdgpu-no-sections.o --implicit-check-not=warning
+
+# NO-SECTIONS: warning: '[[FILE]]': SQTT section __sqtt_data_v not found
+
+# RUN: yaml2obj %t/elf-amdgpu-no-str.yaml -o %t/elf-amdgpu-no-str.o
+# RUN: llvm-objdump --sqtt %t/elf-amdgpu-no-str.o 2>&1 | FileCheck %s --check-prefix=NO-STR -DFILE=%t/elf-amdgpu-no-str.o --implicit-check-not=warning
+
+# NO-STR: warning: '[[FILE]]': SQTT section __sqtt_data_str not found
+
+## Check that --sqtt decodes a record from raw section contents. The section
+## addresses are 0, so the pointers are offsets into their target section.
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -o %t/contents.o
+# RUN: llvm-objdump --sqtt %t/contents.o 2>&1 | FileCheck %s --check-prefix=CONTENTS --implicit-check-not=warning
+
+# CONTENTS:      [
+# CONTENTS-NEXT:   {
+# CONTENTS-NEXT:     "pc": 16,
+# CONTENTS-NEXT:     "events": [
+# CONTENTS-NEXT:       {
+# CONTENTS-NEXT:         "type": "UserEntry",
+# CONTENTS-NEXT:         "payload": "foo"
+# CONTENTS-NEXT:       }
+# CONTENTS-NEXT:     ]
+# CONTENTS-NEXT:   }
+# CONTENTS-NEXT: ]
+
+## Check that --sqtt rejects malformed section contents.
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DEVENTS=00000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT section __sqtt_events size is not a multiple of 8"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DEVENTS=1400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 points outside the data section"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DCOUNT=0200 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 has a truncated record"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0900 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="Invalid SQTT event type 9"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DPAYLOAD=0400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT string payload 4 is outside __sqtt_data_str"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DSTR=666F6F -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT string payload 0 is not null-terminated"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0400 -DPAYLOAD=0400000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event table base 4 is not an entry of __sqtt_events"
+
+# RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0400 -DPAYLOAD=0800000000000000 -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event table base 8 is not an entry of __sqtt_events"
+
+# RUN: yaml2obj %t/elf-amdgpu-nobits.yaml -o %t/bad.o
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT section __sqtt_data_v1 has no contents"
+
+# BAD: warning: '[[FILE]]': [[MSG]]{{$}}
+
+## Check that --sqtt warns for non-AMDGPU ELF objects.
+
+# RUN: yaml2obj %t/elf-x86.yaml -o %t/elf-x86.o
+# RUN: llvm-objdump --sqtt %t/elf-x86.o 2>&1 | FileCheck %s --check-prefix=NOT-AMDGPU -DFILE=%t/elf-x86.o
+
+# NOT-AMDGPU: warning: '[[FILE]]': SQTT is only supported for AMDGPU targets
+
+## Check that --sqtt warns for non-ELF objects.
+
+# RUN: yaml2obj %t/coff.yaml -o %t/coff.o
+# RUN: llvm-objdump --sqtt %t/coff.o 2>&1 | FileCheck %s --check-prefix=NOT-ELF -DFILE=%t/coff.o
+
+# NOT-ELF: warning: '[[FILE]]': SQTT is currently only supported for ELF targets
+
+#--- elf-amdgpu.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v[[VERSION=1]]
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+
+#--- elf-amdgpu-two-versions.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v1
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v99
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+
+#--- elf-amdgpu-no-sections.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+
+#--- elf-amdgpu-no-str.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v1
+    Type:     SHT_PROGBITS
+
+#--- elf-amdgpu-contents.yaml
+## One record: {pc 0x10, count, [type, payload]}.
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+    Content:  "[[EVENTS=0000000000000000]]"
+  - Name:     __sqtt_data_v1
+    Type:     SHT_PROGBITS
+    Content:  "1000000000000000[[COUNT=0100]][[TYPE=0200]][[PAYLOAD=0000000000000000]]"
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+    Content:  "[[STR=666F6F00]]"
+
+#--- elf-amdgpu-nobits.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_AMDGPU
+  Flags:      [ EF_AMDGPU_MACH_AMDGCN_GFX900 ]
+Sections:
+  - Name:     __sqtt_events
+    Type:     SHT_PROGBITS
+  - Name:     __sqtt_data_v1
+    Type:     SHT_NOBITS
+    Size:     8
+  - Name:     __sqtt_data_str
+    Type:     SHT_PROGBITS
+    Flags:    [ SHF_MERGE, SHF_STRINGS ]
+
+#--- elf-x86.yaml
+--- !ELF
+FileHeader:
+  Class:      ELFCLASS64
+  Data:       ELFDATA2LSB
+  Type:       ET_REL
+  Machine:    EM_X86_64
+
+#--- coff.yaml
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:        []
+symbols:         []

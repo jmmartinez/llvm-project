@@ -766,6 +766,12 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   if (DriverArgs.hasArg(options::OPT_nostdinc))
     return;
 
+  if (DriverArgs.hasArg(clang::options::OPT_fopenmp)) {
+    // Look for system files in our compiler AOMP/include dir first
+    addSystemInclude(DriverArgs, CC1Args,
+                     DriverArgs.MakeArgString(D.Dir + "/../include"));
+  }
+
   // Add 'include' in the resource directory, which is similar to
   // GCC_INCLUDE_DIR (private headers) in GCC. Note: the include directory
   // contains some files conflicting with system /usr/include. musl systems

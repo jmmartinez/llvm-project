@@ -114,6 +114,7 @@ if (NOT FLANG_STANDALONE_BUILD)
     not
     llvm-bcanalyzer
     llvm-dis
+    llvm-dwarfdump
     llvm-objcopy
     llvm-objdump
     llvm-profdata
@@ -139,6 +140,16 @@ if (LLVM_INCLUDE_EXAMPLES)
     flangOmpReport
     flangFeatureList
     )
+endif ()
+
+if ("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES AND NOT FLANG_STANDALONE_BUILD)
+  # For intrinsic module files (in flang-rt/)
+  list(APPEND FLANG_TEST_DEPENDS "flang-rt-mod")
+
+  if ("openmp" IN_LIST LLVM_ENABLE_RUNTIMES)
+    # For omplib.mod and omplib_kinds.mod (in openmp/)
+    list(APPEND FLANG_TEST_DEPENDS "libomp-mod")
+  endif ()
 endif ()
 
 if ("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES AND NOT FLANG_STANDALONE_BUILD)

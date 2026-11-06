@@ -431,7 +431,7 @@ static Constant *transformInitializer(Constant *Init, Type *OrigType,
 static bool findAndReplaceVectors(Module &M) {
   bool MadeChange = false;
   LLVMContext &Ctx = M.getContext();
-  IRBuilder<> Builder(Ctx);
+  IRBuilder<> Builder(M);
   DataScalarizerVisitor Impl;
   for (GlobalVariable &G : M.globals()) {
     Type *OrigType = G.getValueType();
@@ -448,7 +448,7 @@ static bool findAndReplaceVectors(Module &M) {
 
       // Copy relevant attributes
       NewGlobal->setUnnamedAddr(G.getUnnamedAddr());
-      if (G.getAlign()) {
+      if (G.getAlignment() > 0) {
         NewGlobal->setAlignment(G.getAlign());
       }
 

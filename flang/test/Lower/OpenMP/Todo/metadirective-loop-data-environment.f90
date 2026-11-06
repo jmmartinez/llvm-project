@@ -29,7 +29,7 @@
 subroutine test_parallel_do(n, a)
   integer :: n, a(n), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: parallel do) &
+  !$omp & when(implementation={vendor(amd)}: parallel do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i
@@ -40,7 +40,7 @@ end subroutine
 subroutine test_private(n, a)
   integer :: n, a(n), i, x
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do private(x)) &
+  !$omp & when(implementation={vendor(amd)}: do private(x)) &
   !$omp & otherwise(nothing)
   do i = 1, n
     x = i
@@ -52,7 +52,7 @@ end subroutine
 subroutine test_eager_privatization(n, a)
   integer :: n, a(n), i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i
@@ -65,7 +65,7 @@ subroutine test_static_do_in_parallel(n, a, after)
   i = 0
   !$omp parallel num_threads(1) shared(n, a, after, i)
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     a(i) = i
@@ -80,7 +80,7 @@ subroutine test_do_in_selected_parallel(flag, n, a, after)
   integer :: n, a(n), after, i
   i = 0
   !$omp begin metadirective &
-  !$omp & when(implementation={vendor(llvm)}: &
+  !$omp & when(implementation={vendor(amd)}: &
   !$omp &   parallel num_threads(1) shared(flag, n, a, after, i)) &
   !$omp & otherwise(nothing)
   !$omp metadirective &

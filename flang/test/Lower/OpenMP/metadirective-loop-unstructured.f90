@@ -22,7 +22,7 @@
 subroutine test_static(n, a, selector)
   integer :: n, a(n), selector, i
   !$omp metadirective &
-  !$omp & when(implementation={vendor(llvm)}: do) &
+  !$omp & when(implementation={vendor(amd)}: do) &
   !$omp & otherwise(nothing)
   do i = 1, n
     go to (10, 20), selector

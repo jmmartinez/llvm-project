@@ -33,12 +33,14 @@
 // CHECK-SAME: "-fvisibility=hidden"
 // CHECK-SAME: "-fapply-global-visibility-to-externs"
 // CHECK-SAME: "{{.*}}lib1.bc" "{{.*}}lib2.bc"
+// CHECK-SAME: "-target-cpu" "gfx803"
 // CHECK-SAME: {{.*}} "-o" "[[OBJ_DEV_A_803:.*(o|bc)]]" "-x" "hip"
 // CHECK-SAME: {{.*}} [[A_SRC:".*a.cu"]]
 
 // CHECK-NOT: {{".*llvm-link"}}
 // CHECK-NOT: {{".*opt"}}
 // CHECK-NOT: {{".*llc"}}
+
 
 //
 // Compile device code in a.cu to code object for gfx900.
@@ -52,6 +54,7 @@
 // CHECK-SAME: "-fvisibility=hidden"
 // CHECK-SAME: "-fapply-global-visibility-to-externs"
 // CHECK-SAME: "{{.*}}lib1.bc" "{{.*}}lib2.bc"
+// CHECK-SAME: "-target-cpu" "gfx900"
 // CHECK-SAME: {{.*}} "-o" "[[OBJ_DEV_A_900:.*(o|bc)]]" "-x" "hip"
 // CHECK-SAME: {{.*}} [[A_SRC]]
 
@@ -59,9 +62,11 @@
 // CHECK-NOT: {{".*opt"}}
 // CHECK-NOT: {{".*llc"}}
 
+
 //
 // Bundle and embed device code in host object for a.cu.
 //
+
 
 // NEW: [[PACKAGER:".*llvm-offload-binary"]] "-o" "[[PACKAGE_A:.*.out]]"
 // NEW-SAME: "--image=file=[[OBJ_DEV_A_803]],triple=amdgpu8.03-amd-amdhsa,arch=gfx803,kind=hip"
@@ -93,12 +98,14 @@
 // CHECK-SAME: "-fvisibility=hidden"
 // CHECK-SAME: "-fapply-global-visibility-to-externs"
 // CHECK-SAME: "{{.*}}lib1.bc" "{{.*}}lib2.bc"
+// CHECK-SAME: "-target-cpu" "gfx803"
 // CHECK-SAME: {{.*}} "-o" "[[OBJ_DEV_B_803:.*(o|bc)]]" "-x" "hip"
 // CHECK-SAME: {{.*}} [[B_SRC:".*b.hip"]]
 
 // CHECK-NOT: {{".*llvm-link"}}
 // CHECK-NOT: {{".*opt"}}
 // CHECK-NOT: {{".*llc"}}
+
 
 //
 // Compile device code in b.hip to code object for gfx900.
@@ -112,6 +119,7 @@
 // CHECK-SAME: "-fvisibility=hidden"
 // CHECK-SAME: "-fapply-global-visibility-to-externs"
 // CHECK-SAME: "{{.*}}lib1.bc" "{{.*}}lib2.bc"
+// CHECK-SAME: "-target-cpu" "gfx900"
 // CHECK-SAME: {{.*}} "-o" "[[OBJ_DEV_B_900:.*(o|bc)]]" "-x" "hip"
 // CHECK-SAME: {{.*}} [[B_SRC]]
 
@@ -119,9 +127,11 @@
 // CHECK-NOT: {{".*opt"}}
 // CHECK-NOT: {{".*llc"}}
 
+
 //
 // Bundle and embed device code in host object for b.hip.
 //
+
 
 // NEW: [[PACKAGER:".*llvm-offload-binary"]] "-o" "[[PACKAGE_B:.*.out]]"
 // NEW-SAME: "--image=file=[[OBJ_DEV_B_803]],triple=amdgpu8.03-amd-amdhsa,arch=gfx803,kind=hip"
@@ -143,6 +153,7 @@
 //
 // Link host objects.
 //
+
 
 // LKONLY-NOT: {{".*/llvm-link"}}
 // LKONLY-NOT: {{".*/opt"}}

@@ -60,8 +60,13 @@ const char *Action::getClassName(ActionClass AC) {
 void Action::propagateDeviceOffloadInfo(OffloadKind OKind, BoundArch OArch,
                                         const ToolChain *OToolChain) {
   // Offload action set its own kinds on their dependences.
-  if (Kind == OffloadClass)
+  if (Kind == OffloadClass) {
+    if (OKind != OFK_HIP) {
+      OffloadingDeviceKind = OKind;
+      OffloadingArch = OArch;
+    }
     return;
+  }
 
   assert((OffloadingDeviceKind == OKind || OffloadingDeviceKind == OFK_None) &&
          "Setting device kind to a different device??");

@@ -36,6 +36,7 @@
 ; GCN-O0-NEXT:   expand-reductions
 ; GCN-O0-NEXT:   amdgpu-lower-kernel-arguments
 ; GCN-O0-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O0-NEXT: amdgpu-sqtt-lower
 ; GCN-O0-NEXT: amdgpu-lower-intrinsics
 ; GCN-O0-NEXT: cgscc
 ; GCN-O0-NEXT:   function
@@ -159,6 +160,7 @@
 ; GCN-O2-NEXT:   codegenprepare
 ; GCN-O2-NEXT:   load-store-vectorizer
 ; GCN-O2-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O2-NEXT: amdgpu-sqtt-lower
 ; GCN-O2-NEXT: amdgpu-lower-intrinsics
 ; GCN-O2-NEXT: cgscc
 ; GCN-O2-NEXT:   function
@@ -219,14 +221,13 @@
 ; GCN-O2-NEXT:       detect-dead-lanes
 ; GCN-O2-NEXT:       dead-mi-elimination
 ; GCN-O2-NEXT:       init-undef
-; GCN-O2-NEXT:       process-imp-defs
+; GCN-O2-NEXT:       process-implicit-defs
 ; GCN-O2-NEXT:       unreachable-mbb-elimination
-; GCN-O2-NEXT:       require<live-vars>
+; GCN-O2-NEXT:       require<live-intervals>
 ; GCN-O2-NEXT:       require<machine-loops>
 ; GCN-O2-NEXT:       si-opt-vgpr-liverange
 ; GCN-O2-NEXT:       phi-node-elimination
 ; GCN-O2-NEXT:       si-lower-control-flow
-; GCN-O2-NEXT:       require<live-intervals>
 ; GCN-O2-NEXT:       two-address-instruction
 ; GCN-O2-NEXT:       register-coalescer
 ; GCN-O2-NEXT:       rename-independent-subregs
@@ -348,6 +349,7 @@
 ; GCN-O3-NEXT:   codegenprepare
 ; GCN-O3-NEXT:   load-store-vectorizer
 ; GCN-O3-NEXT: amdgpu-lower-buffer-fat-pointers
+; GCN-O3-NEXT: amdgpu-sqtt-lower
 ; GCN-O3-NEXT: amdgpu-lower-intrinsics
 ; GCN-O3-NEXT: cgscc
 ; GCN-O3-NEXT:   function
@@ -408,14 +410,13 @@
 ; GCN-O3-NEXT:       detect-dead-lanes
 ; GCN-O3-NEXT:       dead-mi-elimination
 ; GCN-O3-NEXT:       init-undef
-; GCN-O3-NEXT:       process-imp-defs
+; GCN-O3-NEXT:       process-implicit-defs
 ; GCN-O3-NEXT:       unreachable-mbb-elimination
-; GCN-O3-NEXT:       require<live-vars>
+; GCN-O3-NEXT:       require<live-intervals>
 ; GCN-O3-NEXT:       require<machine-loops>
 ; GCN-O3-NEXT:       si-opt-vgpr-liverange
 ; GCN-O3-NEXT:       phi-node-elimination
 ; GCN-O3-NEXT:       si-lower-control-flow
-; GCN-O3-NEXT:       require<live-intervals>
 ; GCN-O3-NEXT:       two-address-instruction
 ; GCN-O3-NEXT:       register-coalescer
 ; GCN-O3-NEXT:       rename-independent-subregs

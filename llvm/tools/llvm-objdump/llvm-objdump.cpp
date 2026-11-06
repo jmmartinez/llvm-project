@@ -21,6 +21,7 @@
 #include "MachODump.h"
 #include "ObjdumpOptID.h"
 #include "OffloadDump.h"
+#include "SQTTDump.h"
 #include "SourcePrinter.h"
 #include "WasmDump.h"
 #include "XCOFFDump.h"
@@ -297,6 +298,7 @@ std::vector<std::string> objdump::FilterSections;
 bool objdump::SectionHeaders;
 static bool ShowAllSymbols;
 static bool ShowLMA;
+static bool SQTT;
 bool objdump::PrintSource;
 
 static uint64_t StartAddress;
@@ -3595,6 +3597,8 @@ static void dumpObject(ObjectFile *O, const Archive *A = nullptr,
     printFaultMaps(O);
   if (Offloading)
     dumpOffloadBinary(*O, StringRef(ArchName));
+  if (SQTT)
+    dumpSQTT(*O);
 }
 
 static void dumpObject(const COFFImportFile *I, const Archive *A,
@@ -3859,6 +3863,7 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
   SectionHeaders = InputArgs.hasArg(OBJDUMP_section_headers);
   ShowAllSymbols = InputArgs.hasArg(OBJDUMP_show_all_symbols);
   ShowLMA = InputArgs.hasArg(OBJDUMP_show_lma);
+  SQTT = InputArgs.hasArg(OBJDUMP_sqtt);
   PrintSource = InputArgs.hasArg(OBJDUMP_source);
   parseIntArg(InputArgs, OBJDUMP_start_address_EQ, StartAddress);
   HasStartAddressFlag = InputArgs.hasArg(OBJDUMP_start_address_EQ);
@@ -4085,6 +4090,7 @@ int llvm_objdump_main(int argc, char **argv, const llvm::ToolContext &) {
       DynamicRelocations || FileHeaders || PrivateHeaders || RawClangAST ||
       Relocations || SectionHeaders || SectionContents || SymbolTable ||
       DynamicSymbolTable || UnwindInfo || FaultMapSection || Offloading ||
+      SQTT ||
       (MachOOpt &&
        (Bind || DataInCode || ChainedFixups || DyldInfo || DylibId ||
         DylibsUsed || ExportsTrie || FirstPrivateHeader ||

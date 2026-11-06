@@ -154,8 +154,10 @@ public:
   bool processIsDevicePtr(lower::StatementContext &stmtCtx,
                           mlir::omp::IsDevicePtrClauseOps &result,
                           llvm::SmallVectorImpl<Object> &isDeviceObjects) const;
-  bool processLinear(mlir::omp::LinearClauseOps &result,
-                     bool isDeclareSimd = false) const;
+  bool
+  processLinear(mlir::omp::LinearClauseOps &result, bool isDeclareSimd = false,
+                llvm::SmallVectorImpl<const semantics::Symbol *> *linearSyms =
+                    nullptr) const;
   bool
   processLink(llvm::SmallVectorImpl<DeclareTargetCaptureInfo> &result) const;
 
@@ -224,7 +226,8 @@ private:
       llvm::SmallVectorImpl<mlir::Value> &mapVars,
       llvm::SmallVectorImpl<Object> &mapObjects,
       llvm::StringRef mapperIdNameRef = "", bool isMotionModifier = false,
-      llvm::omp::Directive directive = llvm::omp::OMPD_unknown) const;
+      llvm::omp::Directive directive = llvm::omp::OMPD_unknown,
+      llvm::omp::Clause clause = llvm::omp::OMPC_unknown) const;
 
   lower::AbstractConverter &converter;
   semantics::SemanticsContext &semaCtx;

@@ -77,7 +77,7 @@ OpFoldResult FromPtrOp::fold(FoldAdaptor adaptor) {
   Value ptrLike;
   FromPtrOp fromPtr = *this;
   while (fromPtr != nullptr) {
-    auto toPtr = fromPtr.getPtr().getDefiningOp<ToPtrOp>();
+    auto toPtr = dyn_cast_or_null<ToPtrOp>(fromPtr.getPtr().getDefiningOp());
     // Cannot fold if it's not a `to_ptr` op or the initial and final types are
     // different.
     if (!toPtr || toPtr.getPtr().getType() != fromPtr.getType())
@@ -88,12 +88,13 @@ OpFoldResult FromPtrOp::fold(FoldAdaptor adaptor) {
       ptrLike = toPtr.getPtr();
     } else if (md) {
       // Fold if the metadata can be verified to be equal.
-      if (auto mdOp = md.getDefiningOp<GetMetadataOp>();
+      if (auto mdOp = dyn_cast_or_null<GetMetadataOp>(md.getDefiningOp());
           mdOp && mdOp.getPtr() == toPtr.getPtr())
         ptrLike = toPtr.getPtr();
     }
     // Check for a sequence of casts.
-    fromPtr = ptrLike ? ptrLike.getDefiningOp<FromPtrOp>() : nullptr;
+    fromPtr = dyn_cast_or_null<FromPtrOp>(ptrLike ? ptrLike.getDefiningOp()
+                                                  : nullptr);
   }
   return ptrLike;
 }
@@ -346,7 +347,8 @@ void StoreOp::build(OpBuilder &builder, OperationState &state, Value value,
 /// Fold: ptradd ptr + 0 ->  ptr
 OpFoldResult PtrAddOp::fold(FoldAdaptor adaptor) {
   Attribute attr = adaptor.getOffset();
-  if (!attr)
+  // A shaped offset can broadcast a scalar base to a shaped result.
+  if (!attr || getBase().getType() != getType())
     return nullptr;
   if (llvm::APInt value; m_ConstantInt(&value).match(attr) && value.isZero())
     return getBase();
@@ -438,13 +440,13 @@ OpFoldResult ToPtrOp::fold(FoldAdaptor adaptor) {
   Value ptr;
   ToPtrOp toPtr = *this;
   while (toPtr != nullptr) {
-    auto fromPtr = toPtr.getPtr().getDefiningOp<FromPtrOp>();
+    auto fromPtr = dyn_cast_or_null<FromPtrOp>(toPtr.getPtr().getDefiningOp());
     // Cannot fold if it's not a `from_ptr` op.
     if (!fromPtr)
       return ptr;
     ptr = fromPtr.getPtr();
     // Check for chains of casts.
-    toPtr = ptr.getDefiningOp<ToPtrOp>();
+    toPtr = dyn_cast_or_null<ToPtrOp>(ptr.getDefiningOp());
   }
   return ptr;
 }
@@ -464,10 +466,9 @@ LogicalResult ToPtrOp::verify() {
 //===----------------------------------------------------------------------===//
 
 llvm::TypeSize TypeOffsetOp::getTypeSize(std::optional<DataLayout> layout) {
-  if (layout)
-    return layout->getTypeSize(getElementType());
-  DataLayout dl = DataLayout::closest(*this);
-  return dl.getTypeSize(getElementType());
+  if (!layout)
+    layout.emplace(DataLayout::closest(*this));
+  return layout->getTypeAllocSize(getElementType());
 }
 
 //===----------------------------------------------------------------------===//

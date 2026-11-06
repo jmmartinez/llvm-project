@@ -6,8 +6,7 @@ permissions:
 on:
   pull_request:
     branches:
-      - main
-      - 'users/**'
+      - amd-staging
     paths:
       - 'clang-tools-extra/clang-tidy/**'
       - 'clang-tools-extra/docs/clang-tidy/**'
@@ -15,20 +14,21 @@ on:
 
 jobs:
   code_linter:
-    if: github.repository_owner == 'llvm'
-    runs-on: ubuntu-26.04
+    if: >-
+      !contains(github.event.pull_request.head.ref, 'upstream_merge')
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
     container:
-      image: 'ghcr.io/llvm/ci-ubuntu-26.04-lint:latest@sha256:f323567151f2e8983bbce3d4447d78a74623a475256651ac8c52fa43552a903d'
+      image: 'ghcr.io/llvm/ci-ubuntu-24.04-lint:latest@sha256:416874e477b33c1cb66a30e77e0b9942b7333a7bd304c2f1d51743e7adaedd54'
     timeout-minutes: 60
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - name: Fetch LLVM sources
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
           fetch-depth: 2

@@ -134,7 +134,6 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
                                   const TargetLibraryInfo *TLI,
                                   DomTreeUpdater *DTU) {
   Instruction *T = BB->getTerminator();
-  IRBuilder<> Builder(T);
 
   // Branch - See if we are conditional jumping on constant
   if (auto *BI = dyn_cast<CondBrInst>(T)) {
@@ -151,6 +150,7 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
       Dest1->removePredecessor(BI->getParent());
 
       // Replace the conditional branch with an unconditional one.
+      IRBuilder<> Builder(BI);
       UncondBrInst *NewBI = Builder.CreateBr(Dest1);
 
       // Transfer the metadata to the new branch instruction.
@@ -175,6 +175,7 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
       OldDest->removePredecessor(BB);
 
       // Replace the conditional branch with an unconditional one.
+      IRBuilder<> Builder(BI);
       UncondBrInst *NewBI = Builder.CreateBr(Destination);
 
       // Transfer the metadata to the new branch instruction.
@@ -273,6 +274,7 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
     // now.
     if (TheOnlyDest) {
       // Insert the new branch.
+      IRBuilder<> Builder(SI);
       Builder.CreateBr(TheOnlyDest);
       BasicBlock *BB = SI->getParent();
 
@@ -310,6 +312,7 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
       // Otherwise, we can fold this switch into a conditional branch
       // instruction if it has only one non-default destination.
       auto FirstCase = *SI->case_begin();
+      IRBuilder<> Builder(SI);
       Value *Cond = Builder.CreateICmpEQ(SI->getCondition(),
           FirstCase.getCaseValue(), "cond");
 
@@ -324,6 +327,8 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
         NewBr->setMetadata(LLVMContext::MD_prof,
                            MDBuilder(BB->getContext())
                                .createBranchWeights(CaseWeight, DefWeight));
+      } else {
+        setExplicitlyUnknownBranchWeightsIfProfiled(*NewBr, DEBUG_TYPE);
       }
 
       // Update make.implicit metadata to the newly-created conditional branch.
@@ -346,6 +351,7 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
       SmallPtrSet<BasicBlock *, 8> RemovedSuccessors;
 
       // Insert the new branch.
+      IRBuilder<> Builder(IBI);
       Builder.CreateBr(TheOnlyDest);
 
       BasicBlock *SuccToKeep = TheOnlyDest;
@@ -415,12 +421,6 @@ bool llvm::wouldInstructionBeTriviallyDead(const Instruction *I,
   // general.
   if (I->isEHPad())
     return false;
-
-  if (const DbgLabelInst *DLI = dyn_cast<DbgLabelInst>(I)) {
-    if (DLI->getLabel())
-      return false;
-    return true;
-  }
 
   if (auto *CB = dyn_cast<CallBase>(I))
     if (isRemovableAlloc(CB, TLI))
@@ -1404,6 +1404,7 @@ EliminateDuplicatePHINodesNaiveImpl(BasicBlock *BB,
         continue;
       // A duplicate. Replace this PHI with the base PHI.
       ++NumPHICSEs;
+      PN->andIRFlags(DuplicatePN);
       DuplicatePN->replaceAllUsesWith(PN);
       ToRemove.insert(DuplicatePN);
       Changed = true;
@@ -1448,7 +1449,7 @@ EliminateDuplicatePHINodesSetBasedImpl(BasicBlock *BB,
     }
 
     static bool isEqualImpl(PHINode *LHS, PHINode *RHS) {
-      return LHS->isIdenticalTo(RHS);
+      return LHS->isIdenticalToWhenDefined(RHS);
     }
 
     static bool isEqual(PHINode *LHS, PHINode *RHS) {
@@ -1473,6 +1474,7 @@ EliminateDuplicatePHINodesSetBasedImpl(BasicBlock *BB,
     if (!Inserted.second) {
       // A duplicate. Replace this PHI with its duplicate.
       ++NumPHICSEs;
+      (*Inserted.first)->andIRFlags(PN);
       PN->replaceAllUsesWith(*Inserted.first);
       ToRemove.insert(PN);
       Changed = true;
@@ -1571,7 +1573,7 @@ Align llvm::getOrEnforceKnownAlignment(Value *V, MaybeAlign PrefAlign,
   // LLVM doesn't support alignments larger than (1 << MaxAlignmentExponent).
   TrailZ = std::min(TrailZ, +Value::MaxAlignmentExponent);
 
-  Align Alignment = Align(1ull << std::min(Known.getBitWidth() - 1, TrailZ));
+  Align Alignment = Align::fromLog2(std::min(Known.getBitWidth() - 1, TrailZ));
 
   if (PrefAlign && *PrefAlign > Alignment)
     Alignment = std::max(Alignment, tryEnforceAlignment(V, *PrefAlign, DL));
@@ -1645,6 +1647,41 @@ static void insertDbgValueOrDbgVariableRecord(DIBuilder &Builder, Value *DV,
   Instr->getParent()->insertDbgRecordBefore(DVRec, Instr);
 }
 
+// \p In is an expression that takes a pointer argument. Attempt to create an
+// equivalent expression that takes a value by replacing the type field to the
+// DIOpArg and adding a DIOpAddrOf after it.
+static DIExpression *tryRemoveNewDIExpressionIndirection(DIExpression *In,
+                                                         Type *ArgType) {
+  if (!In->holdsNewElements())
+    return In;
+
+  auto Elements = In->getNewElementsRef();
+  DIExprBuilder ExprBuilder(In->getContext());
+  unsigned NumReplacedArgs = 0;
+  for (auto Iter = Elements->begin(), End = Elements->end(); Iter != End;
+       ++Iter) {
+    auto *Arg = std::get_if<DIOp::Arg>(&*Iter);
+    if (!Arg) {
+      ExprBuilder.append(*Iter);
+      continue;
+    }
+
+    ++NumReplacedArgs;
+    ExprBuilder.append<DIOp::Arg>(Arg->getIndex(), ArgType);
+    auto *PointerTy = dyn_cast<PointerType>(Arg->getResultType());
+    if (!PointerTy)
+      return nullptr;
+
+    auto Next = std::next(Iter);
+    if (Next == Elements->end() || !std::holds_alternative<DIOp::Deref>(*Next))
+      ExprBuilder.append<DIOp::AddrOf>(PointerTy->getAddressSpace());
+    else
+      Iter = Next;
+  }
+
+  return NumReplacedArgs == 1 ? ExprBuilder.intoExpression() : nullptr;
+}
+
 static DIExpression *dropInitialDeref(const DIExpression *DIExpr) {
   int NumEltDropped = DIExpr->getElements()[0] == dwarf::DW_OP_LLVM_arg ? 3 : 1;
   return DIExpression::get(DIExpr->getContext(),
@@ -1664,6 +1701,10 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR,
 
   DebugLoc NewLoc = getDebugValueLoc(DVR);
 
+  DIExpr = tryRemoveNewDIExpressionIndirection(DIExpr, DV->getType());
+  if (!DIExpr)
+    return;
+
   // If the alloca describes the variable itself, i.e. the expression in the
   // dbg.declare doesn't start with a dereference, we can perform the
   // conversion if the value covers the entire fragment of DII.
@@ -1679,6 +1720,11 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR,
   bool CanConvert =
       DIExpr->isDeref() || (!DIExpr->startsWithDeref() &&
                             valueCoversEntireFragment(DV->getType(), DVR));
+
+  // There are no such limitations on new DIExpressions.
+  if (DIExpr->holdsNewElements())
+    CanConvert = true;
+
   if (CanConvert) {
     insertDbgValueOrDbgVariableRecord(Builder, DV, DIVar, DIExpr, NewLoc,
                                       SI->getIterator());
@@ -1720,7 +1766,8 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR, LoadInst *LI,
   auto *DIExpr = DVR->getExpression();
   assert(DIVar && "Missing variable");
 
-  if (!valueCoversEntireFragment(LI->getType(), DVR)) {
+  if (!DIExpr->holdsNewElements() &&
+      !valueCoversEntireFragment(LI->getType(), DVR)) {
     // FIXME: If only referring to a part of the variable described by the
     // dbg.declare, then we want to insert a DbgVariableRecord for the
     // corresponding fragment.
@@ -1728,6 +1775,10 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR, LoadInst *LI,
                       << *DVR << '\n');
     return;
   }
+
+  DIExpr = tryRemoveNewDIExpressionIndirection(DIExpr, LI->getType());
+  if (!DIExpr)
+    return;
 
   DebugLoc NewLoc = getDebugValueLoc(DVR);
 
@@ -1782,10 +1833,15 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR, PHINode *APN,
   auto *DIExpr = DVR->getExpression();
   assert(DIVar && "Missing variable");
 
+  DIExpr = tryRemoveNewDIExpressionIndirection(DIExpr, APN->getType());
+  if (!DIExpr)
+    return;
+
   if (PhiHasDebugValue(DIVar, DIExpr, APN))
     return;
 
-  if (!valueCoversEntireFragment(APN->getType(), DVR)) {
+  if (!DIExpr->holdsNewElements() &&
+      !valueCoversEntireFragment(APN->getType(), DVR)) {
     // FIXME: If only referring to a part of the variable described by the
     // dbg.declare, then we want to insert a DbgVariableRecord for the
     // corresponding fragment.
@@ -1813,12 +1869,9 @@ void llvm::ConvertDebugDeclareToDebugValue(DbgVariableRecord *DVR, PHINode *APN,
 bool llvm::LowerDbgDeclare(Function &F) {
   bool Changed = false;
   DIBuilder DIB(*F.getParent(), /*AllowUnresolved*/ false);
-  SmallVector<DbgDeclareInst *, 4> Dbgs;
   SmallVector<DbgVariableRecord *> DVRs;
   for (auto &FI : F) {
     for (Instruction &BI : FI) {
-      if (auto *DDI = dyn_cast<DbgDeclareInst>(&BI))
-        Dbgs.push_back(DDI);
       for (DbgVariableRecord &DVR : filterDbgVars(BI.getDbgRecordRange())) {
         if (DVR.getType() == DbgVariableRecord::LocationType::Declare)
           DVRs.push_back(&DVR);
@@ -1826,7 +1879,7 @@ bool llvm::LowerDbgDeclare(Function &F) {
     }
   }
 
-  if (Dbgs.empty() && DVRs.empty())
+  if (DVRs.empty())
     return Changed;
 
   auto LowerOne = [&](DbgVariableRecord *DDI) {
@@ -1871,15 +1924,29 @@ bool llvm::LowerDbgDeclare(Function &F) {
           // the variable by dereferencing the alloca.
           if (!CI->isLifetimeStartOrEnd()) {
             DebugLoc NewLoc = getDebugValueLoc(DDI);
-            auto *DerefExpr =
-                DIExpression::append(DDI->getExpression(), dwarf::DW_OP_deref);
-            insertDbgValueOrDbgVariableRecord(DIB, AI, DDI->getVariable(),
-                                              DerefExpr, NewLoc,
-                                              CI->getIterator());
+            if (DDI->getExpression()->holdsNewElements()) {
+              // In DIOp-based DIExpressions it's okay for a dbg.value to
+              // produce a memory location descriptor, so there isn't any need
+              // to change the expression.
+              insertDbgValueOrDbgVariableRecord(DIB, AI, DDI->getVariable(),
+                                                DDI->getExpression(), NewLoc,
+                                                CI->getIterator());
+            } else {
+              auto *DerefExpr = DIExpression::append(DDI->getExpression(),
+                                                     dwarf::DW_OP_deref);
+              insertDbgValueOrDbgVariableRecord(DIB, AI, DDI->getVariable(),
+                                                DerefExpr, NewLoc,
+                                                CI->getIterator());
+            }
           }
         } else if (BitCastInst *BI = dyn_cast<BitCastInst>(U)) {
           if (BI->getType()->isPointerTy())
             WorkList.push_back(BI);
+        } else if (auto *ASC = dyn_cast<AddrSpaceCastInst>(U)) {
+          // Only look through addrspacecasts if the declare uses new
+          // expressions (to avoid a difference with upstream).
+          if (DDI->getExpression()->holdsNewElements())
+            WorkList.push_back(ASC);
         }
       }
     }
@@ -2356,7 +2423,8 @@ using DbgValReplacement = std::optional<DIExpression *>;
 /// possibly moving/undefing users to prevent use-before-def. Returns true if
 /// changes are made.
 static bool rewriteDebugUsers(
-    Instruction &From, Value &To, Instruction &DomPoint, DominatorTree &DT,
+    Instruction &From, Value &To, Instruction &DomPoint,
+    const DominatorTree &DT,
     function_ref<DbgValReplacement(DbgVariableRecord &DVR)> RewriteDVRExpr) {
   // Find debug users of From.
   SmallVector<DbgVariableRecord *, 1> DPUsers;
@@ -2441,8 +2509,101 @@ static bool isBitCastSemanticsPreserving(const DataLayout &DL, Type *FromTy,
   return false;
 }
 
+/// Generate new DIOps for a conversion from \param SourceTy to \param DestTy.
+/// Returns true if the conversion was successful.
+static bool getNewDIConversionOps(const DataLayout &DL, Type *SourceTy,
+                                  Type *DestTy,
+                                  std::optional<DIBasicType::Signedness> Sign,
+                                  SmallVectorImpl<DIOp::Variant> &Ops) {
+  if (SourceTy == DestTy)
+    return true; // No conversion necessary.
+
+  TypeSize SourceBits = DL.getTypeSizeInBits(SourceTy);
+  TypeSize DestBits = DL.getTypeSizeInBits(DestTy);
+
+  if (SourceBits == DestBits && !DL.isNonIntegralPointerType(SourceTy) &&
+      !DL.isNonIntegralPointerType(DestTy) &&
+      ((SourceTy->isPointerTy() && DestTy->isIntegerTy()) ||
+       (SourceTy->isIntegerTy() && DestTy->isPointerTy()))) {
+    Ops.emplace_back(DIOp::Reinterpret(DestTy));
+    return true;
+  }
+
+  if (SourceTy->isPointerTy() && DestTy->isPointerTy()) {
+    Ops.emplace_back(DIOp::Convert(DestTy));
+    return true;
+  }
+
+  if (!SourceTy->isIntegerTy() || !DestTy->isIntegerTy())
+    return false;
+
+  if (SourceBits < DestBits) {
+    if (!Sign)
+      return false;
+
+    if (*Sign == DIBasicType::Signedness::Signed)
+      Ops.emplace_back(DIOp::SExt(DestTy));
+    else
+      Ops.emplace_back(DIOp::ZExt(DestTy));
+    return true;
+  }
+
+  Ops.emplace_back(DIOp::Convert(DestTy));
+  return true;
+}
+
+/// Convert the type of all DIOpArgs that refer to \param LocOp to \param NewTy.
+/// This is done by replacing the DIOpArg type and adding an appropriate
+/// conversion operator back to the original type. e.g, the following
+/// expression:
+///
+///   DIExpression(DIOpArg(ptr), DIOpDeref(i32))
+///
+/// Becomes:
+///
+///   DIExpression(DIOpArg(i64), DIOpReinterpret(ptr), DIOpDeref(i32))
+///
+/// If NewTy is i64. After this function returns, DII must be updated with a new
+/// value of the correct type.
+template <class IntrinsicOrRecord>
+static std::optional<DIExpression *>
+updateNewDIExpressionArgType(IntrinsicOrRecord &DII, Value *LocOp,
+                             Type *NewTy) {
+  DIExpression *Expr = DII.getExpression();
+  assert(Expr->holdsNewElements() && "expected a new DIExpression!");
+
+  // If the types are the same, then the expression is already correct.
+  if (LocOp->getType() == NewTy)
+    return Expr;
+
+  const DataLayout &DL = DII.getModule()->getDataLayout();
+  auto LocOps = DII.location_ops();
+  for (auto Iter = LocOps.begin(); Iter != LocOps.end(); ++Iter) {
+    Value *V = *Iter;
+    if (V != LocOp)
+      continue;
+
+    // Use the signedness of the variable to determine whether we should use
+    // ZExt/SExt for integer promotions. This isn't necessarily correct, but
+    // it's probably the best we can do given replaceAllDbgUsesWith()'s API.
+    SmallVector<DIOp::Variant, 1> ConversionOps;
+    if (!getNewDIConversionOps(DL, NewTy, LocOp->getType(),
+                               DII.getVariable()->getSignedness(),
+                               ConversionOps))
+      return std::nullopt;
+
+    unsigned LocNo = std::distance(LocOps.begin(), Iter);
+    Expr = DIExpression::appendNewOpsToArg(Expr, ConversionOps, LocNo, NewTy);
+    if (!Expr)
+      return std::nullopt;
+  }
+
+  return Expr;
+}
+
 bool llvm::replaceAllDbgUsesWith(Instruction &From, Value &To,
-                                 Instruction &DomPoint, DominatorTree &DT) {
+                                 Instruction &DomPoint,
+                                 const DominatorTree &DT) {
   // Exit early if From has no debug users.
   if (!From.isUsedByMetadata())
     return false;
@@ -2453,6 +2614,8 @@ bool llvm::replaceAllDbgUsesWith(Instruction &From, Value &To,
   Type *ToTy = To.getType();
 
   auto IdentityDVR = [&](DbgVariableRecord &DVR) -> DbgValReplacement {
+    if (DVR.getExpression()->holdsNewElements())
+      return updateNewDIExpressionArgType(DVR, &From, ToTy);
     return DVR.getExpression();
   };
 
@@ -2477,6 +2640,9 @@ bool llvm::replaceAllDbgUsesWith(Instruction &From, Value &To,
     // The width of the result has shrunk. Use sign/zero extension to describe
     // the source variable's high bits.
     auto SignOrZeroExtDVR = [&](DbgVariableRecord &DVR) -> DbgValReplacement {
+      if (DVR.getExpression()->holdsNewElements())
+        return updateNewDIExpressionArgType(DVR, &From, ToTy);
+
       DILocalVariable *Var = DVR.getVariable();
 
       // Without knowing signedness, sign/zero extension isn't possible.
@@ -2489,6 +2655,17 @@ bool llvm::replaceAllDbgUsesWith(Instruction &From, Value &To,
                                      Signed);
     };
     return rewriteDebugUsers(From, To, DomPoint, DT, SignOrZeroExtDVR);
+  }
+
+  if (FromTy->isPointerTy() && ToTy->isPointerTy()) {
+    // Non-bitcast address space conversions are only supported on
+    // DIOp-DIExpressions.
+    auto IdentityNewDVR = [&](DbgVariableRecord &DVR) -> DbgValReplacement {
+      if (DVR.getExpression()->holdsNewElements())
+        return updateNewDIExpressionArgType(DVR, &From, ToTy);
+      return std::nullopt;
+    };
+    return rewriteDebugUsers(From, To, DomPoint, DT, IdentityNewDVR);
   }
 
   // TODO: Floating-point conversions, vectors.
@@ -3114,8 +3291,13 @@ static void combineMetadata(Instruction *K, const Instruction *J,
   auto *JProf = J->getMetadata(LLVMContext::MD_prof);
   auto *KProf = K->getMetadata(LLVMContext::MD_prof);
   if (!AAOnly && (JProf || KProf)) {
-    K->setMetadata(LLVMContext::MD_prof,
-                   MDNode::getMergedProfMetadata(KProf, JProf, K, J));
+    // We do not need to merge metadata if we have select instructions and the
+    // one we're keeping (K) does not move (explicitly merging would drop the
+    // information in this case). Otherwise, explicitly handle the merging.
+    if (DoesKMove || (!isa<SelectInst>(J) || !isa<SelectInst>(K)) ||
+        ProfcheckDisableMetadataFixes)
+      K->setMetadata(LLVMContext::MD_prof,
+                     MDNode::getMergedProfMetadata(KProf, JProf, K, J));
   }
 }
 
@@ -3432,8 +3614,8 @@ void llvm::hoistAllInstructionsInto(BasicBlock *DomBlock, Instruction *InsertPt,
       dropDebugUsers(*I);
     // RemoveDIs: drop debug-info too as the following code does.
     I->dropDbgRecords();
-    if (I->isDebugOrPseudoInst()) {
-      // Remove DbgInfo and pseudo probe Intrinsics.
+    if (isa<PseudoProbeInst>(I)) {
+      // Remove pseudo probe Intrinsics.
       II = I->eraseFromParent();
       continue;
     }

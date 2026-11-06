@@ -126,6 +126,7 @@ public:
 
   /// First separator used between the initial two parts of a name.
   std::optional<StringRef> FirstSeparator;
+
   /// Separator used between all of the rest consecutive parts of s name.
   std::optional<StringRef> Separator;
 
@@ -513,8 +514,8 @@ public:
   /// Create a new OpenMPIRBuilder operating on the given module \p M. This will
   /// not have an effect on \p M (see initialize)
   OpenMPIRBuilder(Module &M)
-      : M(M), Builder(M.getContext()), OffloadInfoManager(this),
-        T(M.getTargetTriple()), IsFinalized(false) {}
+      : M(M), Builder(M), OffloadInfoManager(this), T(M.getTargetTriple()),
+        IsFinalized(false) {}
   LLVM_ABI ~OpenMPIRBuilder();
 
   class AtomicInfo : public llvm::AtomicInfo {
@@ -1179,11 +1180,14 @@ private:
   /// \param NeedsBarrier Indicates whether a barrier must be inserted after
   ///                     the loop.
   /// \param NoLoop   If true, no-loop code is generated.
+  /// \param NeedsLastIter  If true, the last iteration variable is emitted.
   ///
   /// \returns Point where to insert code after the workshare construct.
-  InsertPointOrErrorTy applyWorkshareLoopTarget(
-      DebugLoc DL, CanonicalLoopInfo *CLI, InsertPointTy AllocaIP,
-      omp::WorksharingLoopType LoopType, bool NeedsBarrier, bool NoLoop);
+  InsertPointOrErrorTy
+  applyWorkshareLoopTarget(DebugLoc DL, CanonicalLoopInfo *CLI,
+                           InsertPointTy AllocaIP,
+                           omp::WorksharingLoopType LoopType, bool NeedsBarrier,
+                           bool NoLoop, bool NeedsLastIter);
 
   /// Modifies the canonical loop to be a statically-scheduled workshare loop.
   ///
@@ -1341,8 +1345,8 @@ public:
   /// \param NoLoop If true, no-loop code is generated.
   /// \param HasDistSchedule Defines if the clause being lowered is
   /// dist_schedule as this is handled slightly differently
-  ///
   /// \param DistScheduleChunkSize The chunk size for dist_schedule loop
+  /// \param NeedsLastIter  If true, the last iteration variable is emitted.
   ///
   /// \returns Point where to insert code after the workshare construct.
   LLVM_ABI InsertPointOrErrorTy applyWorkshareLoop(
@@ -1355,7 +1359,7 @@ public:
       omp::WorksharingLoopType LoopType =
           omp::WorksharingLoopType::ForStaticLoop,
       bool NoLoop = false, bool HasDistSchedule = false,
-      Value *DistScheduleChunkSize = nullptr);
+      Value *DistScheduleChunkSize = nullptr, bool NeedsLastIter = false);
 
   /// Tile a loop nest.
   ///
@@ -2539,6 +2543,17 @@ public:
   LLVM_ABI FunctionCallee getOrCreateRuntimeFunction(Module &M,
                                                      omp::RuntimeFunction FnID);
 
+  /// Return the function declaration for atomic CAS runtime function
+  /// with name \p FunName. Used for unsigned types as basic .def machinery
+  /// does not support unsigned integer types in the API.
+  /// \param FunName Name of the function to get or create
+  /// \param RetType Type of function return parameter
+  /// \param AddrTy Type of atomic target pointer
+  /// \param UpdateTy Type of atomic update expression
+  LLVM_ABI FunctionCallee unsignedGetOrCreateAtomicCASRuntimeFunction(
+      Module &M, const StringRef &FunName, Type *RetType, Type *AddrTy,
+      Type *UpdateTy);
+
   LLVM_ABI Function *getOrCreateRuntimeFunctionPtr(omp::RuntimeFunction FnID);
 
   LLVM_ABI CallInst *createRuntimeFunctionCall(FunctionCallee Callee,
@@ -2883,7 +2898,7 @@ public:
     /// Arguments passed to the runtime library
     TargetDataRTArgs RTArgs;
     /// The number of iterations
-    Value *NumIterations = nullptr;
+    Value *TripCount = nullptr;
     /// The number of teams.
     ArrayRef<Value *> NumTeams;
     /// The number of threads.
@@ -2903,15 +2918,14 @@ public:
     // Constructors for TargetKernelArgs.
     TargetKernelArgs() = default;
     TargetKernelArgs(unsigned NumTargetItems, TargetDataRTArgs RTArgs,
-                     Value *NumIterations, ArrayRef<Value *> NumTeams,
+                     Value *TripCount, ArrayRef<Value *> NumTeams,
                      ArrayRef<Value *> NumThreads, Value *DynCGroupMem,
                      bool HasNoWait, bool StrictBlocks, bool StrictThreads,
                      omp::OMPDynGroupprivateFallbackType DynCGroupMemFallback)
-        : NumTargetItems(NumTargetItems), RTArgs(RTArgs),
-          NumIterations(NumIterations), NumTeams(NumTeams),
-          NumThreads(NumThreads), DynCGroupMem(DynCGroupMem),
-          HasNoWait(HasNoWait), StrictBlocks(StrictBlocks),
-          StrictThreads(StrictThreads),
+        : NumTargetItems(NumTargetItems), RTArgs(RTArgs), TripCount(TripCount),
+          NumTeams(NumTeams), NumThreads(NumThreads),
+          DynCGroupMem(DynCGroupMem), HasNoWait(HasNoWait),
+          StrictBlocks(StrictBlocks), StrictThreads(StrictThreads),
           DynCGroupMemFallback(DynCGroupMemFallback) {}
   };
 
@@ -4023,7 +4037,8 @@ private:
   ///                   instructions.
   /// \param RMWOp		  The binary operation used for update. If
   ///                   operation is not supported by atomicRMW,
-  ///                   or belong to {FADD, FSUB, BAD_BINOP}.
+  ///                   or belong to {FMaximumNum, FMinimumNum, UDecWrap,
+  ///                   UIncWrap, USubCond, USubSat, BAD_BINOP}.
   ///                   Then a `cmpExch` based	atomic will be generated.
   /// \param UpdateOp 	Code generator for complex expressions that cannot be
   ///                   expressed through atomicrmw instruction.
@@ -4100,8 +4115,9 @@ public:
   /// \param AO       Atomic ordering of the generated atomic instructions.
   /// \param RMWOp    The binary operation used for update. If operation
   ///                 is	not supported by atomicRMW, or belong to
-  ///	                {FADD, FSUB, BAD_BINOP}. Then a `cmpExch` based
-  ///                 atomic will be generated.
+  ///                 {FMaximumNum, FMinimumNum, UDecWrap, UIncWrap,
+  ///                 USubCond, USubSat, BAD_BINOP}. Then a
+  ///                 `cmpExch` based atomic will be generated.
   /// \param UpdateOp 	Code generator for complex expressions that cannot be
   ///                   expressed through atomicrmw instruction.
   /// \param IsXBinopExpr true if \a X is Left H.S. in Right H.S. part of the
@@ -4132,8 +4148,9 @@ public:
   /// \param AO         Atomic ordering of the generated atomic instructions
   /// \param RMWOp      The binary operation used for update. If
   ///                   operation is not supported by atomicRMW, or belong to
-  ///	                  {FADD, FSUB, BAD_BINOP}. Then a cmpExch based
-  ///                   atomic will be generated.
+  ///                   {FMaximumNum, FMinimumNum, UDecWrap, UIncWrap,
+  ///                   USubCond, USubSat, BAD_BINOP}. Then a
+  ///                   `cmpExch` based atomic will be generated.
   /// \param UpdateOp   Code generator for complex expressions that cannot be
   ///                   expressed through atomicrmw instruction.
   /// \param UpdateExpr true if X is an in place update of the form
@@ -4271,7 +4288,7 @@ public:
   /// \param Name Name of the variable.
   LLVM_ABI GlobalVariable *
   getOrCreateInternalVariable(Type *Ty, const StringRef &Name,
-                              std::optional<unsigned> AddressSpace = {});
+                              std::optional<unsigned> AddressSpace = 0);
 
   using IteratorBodyGenTy = llvm::function_ref<llvm::Error(
       InsertPointTy BodyIP, llvm::Value *LinearIV)>;
@@ -4292,10 +4309,13 @@ public:
   ///
   ///  - The skeleton’s unconditional branch from the loop body is removed
   ///    before invoking \p BodyGen.
-  ///  - \p BodyGen may freely emit instructions and temporarily introduce
-  ///    control flow.
-  ///  - If the loop body does not end with a terminator after \p BodyGen
-  ///    returns, a branch to the latch is inserted to restore canonical form.
+  ///  - \p BodyGen may freely emit instructions and introduce control flow
+  ///    within the loop body.
+  ///  - If the body leaves exactly one block without a terminator after
+  ///    \p BodyGen returns, a branch to the latch is inserted there. Otherwise,
+  ///    some block of the body must already branch to the latch.
+  ///  - The body must not branch to blocks that existed before \p BodyGen ran,
+  ///    other than the body block and the latch.
   ///
   /// \param Loc The location where the iterator modifier was encountered.
   /// \param TripCount Number of loop iterations.

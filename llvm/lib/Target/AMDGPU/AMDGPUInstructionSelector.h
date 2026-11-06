@@ -115,6 +115,7 @@ private:
   bool selectDivScale(MachineInstr &MI) const;
   bool selectBallot(MachineInstr &I) const;
   bool selectRelocConstant(MachineInstr &I) const;
+  bool selectSQTTEvent(MachineInstr &I) const;
   bool selectGroupStaticSize(MachineInstr &I) const;
   bool selectReturnAddress(MachineInstr &I) const;
   bool selectG_INTRINSIC(MachineInstr &I) const;
@@ -151,6 +152,7 @@ private:
   bool selectPermlaneSwapIntrin(MachineInstr &I, Intrinsic::ID IntrID) const;
   bool selectWaveAddress(MachineInstr &I) const;
   bool selectBITOP3(MachineInstr &I) const;
+  bool selectWriteRegister(MachineInstr &MI) const;
   bool selectStackRestore(MachineInstr &MI) const;
   bool selectNamedBarrierInit(MachineInstr &I, Intrinsic::ID IID) const;
   bool selectNamedBarrierInst(MachineInstr &I, Intrinsic::ID IID) const;
@@ -355,9 +357,6 @@ private:
   ComplexRendererFns selectVOP3PMadMixMods(MachineOperand &Root) const;
   ComplexRendererFns selectVOP3PMadMixModsExtNeg(MachineOperand &Root) const;
   ComplexRendererFns selectVOP3PMadMixModsNeg(MachineOperand &Root) const;
-
-  void renderTruncImm32(MachineInstrBuilder &MIB, const MachineInstr &MI,
-                        int OpIdx = -1) const;
 
   void renderTruncTImm(MachineInstrBuilder &MIB, const MachineInstr &MI,
                        int OpIdx) const;

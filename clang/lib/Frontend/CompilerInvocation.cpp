@@ -577,6 +577,12 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_fe_invalid_exception_model)
         << static_cast<unsigned>(CodeGenOpts.getExceptionHandling()) << T.str();
 
+  if (T.isWasm() &&
+      (CodeGenOpts.hasSjLjExceptions() || CodeGenOpts.hasSEHExceptions() ||
+       CodeGenOpts.hasDWARFExceptions()))
+    Diags.Report(diag::err_fe_invalid_exception_model)
+        << static_cast<unsigned>(CodeGenOpts.getExceptionHandling()) << T.str();
+
   if (LangOpts.AppleKext && !LangOpts.CPlusPlus)
     Diags.Report(diag::warn_c_kext);
 
@@ -635,6 +641,10 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fdx-rootsignature-define" << GetInputKindName(IK);
 
+  if (Args.hasArg(OPT_fdx_semantic_signature_packing_mode_EQ) && !LangOpts.HLSL)
+    Diags.Report(diag::err_drv_argument_not_allowed_with)
+        << "-fdx-semantic-signature-packing-mode" << GetInputKindName(IK);
+
   if (Args.hasArg(OPT_fgpu_allow_device_init) && !LangOpts.HIP)
     Diags.Report(diag::warn_ignored_hip_only_option)
         << Args.getLastArg(OPT_fgpu_allow_device_init)->getAsString(Args);
@@ -653,6 +663,16 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
       Warnings.insert(Warnings.begin(), "vector-conversion");
     if (!llvm::is_contained(Warnings, "matrix-conversion"))
       Warnings.insert(Warnings.begin(), "matrix-conversion");
+
+    // HLSL booleans in memory are i32; any non-zero value is true.
+    // Use icmp-ne rather than truncation to avoid InstCombine rewriting
+    // trunc i32 to i1 into an illegal wide <N x i1> bitcast (issue #140824).
+    if (Args.hasArg(OPT_load_bool_from_mem) &&
+        CodeGenOpts.getLoadBoolFromMem() !=
+            CodeGenOptions::BoolFromMem::NonZero)
+      Diags.Report(diag::warn_hlsl_bool_from_mem)
+          << Args.getLastArg(OPT_load_bool_from_mem)->getValue();
+    CodeGenOpts.setLoadBoolFromMem(CodeGenOptions::BoolFromMem::NonZero);
   }
 
   // When these options are used, the compiler is allowed to apply
@@ -698,9 +718,13 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
   return Diags.getNumErrors() == NumErrorsBefore;
 }
 
-//===----------------------------------------------------------------------===//
-// Deserialization (from args)
-//===----------------------------------------------------------------------===//
+/// Assume no thread state at -Ofast
+static bool isOFastUsed(const ArgList &Args) {
+  if (Arg *A = Args.getLastArg(options::OPT_O_Group))
+    if (A->getOption().matches(options::OPT_Ofast))
+      return true;
+  return false;
+}
 
 static void GenerateArg(ArgumentConsumer Consumer,
                         llvm::opt::OptSpecifier OptSpecifier) {
@@ -2816,6 +2840,7 @@ static const auto &getFrontendActionTable() {
       {frontend::EmitAssembly, OPT_S},
       {frontend::EmitBC, OPT_emit_llvm_bc},
       {frontend::EmitCIR, OPT_emit_cir},
+      {frontend::EmitCIRBC, OPT_emit_cir_bc},
       {frontend::EmitHTML, OPT_emit_html},
       {frontend::EmitLLVM, OPT_emit_llvm},
       {frontend::EmitLLVMOnly, OPT_emit_llvm_only},
@@ -3179,7 +3204,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   if (Opts.ProgramAction != frontend::GenerateModule && Opts.IsSystemModule)
     Diags.Report(diag::err_drv_argument_only_allowed_with) << "-fsystem-module"
                                                            << "-emit-module";
-  if (Args.hasArg(OPT_emit_cir))
+  if (Args.hasArg(OPT_emit_cir, OPT_emit_cir_bc))
     Opts.UseClangIRPipeline = true;
 
 #if CLANG_ENABLE_CIR
@@ -3921,11 +3946,31 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
       GenerateArg(Consumer, OPT_fopenmp_version_EQ, Twine(Opts.OpenMP));
   }
 
+  if (Opts.OpenMPTargetBigJumpLoop)
+    GenerateArg(Consumer, OPT_fopenmp_target_big_jump_loop);
+  else
+    GenerateArg(Consumer, OPT_fno_openmp_target_big_jump_loop);
+
+  if (Opts.OpenMPTargetNoLoop)
+    GenerateArg(Consumer, OPT_fopenmp_target_no_loop);
+  else
+    GenerateArg(Consumer, OPT_fno_openmp_target_no_loop);
+
   if (Opts.OpenMPThreadSubscription)
     GenerateArg(Consumer, OPT_fopenmp_assume_threads_oversubscription);
 
   if (Opts.OpenMPTeamSubscription)
     GenerateArg(Consumer, OPT_fopenmp_assume_teams_oversubscription);
+
+  if (Opts.OpenMPNoThreadState)
+    GenerateArg(Consumer, OPT_fopenmp_assume_no_thread_state);
+  else
+    GenerateArg(Consumer, OPT_fno_openmp_assume_no_thread_state);
+
+  if (Opts.OpenMPNoNestedParallelism)
+    GenerateArg(Consumer, OPT_fopenmp_assume_no_nested_parallelism);
+  else
+    GenerateArg(Consumer, OPT_fno_openmp_assume_no_nested_parallelism);
 
   if (Opts.OpenMPTargetDebug != 0)
     GenerateArg(Consumer, OPT_fopenmp_target_debug_EQ,
@@ -3938,6 +3983,18 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
   if (Opts.OpenMPCUDABlocksPerSM != 0)
     GenerateArg(Consumer, OPT_fopenmp_cuda_blocks_per_sm_EQ,
                 Twine(Opts.OpenMPCUDABlocksPerSM));
+
+  if (Opts.OpenMPGPUThreadsPerTeam != 256)
+    GenerateArg(Consumer, OPT_fopenmp_gpu_threads_per_team_EQ,
+                Twine(Opts.OpenMPGPUThreadsPerTeam));
+
+  // Keep this in sync with the default of OpenMPTargetXteamReductionBlockSize
+  // in LangOptions.def. Comparing against a stale default makes the generated
+  // arguments disagree with the parsed ones and turns every explicit use of
+  // '-fopenmp-target-xteam-reduction-blocksize=' into a round-trip error.
+  if (Opts.OpenMPTargetXteamReductionBlockSize != 512)
+    GenerateArg(Consumer, OPT_fopenmp_target_xteam_reduction_blocksize_EQ,
+                Twine(Opts.OpenMPTargetXteamReductionBlockSize));
 
   if (!Opts.OMPTargetTriples.empty()) {
     std::string Targets;
@@ -4391,6 +4448,22 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
                            Opts.OpenMPCUDABlocksPerSM, Diags);
   }
 
+  Opts.OpenMPGPUThreadsPerTeam =
+      getLastArgIntValue(Args, options::OPT_fopenmp_gpu_threads_per_team_EQ,
+                         Opts.OpenMPGPUThreadsPerTeam, Diags);
+
+  Opts.OpenMPTargetXteamReductionBlockSize = getLastArgIntValue(
+      Args, options::OPT_fopenmp_target_xteam_reduction_blocksize_EQ,
+      Opts.OpenMPTargetXteamReductionBlockSize, Diags);
+
+  Opts.OpenMPTargetBigJumpLoop =
+      Args.hasFlag(options::OPT_fopenmp_target_big_jump_loop,
+                   options::OPT_fno_openmp_target_big_jump_loop, true);
+
+  Opts.OpenMPTargetNoLoop =
+      Args.hasFlag(options::OPT_fopenmp_target_no_loop,
+                   options::OPT_fno_openmp_target_no_loop, true);
+
   // Set the value of the debugging flag used in the new offloading device RTL.
   // Set either by a specific value or to a default if not specified.
   if (Opts.OpenMPIsTargetDevice && (Args.hasArg(OPT_fopenmp_target_debug) ||
@@ -4407,6 +4480,16 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
     if (Args.hasArg(OPT_fopenmp_assume_threads_oversubscription))
       Opts.OpenMPThreadSubscription = true;
   }
+
+  // Turn ON at -Ofast
+  Opts.OpenMPNoThreadState = Args.hasFlag(
+      options::OPT_fopenmp_assume_no_thread_state,
+      options::OPT_fno_openmp_assume_no_thread_state, isOFastUsed(Args));
+
+  // Turn ON at -Ofast
+  Opts.OpenMPNoNestedParallelism = Args.hasFlag(
+      options::OPT_fopenmp_assume_no_nested_parallelism,
+      options::OPT_fno_openmp_assume_no_nested_parallelism, isOFastUsed(Args));
 
   // Get the OpenMP target triples if any.
   if (Arg *A = Args.getLastArg(options::OPT_offload_targets_EQ)) {
@@ -4748,6 +4831,7 @@ static bool isStrictlyPreprocessorAction(frontend::ActionKind Action) {
   case frontend::EmitAssembly:
   case frontend::EmitBC:
   case frontend::EmitCIR:
+  case frontend::EmitCIRBC:
   case frontend::EmitHTML:
   case frontend::EmitLLVM:
   case frontend::EmitLLVMOnly:
@@ -4789,6 +4873,7 @@ static bool isCodeGenAction(frontend::ActionKind Action) {
   case frontend::EmitAssembly:
   case frontend::EmitBC:
   case frontend::EmitCIR:
+  case frontend::EmitCIRBC:
   case frontend::EmitHTML:
   case frontend::EmitLLVM:
   case frontend::EmitLLVMOnly:
@@ -5239,6 +5324,16 @@ bool CompilerInvocation::CreateFromArgsImpl(
           llvm::driver::ProfileInstrKind::ProfileNone)
     Diags.Report(diag::err_drv_profile_instrument_use_path_with_no_kind);
 
+  llvm::TimeTraceCompression TimeTraceCompress =
+      Res.getFrontendOpts().TimeTraceCompress;
+  if (TimeTraceCompress == llvm::TimeTraceCompression::Infer &&
+      !Res.getFrontendOpts().TimeTracePath.empty())
+    TimeTraceCompress = llvm::inferTimeTraceCompressionFromPath(
+        Res.getFrontendOpts().TimeTracePath);
+  if (TimeTraceCompress == llvm::TimeTraceCompression::Zstd &&
+      !llvm::compression::zstd::isAvailable())
+    Diags.Report(diag::err_drv_time_trace_compression_unavailable) << "zstd";
+
   FixupInvocation(Res, Diags, Args, DashX);
 
   return Diags.getNumErrors() == NumErrorsBefore;
@@ -5299,6 +5394,7 @@ std::string CompilerInvocation::computeContextHash() const {
 
   HBuilder.add(getLangOpts().ObjCRuntime);
   HBuilder.addRange(getLangOpts().CommentOpts.BlockCommandNames);
+  HBuilder.add(getLangOpts().CommentOpts.RetainCommentsFromSystemHeaders);
 
   // Extend the signature with the target options.
   HBuilder.add(getTargetOpts().Triple, getTargetOpts().CPU,
@@ -5346,6 +5442,8 @@ std::string CompilerInvocation::computeContextHash() const {
 
       HBuilder.add(UserEntry);
     }
+
+    HBuilder.addRange(getFrontendOpts().ModuleMapFiles);
 
     HBuilder.addRange(hsOpts.VFSOverlayFiles);
 
@@ -5552,6 +5650,7 @@ void CompilerInvocation::clearImplicitModuleBuildOptions() {
   getHeaderSearchOpts().ImplicitModuleMaps = false;
   getHeaderSearchOpts().ModuleCachePath.clear();
   getHeaderSearchOpts().ModulesValidateOncePerBuildSession = false;
+  getHeaderSearchOpts().ModulesValidateDirectoryDependencies = false;
   getHeaderSearchOpts().BuildSessionTimestamp = 0;
   // The specific values we canonicalize to for pruning don't affect behaviour,
   /// so use the default values so they may be dropped from the command-line.
