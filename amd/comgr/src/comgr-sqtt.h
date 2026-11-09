@@ -19,7 +19,7 @@ namespace COMGR {
 struct DataObject;
 
 class SQTTTable {
-  // Indexed by event ID. The string payloads point into the data object's
+  // Indexed by record ID. The string payloads point into the data object's
   // buffer, so the data object must outlive the table.
   std::vector<llvm::sqtt::BinarySQTTRecord> Records;
 
