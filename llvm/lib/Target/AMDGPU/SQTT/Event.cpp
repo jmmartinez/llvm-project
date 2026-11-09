@@ -10,6 +10,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/TargetParser/Triple.h"
+#include <limits>
 #include <optional>
 
 using namespace llvm;
@@ -286,6 +287,11 @@ sqtt::parseBinarySQTTRecords(const object::ObjectFile &O) {
   if (EventsInfo->size() % 8 != 0)
     return makeError("SQTT section " + Twine(sqtt::EventsTableSection) +
                      " size is not a multiple of 8");
+
+  // Record IDs and table base indices are 32-bit.
+  if (EventsInfo->size() / 8 > std::numeric_limits<uint32_t>::max())
+    return makeError("SQTT section " + Twine(sqtt::EventsTableSection) +
+                     " has more than 2^32 - 1 entries");
 
   // Each record is {u64 pc, u16 count, [u16 type, u64 payload]*count}.
   constexpr uint64_t RecordHeaderSize = 10;
