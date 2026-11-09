@@ -297,14 +297,14 @@ sqtt::parseBinarySQTTRecords(const object::ObjectFile &O) {
     uint64_t Id = (Address - EventsInfo->begin_address()) / 8;
     uint64_t EventDataPtr = EventsInfo->readPointer(Address);
     if (!DataInfo->contains(EventDataPtr, RecordHeaderSize))
-      return makeError("SQTT event ID " + Twine(Id) +
+      return makeError("SQTT record ID " + Twine(Id) +
                        " points outside the data section");
 
     uint64_t PC = DataInfo->readPointer(EventDataPtr);
     uint16_t EventCount = DataInfo->readValue<uint16_t>(EventDataPtr + 8);
     if (!DataInfo->contains(EventDataPtr,
                             RecordHeaderSize + EventCount * EventSize))
-      return makeError("SQTT event ID " + Twine(Id) +
+      return makeError("SQTT record ID " + Twine(Id) +
                        " has a truncated record");
 
     std::vector<Event> Events;

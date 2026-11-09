@@ -69,10 +69,10 @@
 # RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT section __sqtt_events size is not a multiple of 8"
 
 # RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DEVENTS=1400000000000000 -o %t/bad.o
-# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 points outside the data section"
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT record ID 0 points outside the data section"
 
 # RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DCOUNT=0200 -o %t/bad.o
-# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT event ID 0 has a truncated record"
+# RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="SQTT record ID 0 has a truncated record"
 
 # RUN: yaml2obj %t/elf-amdgpu-contents.yaml -DTYPE=0900 -o %t/bad.o
 # RUN: llvm-objdump --sqtt %t/bad.o 2>&1 | FileCheck %s --check-prefix=BAD -DFILE=%t/bad.o -DMSG="Invalid SQTT event type 9"

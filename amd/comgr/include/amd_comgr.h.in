@@ -534,7 +534,7 @@ typedef struct amd_comgr_symbolizer_info_s {
 /**
  * @brief A handle to an SQTT event table.
  *
- * Holds the SQTT event metadata of a code object. Each event ID refers to a
+ * Holds the SQTT event metadata of a code object. Each record ID refers to a
  * record of one or more events emitted by the same instruction.
  */
 typedef struct amd_comgr_sqtt_table_s {
@@ -987,8 +987,8 @@ typedef enum amd_comgr_sqtt_event_type_s {
   AMD_COMGR_SQTT_EVENT_TYPE_USER_EXIT = 0x3,
 
   /**
-   * Sets the base of the event IDs traced after it. The payload is a table
-   * base index.
+   * Sets the base of the record IDs traced after it. The payload is a table
+   * base index, a record ID.
    */
   AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE = 0x4
 } amd_comgr_sqtt_event_type_t;
@@ -1030,8 +1030,8 @@ typedef enum amd_comgr_sqtt_event_info_s {
   AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING = 0x1,
 
   /**
-   * The table base index of a set event table base event. The type of this
-   * attribute is uint64_t.
+   * The table base index of a set event table base event, a record ID. The
+   * type of this attribute is uint64_t.
    */
   AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX = 0x2
 } amd_comgr_sqtt_event_info_t;
