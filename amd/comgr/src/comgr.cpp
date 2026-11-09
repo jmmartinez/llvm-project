@@ -691,7 +691,7 @@ amd_comgr_destroy_sqtt_table(amd_comgr_sqtt_table_t Table) {
 }
 
 amd_comgr_status_t AMD_COMGR_API amd_comgr_sqtt_table_get_record_count(
-    amd_comgr_sqtt_table_t Table, uint64_t *Count) {
+    amd_comgr_sqtt_table_t Table, uint32_t *Count) {
   SQTTTable *TableP = SQTTTable::convert(Table);
   if (!TableP || !Count) {
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;

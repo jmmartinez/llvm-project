@@ -142,7 +142,7 @@ SQTTTable::getEventInfo(uint32_t RecordId, size_t EventId,
     if (HasString) {
       return AMD_COMGR_STATUS_ERROR;
     }
-    *static_cast<uint64_t *>(Value) = Event.getIndex();
+    *static_cast<uint32_t *>(Value) = Event.getIndex();
     return AMD_COMGR_STATUS_SUCCESS;
   }
   return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;

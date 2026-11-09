@@ -11,7 +11,9 @@
 
 #include "amd_comgr.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
+#include <cassert>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace COMGR {
@@ -35,7 +37,11 @@ public:
   static amd_comgr_status_t create(DataObject *DataP,
                                    amd_comgr_sqtt_table_t *Table);
 
-  size_t recordSize() const { return Records.size(); }
+  // The reader guarantees that the number of records fits in a uint32_t.
+  uint32_t recordSize() const {
+    assert(Records.size() <= std::numeric_limits<uint32_t>::max());
+    return Records.size();
+  }
 
   amd_comgr_status_t getRecordInfo(uint32_t RecordId,
                                    amd_comgr_sqtt_record_info_t Attribute,

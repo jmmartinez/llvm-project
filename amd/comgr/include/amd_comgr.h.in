@@ -1031,7 +1031,7 @@ typedef enum amd_comgr_sqtt_event_info_s {
 
   /**
    * The table base index of a set event table base event, a record ID. The
-   * type of this attribute is uint64_t.
+   * type of this attribute is uint32_t.
    */
   AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX = 0x2
 } amd_comgr_sqtt_event_info_t;
@@ -1100,7 +1100,7 @@ amd_comgr_destroy_sqtt_table(
 amd_comgr_status_t AMD_COMGR_API
 amd_comgr_sqtt_table_get_record_count(
     amd_comgr_sqtt_table_t table,
-    uint64_t *count) AMD_COMGR_VERSION_3_6;
+    uint32_t *count) AMD_COMGR_VERSION_3_6;
 
 /**
  * @brief Query an attribute of a record.

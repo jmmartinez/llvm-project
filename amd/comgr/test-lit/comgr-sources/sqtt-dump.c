@@ -37,11 +37,11 @@ static void printEvent(amd_comgr_sqtt_table_t Table, uint32_t RecordId,
   amd_comgr_(sqtt_table_get_event_info(Table, RecordId, EventId,
                                        AMD_COMGR_SQTT_EVENT_INFO_TYPE, &Type));
   if (Type == AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE) {
-    uint64_t Index;
+    uint32_t Index;
     amd_comgr_(sqtt_table_get_event_info(
         Table, RecordId, EventId,
         AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX, &Index));
-    printf("  %s %llu\n", eventTypeName(Type), (unsigned long long)Index);
+    printf("  %s %u\n", eventTypeName(Type), Index);
   } else {
     const char *Payload;
     amd_comgr_(sqtt_table_get_event_info(
@@ -55,9 +55,9 @@ static void printAll(amd_comgr_data_t Data, amd_comgr_sqtt_table_t Table) {
   amd_comgr_symbolizer_info_t Symbolizer;
   amd_comgr_(create_symbolizer_info(Data, printLocation, &Symbolizer));
 
-  uint64_t Count;
+  uint32_t Count;
   amd_comgr_(sqtt_table_get_record_count(Table, &Count));
-  printf("records: %zu\n", (size_t)Count);
+  printf("records: %u\n", Count);
 
   for (uint32_t RecordId = 0; RecordId != Count; ++RecordId) {
     uint64_t PC;
