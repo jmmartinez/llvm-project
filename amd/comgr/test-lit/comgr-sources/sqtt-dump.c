@@ -32,7 +32,7 @@ static void printLocation(const char *Symbol, void *UserData) {
 }
 
 static void printEvent(amd_comgr_sqtt_table_t Table, uint32_t RecordId,
-                       size_t EventId) {
+                       uint32_t EventId) {
   amd_comgr_sqtt_event_type_t Type;
   amd_comgr_(sqtt_table_get_event_info(Table, RecordId, EventId,
                                        AMD_COMGR_SQTT_EVENT_INFO_TYPE, &Type));
@@ -61,15 +61,15 @@ static void printAll(amd_comgr_data_t Data, amd_comgr_sqtt_table_t Table) {
 
   for (uint32_t RecordId = 0; RecordId != Count; ++RecordId) {
     uint64_t PC;
-    uint64_t EventCount;
+    uint32_t EventCount;
     amd_comgr_(sqtt_table_get_record_info(Table, RecordId,
                                           AMD_COMGR_SQTT_RECORD_INFO_PC, &PC));
     amd_comgr_(sqtt_table_get_record_info(
         Table, RecordId, AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT, &EventCount));
-    printf("record %u: pc=%llu events=%zu\n", RecordId, (unsigned long long)PC,
-           (size_t)EventCount);
+    printf("record %u: pc=%llu events=%u\n", RecordId, (unsigned long long)PC,
+           EventCount);
 
-    for (size_t EventId = 0; EventId != EventCount; ++EventId)
+    for (uint32_t EventId = 0; EventId != EventCount; ++EventId)
       printEvent(Table, RecordId, EventId);
 
     amd_comgr_(symbolize(Symbolizer, PC, /*is_code=*/true, &RecordId));
@@ -78,25 +78,26 @@ static void printAll(amd_comgr_data_t Data, amd_comgr_sqtt_table_t Table) {
   amd_comgr_(destroy_symbolizer_info(Symbolizer));
 }
 
-// Parses a decimal ID no larger than Max.
-static bool parseId(const char *Str, unsigned long long Max,
-                    unsigned long long *Id) {
-  if (*Str < '0' || *Str > '9')
-    return false;
+// Parses a decimal number that fits in a uint32_t.
+static bool parseUInt32(const char *Str, uint32_t *Value) {
   char *End;
   errno = 0;
-  *Id = strtoull(Str, &End, 10);
-  return errno == 0 && *End == '\0' && *Id <= Max;
+  long long Parsed = strtoll(Str, &End, 10);
+  if (errno != 0 || End == Str || *End != '\0' || Parsed < 0 ||
+      Parsed > UINT32_MAX)
+    return false;
+  *Value = (uint32_t)Parsed;
+  return true;
 }
 
 int main(int argc, char *argv[]) {
   bool All = argc == 3 && strcmp(argv[2], "--all") == 0;
-  unsigned long long RecordId;
-  unsigned long long EventId;
+  uint32_t RecordId;
+  uint32_t EventId;
   bool Single = argc == 6 && strcmp(argv[2], "--record-id") == 0 &&
-                parseId(argv[3], UINT32_MAX, &RecordId) &&
+                parseUInt32(argv[3], &RecordId) &&
                 strcmp(argv[4], "--event-id") == 0 &&
-                parseId(argv[5], SIZE_MAX, &EventId);
+                parseUInt32(argv[5], &EventId);
   if ((!All && !Single) || strncmp(argv[1], "--", 2) == 0) {
     fprintf(stderr, "usage: sqtt-dump <executable> --all\n"
                     "       sqtt-dump <executable> --record-id <id> "
@@ -124,7 +125,7 @@ int main(int argc, char *argv[]) {
   if (All)
     printAll(Data, Table);
   else
-    printEvent(Table, (uint32_t)RecordId, (size_t)EventId);
+    printEvent(Table, RecordId, EventId);
 
   amd_comgr_(destroy_sqtt_table(Table));
   amd_comgr_(release_data(Data));

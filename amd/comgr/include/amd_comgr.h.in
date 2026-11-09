@@ -1007,7 +1007,7 @@ typedef enum amd_comgr_sqtt_record_info_s {
 
   /**
    * The number of events in the record. The type of this attribute is
-   * uint64_t.
+   * uint32_t.
    */
   AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT = 0x1
 } amd_comgr_sqtt_record_info_t;
@@ -1161,7 +1161,7 @@ amd_comgr_status_t AMD_COMGR_API
 amd_comgr_sqtt_table_get_event_info(
     amd_comgr_sqtt_table_t table,
     uint32_t record_id,
-    size_t event_id,
+    uint32_t event_id,
     amd_comgr_sqtt_event_info_t attribute,
     void *value) AMD_COMGR_VERSION_3_6;
 
