@@ -47,7 +47,7 @@ public:
                                    amd_comgr_sqtt_record_info_t Attribute,
                                    void *Value) const;
 
-  amd_comgr_status_t getEventInfo(uint32_t RecordId, size_t EventId,
+  amd_comgr_status_t getEventInfo(uint32_t RecordId, uint32_t EventId,
                                   amd_comgr_sqtt_event_info_t Attribute,
                                   void *Value) const;
 

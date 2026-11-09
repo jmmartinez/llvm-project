@@ -18,6 +18,7 @@
 #include "comgr.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
+#include <limits>
 #include <memory>
 #include <new>
 
@@ -83,7 +84,9 @@ SQTTTable::getRecordInfo(uint32_t RecordId,
     *static_cast<uint64_t *>(Value) = Record->getTTraceDataAddress();
     return AMD_COMGR_STATUS_SUCCESS;
   case AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT:
-    *static_cast<uint64_t *>(Value) = Record->size();
+    // The record header stores the event count in 16 bits.
+    assert(Record->size() <= std::numeric_limits<uint16_t>::max());
+    *static_cast<uint32_t *>(Value) = Record->size();
     return AMD_COMGR_STATUS_SUCCESS;
   }
   return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
@@ -107,7 +110,7 @@ static amd_comgr_sqtt_event_type_t convertEventType(sqtt::EventType Type) {
 }
 
 amd_comgr_status_t
-SQTTTable::getEventInfo(uint32_t RecordId, size_t EventId,
+SQTTTable::getEventInfo(uint32_t RecordId, uint32_t EventId,
                         amd_comgr_sqtt_event_info_t Attribute,
                         void *Value) const {
   if (!isEventInfoValid(Attribute)) {
