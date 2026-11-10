@@ -24,6 +24,19 @@ define void @separate_events() {
   ret void
 }
 
+; The trailing SetEventTableBase restores the incoming table base, so it is
+; dropped and the combined record holds a single event, which is emitted
+; unwrapped.
+define void @pathological_single_event_after_combine() {
+; CHECK-LABEL: define void @pathological_single_event_after_combine() {
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 3, i1 true)
+; CHECK-NEXT:    ret void
+;
+  call void @llvm.amdgcn.sqtt.event(metadata !4, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !5, i32 poison, i1 true)
+  ret void
+}
+
 declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 declare void @side_effect()
 
@@ -31,6 +44,8 @@ declare void @side_effect()
 !1 = !{i32 1, !"contiguous1"}
 !2 = !{i32 0, !"separate0"}
 !3 = !{i32 1, !"separate1"}
+!4 = !{i32 2, !"single"}
+!5 = !{i32 4, i32 0}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
@@ -39,4 +54,5 @@ declare void @side_effect()
 ; CHECK: [[META2]] = !{i32 1, !"contiguous1"}
 ; CHECK: [[META3]] = !{i32 0, !"separate0"}
 ; CHECK: [[META4]] = !{i32 1, !"separate1"}
+; CHECK: [[META5]] = !{i32 2, !"single"}
 ;.
