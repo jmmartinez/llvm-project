@@ -200,6 +200,9 @@ def source : Flag<["--"], "source">,
            "disassembly. Implies --disassemble">;
 def : Flag<["-"], "S">, Alias<source>, HelpText<"Alias for --source">;
 
+def sqtt : Flag<["--"], "sqtt">,
+  HelpText<"Display the SQTT event table">;
+
 def start_address_EQ : Joined<["--"], "start-address=">,
   MetaVarName<"address">,
   HelpText<"Set the start address for disassembling, "

@@ -29,6 +29,7 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/KnownBits.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include <optional>
 
 using namespace llvm;
@@ -246,6 +247,26 @@ GCNTTIImpl::GCNTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
 
 bool GCNTTIImpl::hasBranchDivergence(const Function *F) const {
   return !F || !ST->isSingleLaneExecution(*F);
+}
+
+bool GCNTTIImpl::insertEntryExitInstrumentationCall(Function &F, StringRef Func,
+                                                    Instruction *InsertBefore,
+                                                    const DebugLoc &DL) const {
+
+  if (!is_contained({"sqtt_func_enter", "sqtt_func_exit"}, Func))
+    return false;
+
+  sqtt::Event Event = Func == "sqtt_func_enter" ? sqtt::Event::functionEntry(F)
+                                                : sqtt::Event::functionExit(F);
+
+  LLVMContext &C = F.getContext();
+  Value *EventMD = MetadataAsValue::get(C, Event.toMetadata(C));
+  IRBuilder<> Builder(InsertBefore);
+  Builder.SetCurrentDebugLocation(DL);
+  Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event,
+                          {EventMD, PoisonValue::get(Builder.getInt32Ty()),
+                           /*IsCULocal=*/Builder.getTrue()});
+  return true;
 }
 
 unsigned GCNTTIImpl::getNumberOfRegisters(unsigned RCID) const {

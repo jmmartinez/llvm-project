@@ -47,9 +47,11 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/ModRef.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/TargetParser/AtomicScope.h"
 #include "llvm/Transforms/Utils/LowerAtomic.h"
 #include <optional>
@@ -7475,6 +7477,28 @@ SITargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     MI.eraseFromParent();
     return SplitBB;
   }
+  case AMDGPU::SQTT_EVENT:
+  case AMDGPU::SQTT_EVENT_IMM: {
+    MachineOperand &EventID = MI.getOperand(0);
+    assert(EventID.isImm());
+
+    // m0 is implicitely used by s_ttracedata. s_ttracedata_imm encodes the
+    // event id instead.
+    MachineInstr *TraceData;
+    if (MI.getOpcode() == AMDGPU::SQTT_EVENT_IMM) {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA_IMM))
+                      .addImm(EventID.getImm());
+    } else {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
+    }
+
+    MCSymbol *Label = MF->getContext().createBlockSymbol(
+        "sqtt_event." + Twine(EventID.getImm()), /*AlwaysEmit=*/true);
+    TraceData->setPreInstrSymbol(*MF, Label);
+
+    MI.eraseFromParent();
+    return BB;
+  }
   case AMDGPU::SIMULATED_TRAP: {
     assert(Subtarget->hasPrivEnabledTrap2NopBug());
     MachineBasicBlock *SplitBB =
@@ -12787,6 +12811,64 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
 
     unsigned Opc = Done->isZero() ? AMDGPU::EXP : AMDGPU::EXP_DONE;
     return SDValue(DAG.getMachineNode(Opc, DL, Op->getVTList(), Ops), 0);
+  }
+
+  case Intrinsic::amdgcn_sqtt_event: {
+    const ConstantSDNode *EventID = dyn_cast<ConstantSDNode>(Op.getOperand(3));
+    if (!EventID)
+      return SDValue();
+    bool IsCULocal = Op.getConstantOperandVal(4);
+    SDValue EventIDTgt =
+        DAG.getTargetConstant(EventID->getZExtValue(), DL, MVT::i32);
+    SDValue BarrierMask = DAG.getTargetConstant(0, DL, MVT::i32);
+    // The absolute id of a non CU-local event is only known at runtime, so it
+    // cannot be encoded in s_ttracedata_imm.
+    bool UseImm = IsCULocal &&
+                  Subtarget->canTraceSQTTEventWithImm(EventID->getZExtValue());
+    SDValue M0Value = EventIDTgt;
+    if (!IsCULocal) {
+      // absolute id = event_id + (cu_base - __start___sqtt_events) / ptr_size
+      MachineFunction &MF = DAG.getMachineFunction();
+      auto SymbolAddressLo = [&](const Twine &Name) {
+        const char *Sym = MF.createExternalSymbolName(Name.str());
+        SDValue Lo = DAG.getTargetExternalSymbol(Sym, MVT::i32,
+                                                 SIInstrInfo::MO_REL32_LO);
+        SDValue Hi = DAG.getTargetExternalSymbol(Sym, MVT::i32,
+                                                 SIInstrInfo::MO_REL32_HI);
+        SDValue Addr = SDValue(DAG.getMachineNode(AMDGPU::SI_PC_ADD_REL_OFFSET,
+                                                  DL, MVT::i64, {Lo, Hi}),
+                               0);
+        return DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Addr);
+      };
+      SDValue CUBase = SymbolAddressLo(
+          Twine(MF.getContext().getAsmInfo().getInternalSymbolPrefix()) +
+          sqtt::EventsTableCUStart);
+      SDValue TableBase =
+          SymbolAddressLo(Twine("__start_") + sqtt::EventsTableSection);
+      SDValue ByteOffset =
+          DAG.getNode(ISD::SUB, DL, MVT::i32, CUBase, TableBase);
+      unsigned PtrSize =
+          DAG.getDataLayout().getPointerSize(AMDGPUAS::FLAT_ADDRESS);
+      SDValue CUBaseID =
+          DAG.getNode(ISD::SRL, DL, MVT::i32, ByteOffset,
+                      DAG.getConstant(Log2_32(PtrSize), DL, MVT::i32));
+      M0Value =
+          DAG.getNode(ISD::ADD, DL, MVT::i32, CUBaseID,
+                      DAG.getConstant(EventID->getZExtValue(), DL, MVT::i32));
+    }
+    // SQTT_EVENT_IMM encodes the event id, it doesn't need the m0 write.
+    SDValue M0Chain = UseImm ? Chain : copyToM0(DAG, Chain, DL, M0Value);
+
+    SDValue EventChain =
+        SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                   {BarrierMask, M0Chain}),
+                0);
+    unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
+    EventChain = SDValue(
+        DAG.getMachineNode(Opc, DL, MVT::Other, {EventIDTgt, EventChain}), 0);
+    return SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                      {BarrierMask, EventChain}),
+                   0);
   }
 
   case Intrinsic::amdgcn_struct_tbuffer_store:

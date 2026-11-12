@@ -281,6 +281,12 @@ extern "C" {
  */
 #define AMD_COMGR_VERSION_3_5
 
+/**
+ * The function was introduced or changed in version 3.6 of the interface
+ * and has the symbol version string of ``"@amd_comgr_NAME@_3.6"``.
+ */
+#define AMD_COMGR_VERSION_3_6
+
 /** @} */
 
 /**
@@ -524,6 +530,16 @@ typedef struct amd_comgr_disassembly_info_s {
 typedef struct amd_comgr_symbolizer_info_s {
   uint64_t handle;
 } amd_comgr_symbolizer_info_t;
+
+/**
+ * @brief A handle to an SQTT event table.
+ *
+ * Holds the SQTT event metadata of a code object. Each record ID refers to a
+ * record of one or more events emitted by the same instruction.
+ */
+typedef struct amd_comgr_sqtt_table_s {
+  uint64_t handle;
+} amd_comgr_sqtt_table_t;
 
 /**
  * @brief Return the number of isa names supported by this version of
@@ -953,6 +969,201 @@ amd_comgr_symbolize(
     uint64_t address,
     bool is_code,
     void *user_data) AMD_COMGR_VERSION_2_4;
+
+/**
+ * @brief SQTT event types.
+ */
+typedef enum amd_comgr_sqtt_event_type_s {
+  /**
+   * Function entry and exit. The payload is the function's symbol name.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_ENTRY = 0x0,
+  AMD_COMGR_SQTT_EVENT_TYPE_FUNCTION_EXIT = 0x1,
+
+  /**
+   * User region entry and exit. The payload is the region name.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_USER_ENTRY = 0x2,
+  AMD_COMGR_SQTT_EVENT_TYPE_USER_EXIT = 0x3,
+
+  /**
+   * Sets the base of the record IDs traced after it. The payload is a table
+   * base index, a record ID.
+   */
+  AMD_COMGR_SQTT_EVENT_TYPE_SET_EVENT_TABLE_BASE = 0x4
+} amd_comgr_sqtt_event_type_t;
+
+/**
+ * @brief SQTT record attributes.
+ */
+typedef enum amd_comgr_sqtt_record_info_s {
+  /**
+   * The unrelocated ELF address of the instruction that emits the record. The
+   * type of this attribute is uint64_t. Pass it to @c amd_comgr_symbolize with
+   * @p is_code set to true to get its source location (needs at least
+   * @c -gline-tables-only).
+   */
+  AMD_COMGR_SQTT_RECORD_INFO_PC = 0x0,
+
+  /**
+   * The number of events in the record. The type of this attribute is
+   * uint32_t.
+   */
+  AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT = 0x1
+} amd_comgr_sqtt_record_info_t;
+
+/**
+ * @brief SQTT event attributes.
+ */
+typedef enum amd_comgr_sqtt_event_info_s {
+  /**
+   * The type of the event. The type of this attribute is
+   * @p amd_comgr_sqtt_event_type_t.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_TYPE = 0x0,
+
+  /**
+   * The payload string of a function or user event. The type of this
+   * attribute is const char *, a null-terminated string inside the table's
+   * data object, valid until the table is destroyed.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_STRING = 0x1,
+
+  /**
+   * The table base index of a set event table base event, a record ID. The
+   * type of this attribute is uint32_t.
+   */
+  AMD_COMGR_SQTT_EVENT_INFO_PAYLOAD_TABLE_BASE_INDEX = 0x2
+} amd_comgr_sqtt_event_info_t;
+
+/**
+ * @brief Create an SQTT event table from an executable.
+ *
+ * The executable must contain the @c __sqtt_events, @c __sqtt_data_v<N> and
+ * @c __sqtt_data_str sections of a supported format version. A missing
+ * section, an unsupported version and malformed contents are not reported
+ * differently.
+ *
+ * @p data must not be released or modified before the table is destroyed.
+ *
+ * @param[in] data The executable. Its kind must be
+ * ::AMD_COMGR_DATA_KIND_EXECUTABLE. Use @c amd_comgr_lookup_code_object first
+ * to get a code object out of a bundle.
+ *
+ * @param[out] table The created table. Unchanged on failure.
+ *
+ * @retval ::AMD_COMGR_STATUS_SUCCESS The function has been executed
+ * successfully.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR @p data has no valid SQTT sections.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT @p data is invalid or not
+ * an executable. @p table is NULL.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_OUT_OF_RESOURCES
+ * Unable to create @p table as out of resources.
+ */
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_create_sqtt_table(
+    amd_comgr_data_t data,
+    amd_comgr_sqtt_table_t *table) AMD_COMGR_VERSION_3_6;
+
+/**
+ * @brief Destroy an SQTT event table.
+ *
+ * @param[in] table The table to destroy.
+ *
+ * @retval ::AMD_COMGR_STATUS_SUCCESS The function has been executed
+ * successfully.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT @p table is invalid.
+ */
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_destroy_sqtt_table(
+    amd_comgr_sqtt_table_t table) AMD_COMGR_VERSION_3_6;
+
+/**
+ * @brief Get the number of records in an SQTT event table.
+ *
+ * Record IDs go from 0 to @p count - 1. Each one refers to a record.
+ *
+ * @param[in] table The table to query.
+ *
+ * @param[out] count The number of records.
+ *
+ * @retval ::AMD_COMGR_STATUS_SUCCESS The function has been executed
+ * successfully.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT @p table is invalid.
+ * @p count is NULL.
+ */
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_sqtt_table_get_record_count(
+    amd_comgr_sqtt_table_t table,
+    uint32_t *count) AMD_COMGR_VERSION_3_6;
+
+/**
+ * @brief Query an attribute of a record.
+ *
+ * @param[in] table The table to query.
+ *
+ * @param[in] record_id The ID of the record.
+ *
+ * @param[in] attribute Attribute to query.
+ *
+ * @param[out] value Pointer to an application-allocated buffer where to store
+ * the value of the attribute. If the buffer passed by the application is not
+ * large enough to hold the value of attribute, the behavior is undefined. The
+ * type of value returned is specified by @p amd_comgr_sqtt_record_info_t.
+ *
+ * @retval ::AMD_COMGR_STATUS_SUCCESS The function has been executed
+ * successfully.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT @p table is invalid.
+ * @p record_id is out of range. @p attribute is an invalid value. @p value is
+ * NULL.
+ */
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_sqtt_table_get_record_info(
+    amd_comgr_sqtt_table_t table,
+    uint32_t record_id,
+    amd_comgr_sqtt_record_info_t attribute,
+    void *value) AMD_COMGR_VERSION_3_6;
+
+/**
+ * @brief Query an attribute of one event of a record.
+ *
+ * @param[in] table The table to query.
+ *
+ * @param[in] record_id The ID of the record.
+ *
+ * @param[in] event_id The ID of the event in the record, less than its
+ * ::AMD_COMGR_SQTT_RECORD_INFO_EVENT_COUNT.
+ *
+ * @param[in] attribute Attribute to query.
+ *
+ * @param[out] value Pointer to an application-allocated buffer where to store
+ * the value of the attribute. If the buffer passed by the application is not
+ * large enough to hold the value of attribute, the behavior is undefined. The
+ * type of value returned is specified by @p amd_comgr_sqtt_event_info_t.
+ *
+ * @retval ::AMD_COMGR_STATUS_SUCCESS The function has been executed
+ * successfully.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR The event does not have the requested
+ * @p attribute.
+ *
+ * @retval ::AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT @p table is invalid.
+ * @p record_id or @p event_id is out of range. @p attribute is an invalid
+ * value. @p value is NULL.
+ */
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_sqtt_table_get_event_info(
+    amd_comgr_sqtt_table_t table,
+    uint32_t record_id,
+    uint32_t event_id,
+    amd_comgr_sqtt_event_info_t attribute,
+    void *value) AMD_COMGR_VERSION_3_6;
 
  /**
  * @brief Get a handle to the metadata of a data object.

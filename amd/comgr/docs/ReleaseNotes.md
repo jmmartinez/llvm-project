@@ -61,6 +61,12 @@ New APIs
     - By setting this ActionInfo property, users can explicitly dictate if
     device libraries should be linked using the real file system or a
     Virtual File System (VFS).
+- amd\_comgr\_create\_sqtt\_table(), amd\_comgr\_destroy\_sqtt\_table(),
+amd\_comgr\_sqtt\_table\_get\_record\_count(),
+amd\_comgr\_sqtt\_table\_get\_record\_info() and
+amd\_comgr\_sqtt\_table\_get\_event\_info() (v3.6)
+    - Read the SQTT event metadata of an executable built with
+    `-fsqtt-instrument`, so a profiler can interpret the event IDs in a trace.
 
 Deprecated APIs
 ---------------
