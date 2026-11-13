@@ -224,7 +224,11 @@ private:
 void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
 
 struct AMDGPUSQTTLowerPass : OptionalPassInfoMixin<AMDGPUSQTTLowerPass> {
+  AMDGPUSQTTLowerPass(const AMDGPUTargetMachine &TM) : TM(TM) {}
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+
+private:
+  const AMDGPUTargetMachine &TM;
 };
 
 void initializeAMDGPUPrepareAGPRAllocLegacyPass(PassRegistry &);

@@ -2316,7 +2316,7 @@ void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(PassManagerWrapper &PMW) {
   flushFPMsToMPM(PMW);
   requireCGSCCOrder(PMW);
 
-  addModulePass(AMDGPUSQTTLowerPass(), PMW);
+  addModulePass(AMDGPUSQTTLowerPass(getTM()), PMW);
   addModulePass(AMDGPULowerIntrinsicsPass(getTM()), PMW);
 
   // LowerSwitch pass may introduce unreachable blocks that can cause unexpected
