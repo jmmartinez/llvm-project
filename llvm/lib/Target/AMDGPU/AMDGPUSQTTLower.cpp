@@ -13,11 +13,13 @@
 #include "AMDGPU.h"
 #include "AMDGPUTargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
@@ -212,7 +214,7 @@ static void insertCUBoundaryEvents(Module &M) {
   }
 }
 
-static bool run(Module &M) {
+static bool run(Module &M, const TargetMachine &TM) {
   Function *Intrinsic =
       M.getFunction(Intrinsic::getName(Intrinsic::amdgcn_sqtt_event));
 
@@ -235,6 +237,7 @@ public:
   AMDGPUSQTTLowerLegacy() : ModulePass(ID) {}
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<TargetPassConfig>();
     AU.setPreservesCFG();
   }
 
@@ -243,18 +246,24 @@ public:
 
 } // namespace
 
-bool AMDGPUSQTTLowerLegacy::runOnModule(Module &M) { return ::run(M); }
+bool AMDGPUSQTTLowerLegacy::runOnModule(Module &M) {
+  auto &TPC = getAnalysis<TargetPassConfig>();
+  return ::run(M, TPC.getTM<AMDGPUTargetMachine>());
+}
 
 PreservedAnalyses AMDGPUSQTTLowerPass::run(Module &M, ModuleAnalysisManager &) {
-  if (!::run(M))
+  if (!::run(M, TM))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
   return PA;
 }
 
-INITIALIZE_PASS(AMDGPUSQTTLowerLegacy, DEBUG_TYPE, "AMDGPU SQTT lower", false,
-                false)
+INITIALIZE_PASS_BEGIN(AMDGPUSQTTLowerLegacy, DEBUG_TYPE, "AMDGPU SQTT lower",
+                      false, false)
+INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
+INITIALIZE_PASS_END(AMDGPUSQTTLowerLegacy, DEBUG_TYPE, "AMDGPU SQTT lower",
+                    false, false)
 
 char AMDGPUSQTTLowerLegacy::ID = 0;
 
