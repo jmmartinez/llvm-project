@@ -13,6 +13,7 @@
 #include "AMDGPU.h"
 #include "AMDGPUTargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
@@ -30,17 +31,25 @@
 using namespace llvm;
 
 namespace {
-static cl::opt<bool> CombineEvents("amdgpu-sqtt-combine-events", cl::init(true),
-                                   cl::Hidden,
-                                   cl::desc("Combine consecutive SQTT events"));
+static cl::opt<unsigned>
+    CombineEventsThreshold("amdgpu-sqtt-combine-events-threshold",
+                           cl::init(4 * TargetTransformInfo::TCC_Basic),
+                           cl::desc("Combine consecutive SQTT events separated "
+                                    "by a latency of at most this threshold."));
 
 static bool isEvent(const Instruction &I) {
   const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
   return II && II->getIntrinsicID() == Intrinsic::amdgcn_sqtt_event;
 }
 
-static MDNode *getEventMetadata(IntrinsicInst *II) {
-  assert(isEvent(*II));
+// Do not move events across these kinds of instructions.
+static bool isEventFence(const Instruction &I) {
+  return I.mayHaveSideEffects();
+}
+
+static MDNode *getEventMetadata(const Instruction &I) {
+  assert(isEvent(I));
+  const IntrinsicInst *II = cast<IntrinsicInst>(&I);
   return cast<MDNode>(
       cast<MetadataAsValue>(II->getArgOperand(0))->getMetadata());
 }
@@ -56,20 +65,8 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
 
     Use &EventIdOperand = II->getArgOperandUse(1);
     EventIdOperand.set(ConstantInt::get(IdTy, EventsMD->getNumOperands()));
-    EventsMD->addOperand(getEventMetadata(II));
+    EventsMD->addOperand(getEventMetadata(*II));
   }
-}
-
-static auto findEventRange(Instruction &I) {
-  auto FirstNotEvent =
-      std::find_if_not(I.getReverseIterator(), I.getParent()->rend(), isEvent);
-  auto FirstEvent = std::prev(FirstNotEvent);
-  auto FirstEventIt = FirstEvent->getIterator();
-  auto End = std::find_if_not(I.getIterator(), I.getParent()->end(), isEvent);
-  auto AsIntrinsic = [](Instruction &I) -> IntrinsicInst * {
-    return cast<IntrinsicInst>(&I);
-  };
-  return map_range(make_range(FirstEventIt, End), AsIntrinsic);
 }
 
 static void
@@ -98,46 +95,77 @@ removeRedundantSetEventTableEvents(const IntrinsicInst &First,
   Events.erase(EraseBegin, EraseEnd);
 }
 
-static void combineEvents(Module &M, Function &SQTTEventFun) {
+static void combineEvents(Module &M, const TargetMachine &TM,
+                          Function &SQTTEventFun) {
   LLVMContext &C = M.getContext();
-  MapVector<BasicBlock *, SmallVector<IntrinsicInst *, 4>> IntrinsicBlocks;
+  MapVector<BasicBlock *, unsigned> IntrinsicBlocks;
   for (User *U : SQTTEventFun.users()) {
     IntrinsicInst *II = cast<IntrinsicInst>(U);
-    IntrinsicBlocks[II->getParent()].push_back(II);
+    ++IntrinsicBlocks[II->getParent()];
   }
 
-  for (auto &[BB, Intrinsics] : IntrinsicBlocks) {
-    if (Intrinsics.size() < 2)
+  for (auto &[BB, IntrinsicCount] : IntrinsicBlocks) {
+    if (IntrinsicCount < 2)
       continue;
 
-    SmallPtrSet<IntrinsicInst *, 4> Seen;
-    for (IntrinsicInst *II : Intrinsics) {
-      if (!Seen.insert(II).second)
-        continue;
+    const TargetTransformInfo &TTI =
+        TM.getTargetTransformInfo(*BB->getParent());
 
-      auto Range = findEventRange(*II);
-      if (std::distance(std::begin(Range), std::end(Range)) < 2)
-        continue;
-      Seen.insert_range(Range);
+    Instruction *First = &*find_if(*BB, isEvent);
+    SmallVector<Instruction *> ToMerge = {First};
 
-      SmallVector<Metadata *> EventMDs{map_range(Range, getEventMetadata)};
-      SmallVector<sqtt::Event> Events{
-          map_range(EventMDs, sqtt::Event::fromMetadata)};
+    auto DoMerge = [&]() {
+      if (ToMerge.size() < 2)
+        return;
 
-      IntrinsicInst *First = (*std::begin(Range));
-      removeRedundantSetEventTableEvents(*First, Events);
+      IntrinsicInst &First = cast<IntrinsicInst>(*ToMerge.front());
 
-      auto ToRemove = drop_begin(Range);
-      for_each(make_early_inc_range(ToRemove),
-               std::mem_fn(&IntrinsicInst::eraseFromParent));
-
-      if (!Events.empty()) {
-        Metadata *RecordMD = sqtt::EventRecord{Events}.toMetadata(C);
-        First->setArgOperand(0, MetadataAsValue::get(C, RecordMD));
-      } else {
-        First->eraseFromParent();
+      SmallVector<sqtt::Event> Events;
+      Events.reserve(ToMerge.size());
+      for (Instruction *I : ToMerge) {
+        MDNode *MD = getEventMetadata(*I);
+        Events.emplace_back(sqtt::Event::fromMetadata(MD));
       }
+
+      removeRedundantSetEventTableEvents(First, Events);
+
+      if (Events.empty()) {
+        for_each(ToMerge, std::mem_fn(&Instruction::eraseFromParent));
+        return;
+      }
+
+      sqtt::EventRecord Record(Events);
+      First.setArgOperand(0, MetadataAsValue::get(C, Record.toMetadata(C)));
+      for_each(drop_begin(ToMerge), std::mem_fn(&Instruction::eraseFromParent));
+    };
+
+    unsigned IntrinsicsAfterCur = IntrinsicCount - 1;
+    while (IntrinsicsAfterCur > 0) {
+      Instruction *LastSeen = ToMerge.back();
+      Instruction *Next = &*std::find_if(LastSeen->getNextNode()->getIterator(),
+                                         BB->end(), isEvent);
+
+      InstructionCost Latency = 0;
+      for (auto It = LastSeen->getNextNode()->getIterator(),
+                End = Next->getIterator();
+           Latency < CombineEventsThreshold && It != End; ++It) {
+        const Instruction &I = *It;
+        if (isEventFence(I))
+          Latency = CombineEventsThreshold.getValue();
+        else
+          Latency +=
+              TTI.getInstructionCost(&*It, TargetTransformInfo::TCK_Latency);
+      }
+
+      if (Latency < CombineEventsThreshold) {
+        ToMerge.push_back(Next);
+      } else {
+        DoMerge();
+        ToMerge = {Next};
+      }
+      --IntrinsicsAfterCur;
     }
+    DoMerge();
   }
 }
 
@@ -225,8 +253,8 @@ static bool run(Module &M, const TargetMachine &TM) {
   if (AMDGPUTargetMachine::EnableObjectLinking)
     insertCUBoundaryEvents(M);
 
-  if (CombineEvents)
-    combineEvents(M, *Intrinsic);
+  if (CombineEventsThreshold > 0)
+    combineEvents(M, TM, *Intrinsic);
   assignEventIDs(M, *Intrinsic);
   return true;
 }
