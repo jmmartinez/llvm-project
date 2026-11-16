@@ -4,9 +4,13 @@
 ; CHECK:      [
 ; CHECK-NEXT:   {
 ; CHECK-NEXT:     "pc": {{[0-9]+}},
-; CHECK-NEXT:     "file": "sqtt-event-object-linking.ll",
-; CHECK-NEXT:     "line": 46,
-; CHECK-NEXT:     "column": 3,
+; CHECK-NEXT:     "locations": [
+; CHECK-NEXT:       {
+; CHECK-NEXT:         "file": "sqtt-event-object-linking.ll",
+; CHECK-NEXT:         "line": 46,
+; CHECK-NEXT:         "column": 3
+; CHECK-NEXT:       }
+; CHECK-NEXT:     ],
 ; CHECK-NEXT:     "events": [
 ; CHECK-NEXT:       {
 ; CHECK-NEXT:         "type": "SetEventTableBase",
@@ -16,9 +20,13 @@
 ; CHECK-NEXT:   },
 ; CHECK-NEXT:   {
 ; CHECK-NEXT:     "pc": {{[0-9]+}},
-; CHECK-NEXT:     "file": "sqtt-event-object-linking.ll",
-; CHECK-NEXT:     "line": 43,
-; CHECK-NEXT:     "column": 3,
+; CHECK-NEXT:     "locations": [
+; CHECK-NEXT:       {
+; CHECK-NEXT:         "file": "sqtt-event-object-linking.ll",
+; CHECK-NEXT:         "line": 43,
+; CHECK-NEXT:         "column": 3
+; CHECK-NEXT:       }
+; CHECK-NEXT:     ],
 ; CHECK-NEXT:     "events": [
 ; CHECK-NEXT:       {
 ; CHECK-NEXT:         "type": "SetEventTableBase",
@@ -28,9 +36,13 @@
 ; CHECK-NEXT:   },
 ; CHECK-NEXT:   {
 ; CHECK-NEXT:     "pc": {{[0-9]+}},
-; CHECK-NEXT:     "file": "sqtt-event-object-linking.ll",
-; CHECK-NEXT:     "line": 44,
-; CHECK-NEXT:     "column": 3,
+; CHECK-NEXT:     "locations": [
+; CHECK-NEXT:       {
+; CHECK-NEXT:         "file": "sqtt-event-object-linking.ll",
+; CHECK-NEXT:         "line": 44,
+; CHECK-NEXT:         "column": 3
+; CHECK-NEXT:       }
+; CHECK-NEXT:     ],
 ; CHECK-NEXT:     "events": [
 ; CHECK-NEXT:       {
 ; CHECK-NEXT:         "type": "FunctionEntry",
