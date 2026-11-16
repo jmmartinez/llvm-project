@@ -2447,7 +2447,8 @@ def int_amdgcn_s_ttracedata_imm :
 def int_amdgcn_sqtt_event :
   DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty, llvm_i1_ty],
                         [IntrNoMem, IntrHasSideEffects, IntrWillReturn,
-                         IntrNoCallback, IntrNoFree, ImmArg<ArgIndex<2>>]>;
+                         IntrNoCallback, IntrNoFree, IntrConvergent,
+                         ImmArg<ArgIndex<2>>]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
 def int_amdgcn_s_getreg :

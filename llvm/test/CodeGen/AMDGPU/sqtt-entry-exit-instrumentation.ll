@@ -46,10 +46,10 @@ attributes #0 = { "instrument-function-entry"="sqtt_func_enter" "instrument-func
 attributes #1 = { "instrument-function-entry-inlined"="sqtt_func_enter" "instrument-function-exit-inlined"="sqtt_func_exit" }
 ;.
 ; PRE: attributes #[[ATTR0]] = { "instrument-function-entry-inlined"="sqtt_func_enter" "instrument-function-exit-inlined"="sqtt_func_exit" }
-; PRE: attributes #[[ATTR1:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; PRE: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
 ;.
 ; POST: attributes #[[ATTR0]] = { "instrument-function-entry"="sqtt_func_enter" "instrument-function-exit"="sqtt_func_exit" }
-; POST: attributes #[[ATTR1:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; POST: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
 ;.
 ; PRE: [[META0]] = !{i32 0, !"instrumented"}
 ; PRE: [[META1]] = !{i32 1, !"instrumented"}
