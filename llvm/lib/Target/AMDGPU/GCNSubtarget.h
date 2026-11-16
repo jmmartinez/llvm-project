@@ -1075,6 +1075,18 @@ public:
     return hasGFX10Insts() && isUInt<8>(EventId);
   }
 
+  /// \returns the s_getreg hwreg encoding of the SIMD_ID field, which holds
+  /// the index (0-3) of the SIMD the wave is running on. The field is fixed
+  /// for the lifetime of the wave placement.
+  unsigned getSIMDIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.SIMD_ID is bits [9:8]. Before: HW_ID.SIMD_ID is bits
+    // [5:4].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/8, /*Width=*/2);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/4, /*Width=*/2);
+  }
+
   bool supportsBPermute() const {
     return getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
   }
