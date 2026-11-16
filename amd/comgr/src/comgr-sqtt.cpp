@@ -169,3 +169,59 @@ bool SQTTTable::isEventInfoValid(amd_comgr_sqtt_event_info_t EventInfo) {
   }
   return false;
 }
+
+amd_comgr_status_t AMD_COMGR_API amd_comgr_create_sqtt_table(
+    amd_comgr_data_t Data, amd_comgr_sqtt_table_t *Table) {
+  DataObject *DataP = DataObject::convert(Data);
+  if (!DataP || !Table || DataP->DataKind != AMD_COMGR_DATA_KIND_EXECUTABLE) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  ensureLLVMInitialized();
+
+  return SQTTTable::create(DataP, Table);
+}
+
+amd_comgr_status_t AMD_COMGR_API
+amd_comgr_destroy_sqtt_table(amd_comgr_sqtt_table_t Table) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  delete TableP;
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+amd_comgr_status_t AMD_COMGR_API amd_comgr_sqtt_table_get_record_count(
+    amd_comgr_sqtt_table_t Table, uint32_t *Count) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Count) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *Count = TableP->recordSize();
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+amd_comgr_status_t AMD_COMGR_API amd_comgr_sqtt_table_get_record_info(
+    amd_comgr_sqtt_table_t Table, uint32_t RecordId,
+    amd_comgr_sqtt_record_info_t Attribute, void *Value) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Value) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  return TableP->getRecordInfo(RecordId, Attribute, Value);
+}
+
+amd_comgr_status_t AMD_COMGR_API amd_comgr_sqtt_table_get_event_info(
+    amd_comgr_sqtt_table_t Table, uint32_t RecordId, uint32_t EventId,
+    amd_comgr_sqtt_event_info_t Attribute, void *Value) {
+  SQTTTable *TableP = SQTTTable::convert(Table);
+  if (!TableP || !Value) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  return TableP->getEventInfo(RecordId, EventId, Attribute, Value);
+}
