@@ -42,18 +42,29 @@ codeAddressForPC(const object::ObjectFile &O, uint64_t PC) {
   return std::nullopt;
 }
 
-static std::optional<DILineInfo>
-lineForPC(DWARFContext &DICtx, const object::ObjectFile &O, uint64_t PC) {
+static bool hasFile(const DILineInfo &Info) {
+  return !Info.FileName.empty() && Info.FileName != DILineInfo::BadString;
+}
+
+// Returns the source locations of PC: element 0 is the location of PC itself,
+// and element I is the location where the code of element I-1 was inlined at.
+// The list stops at the first frame without a known file.
+static SmallVector<DILineInfo, 4>
+locationsForPC(DWARFContext &DICtx, const object::ObjectFile &O, uint64_t PC) {
+  SmallVector<DILineInfo, 4> Locations;
   std::optional<object::SectionedAddress> Addr = codeAddressForPC(O, PC);
   if (!Addr)
-    return std::nullopt;
+    return Locations;
 
   DILineInfoSpecifier Spec(DILineInfoSpecifier::FileLineInfoKind::BaseNameOnly);
-  std::optional<DILineInfo> Info = DICtx.getLineInfoForAddress(*Addr, Spec);
-  if (!Info || Info->FileName.empty() ||
-      Info->FileName == DILineInfo::BadString)
-    return std::nullopt;
-  return Info;
+  DIInliningInfo Info = DICtx.getInliningInfoForAddress(*Addr, Spec);
+  for (uint32_t I = 0, N = Info.getNumberOfFrames(); I < N; ++I) {
+    const DILineInfo &Frame = Info.getFrame(I);
+    if (!hasFile(Frame))
+      break;
+    Locations.push_back(Frame);
+  }
+  return Locations;
 }
 
 static StringRef eventTypeName(sqtt::EventType Type) {
@@ -90,10 +101,17 @@ void llvm::dumpSQTT(const object::ObjectFile &O) {
       J.object([&] {
         uint64_t PC = Record.getTTraceDataAddress();
         J.attribute("pc", PC);
-        if (std::optional<DILineInfo> Line = lineForPC(*DICtx, O, PC)) {
-          J.attribute("file", Line->FileName);
-          J.attribute("line", Line->Line);
-          J.attribute("column", Line->Column);
+        SmallVector<DILineInfo, 4> Locations = locationsForPC(*DICtx, O, PC);
+        if (!Locations.empty()) {
+          J.attributeArray("locations", [&] {
+            for (const DILineInfo &Loc : Locations) {
+              J.object([&] {
+                J.attribute("file", Loc.FileName);
+                J.attribute("line", Loc.Line);
+                J.attribute("column", Loc.Column);
+              });
+            }
+          });
         }
         J.attributeArray("events", [&] {
           for (const sqtt::Event &Event : Record.events()) {
