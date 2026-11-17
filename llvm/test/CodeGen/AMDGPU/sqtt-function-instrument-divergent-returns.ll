@@ -54,6 +54,7 @@ b:
   ret void
 }
 
+; The returns are uniformly reached, each of them keeps its own exit event.
 define void @uniform_returns(ptr addrspace(1) %p) #0 {
 ; CHECK-LABEL: uniform_returns:
 ; CHECK:       ; %bb.0: ; %entry
@@ -71,15 +72,22 @@ define void @uniform_returns(ptr addrspace(1) %p) #0 {
 ; CHECK-NEXT:    s_cbranch_scc1 .LBB1_2
 ; CHECK-NEXT:  ; %bb.1: ; %a
 ; CHECK-NEXT:    v_mov_b32_e32 v2, 1
-; CHECK-NEXT:    s_branch .LBB1_3
-; CHECK-NEXT:  .LBB1_2: ; %b
-; CHECK-NEXT:    v_mov_b32_e32 v2, 2
-; CHECK-NEXT:  .LBB1_3: ; %UnifiedReturnBlock
 ; CHECK-NEXT:    global_store_dword v[0:1], v2, off
 ; CHECK-NEXT:    s_mov_b32 m0, 3
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    s_nop 0
 ; CHECK-NEXT:  .Lsqtt_event.3:
+; CHECK-NEXT:    s_ttracedata
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    s_waitcnt vmcnt(0)
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-NEXT:  .LBB1_2: ; %b
+; CHECK-NEXT:    v_mov_b32_e32 v2, 2
+; CHECK-NEXT:    global_store_dword v[0:1], v2, off
+; CHECK-NEXT:    s_mov_b32 m0, 4
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    s_nop 0
+; CHECK-NEXT:  .Lsqtt_event.4:
 ; CHECK-NEXT:    s_ttracedata
 ; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
 ; CHECK-NEXT:    s_waitcnt vmcnt(0)
