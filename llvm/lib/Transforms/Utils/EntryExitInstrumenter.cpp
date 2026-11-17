@@ -8,7 +8,6 @@
 
 #include "llvm/Transforms/Utils/EntryExitInstrumenter.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
@@ -24,11 +23,7 @@
 using namespace llvm;
 
 static void insertCall(Function &CurFn, StringRef Func,
-                       BasicBlock::iterator InsertionPt, DebugLoc DL,
-                       const TargetTransformInfo &TTI) {
-  if (TTI.insertEntryExitInstrumentationCall(CurFn, Func, &*InsertionPt, DL))
-    return;
-
+                       BasicBlock::iterator InsertionPt, DebugLoc DL) {
   Module &M = *InsertionPt->getParent()->getParent()->getParent();
   LLVMContext &C = InsertionPt->getParent()->getContext();
 
@@ -111,8 +106,7 @@ static void insertCall(Function &CurFn, StringRef Func,
   report_fatal_error(Twine("Unknown instrumentation function: '") + Func + "'");
 }
 
-static bool runOnFunction(Function &F, bool PostInlining,
-                          const TargetTransformInfo &TTI) {
+static bool runOnFunction(Function &F, bool PostInlining) {
   // The asm in a naked function may reasonably expect the argument registers
   // and the return address register (if present) to be live. An inserted
   // function call will clobber these registers. Simply skip naked functions for
@@ -146,7 +140,7 @@ static bool runOnFunction(Function &F, bool PostInlining,
     if (auto SP = F.getSubprogram())
       DL = DILocation::get(SP->getContext(), SP->getScopeLine(), 0, SP);
 
-    insertCall(F, EntryFunc, F.begin()->getFirstInsertionPt(), DL, TTI);
+    insertCall(F, EntryFunc, F.begin()->getFirstInsertionPt(), DL);
     Changed = true;
     F.removeFnAttr(EntryAttr);
   }
@@ -167,7 +161,7 @@ static bool runOnFunction(Function &F, bool PostInlining,
       else if (auto SP = F.getSubprogram())
         DL = DILocation::get(SP->getContext(), 0, 0, SP);
 
-      insertCall(F, ExitFunc, T->getIterator(), DL, TTI);
+      insertCall(F, ExitFunc, T->getIterator(), DL);
       Changed = true;
     }
     F.removeFnAttr(ExitAttr);
@@ -184,14 +178,10 @@ struct PostInlineEntryExitInstrumenter : public FunctionPass {
         *PassRegistry::getPassRegistry());
   }
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<TargetTransformInfoWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
     AU.setPreservesCFG();
   }
-  bool runOnFunction(Function &F) override {
-    auto &TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-    return ::runOnFunction(F, true, TTI);
-  }
+  bool runOnFunction(Function &F) override { return ::runOnFunction(F, true); }
 };
 char PostInlineEntryExitInstrumenter::ID = 0;
 }
@@ -202,7 +192,6 @@ INITIALIZE_PASS_BEGIN(
     "(post inlining)",
     false, false)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_END(
     PostInlineEntryExitInstrumenter, "post-inline-ee-instrument",
     "Instrument function entry/exit with calls to e.g. mcount() "
@@ -215,12 +204,10 @@ FunctionPass *llvm::createPostInlineEntryExitInstrumenterPass() {
 
 PreservedAnalyses
 llvm::EntryExitInstrumenterPass::run(Function &F, FunctionAnalysisManager &AM) {
-  auto &TTI = AM.getResult<TargetIRAnalysis>(F);
-  if (!runOnFunction(F, PostInlining, TTI))
+  if (!runOnFunction(F, PostInlining))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
-  PA.preserve<TargetIRAnalysis>();
   return PA;
 }
 
