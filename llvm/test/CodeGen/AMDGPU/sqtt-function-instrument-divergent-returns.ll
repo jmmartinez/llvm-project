@@ -107,7 +107,63 @@ b:
   ret void
 }
 
+; A divergent branch where one side does not return. The exit event is only
+; executed by the lanes that return.
+define void @divergent_unreachable(ptr addrspace(1) %p) #0 {
+; CHECK-LABEL: divergent_unreachable:
+; CHECK:       ; %bb.0: ; %entry
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    s_mov_b32 m0, 5
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    s_nop 0
+; CHECK-NEXT:  .Lsqtt_event.5:
+; CHECK-NEXT:    s_ttracedata
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    v_and_b32_e32 v2, 0x3ff, v31
+; CHECK-NEXT:    v_cmp_lt_u32_e32 vcc, 31, v2
+; CHECK-NEXT:    s_and_saveexec_b64 s[0:1], vcc
+; CHECK-NEXT:    s_xor_b64 s[0:1], exec, s[0:1]
+; CHECK-NEXT:    s_cbranch_execnz .LBB2_3
+; CHECK-NEXT:  ; %bb.1: ; %Flow
+; CHECK-NEXT:    s_andn2_saveexec_b64 s[0:1], s[0:1]
+; CHECK-NEXT:    s_cbranch_execnz .LBB2_4
+; CHECK-NEXT:  .LBB2_2: ; %UnifiedReturnBlock
+; CHECK-NEXT:    s_or_b64 exec, exec, s[0:1]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-NEXT:  .LBB2_3: ; %trap
+; CHECK-NEXT:    s_trap 2
+; CHECK-NEXT:    ; divergent unreachable
+; CHECK-NEXT:    ; implicit-def: $vgpr0
+; CHECK-NEXT:    s_andn2_saveexec_b64 s[0:1], s[0:1]
+; CHECK-NEXT:    s_cbranch_execz .LBB2_2
+; CHECK-NEXT:  .LBB2_4: ; %ret
+; CHECK-NEXT:    v_mov_b32_e32 v2, 1
+; CHECK-NEXT:    global_store_dword v[0:1], v2, off
+; CHECK-NEXT:    s_mov_b32 m0, 6
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    s_nop 0
+; CHECK-NEXT:  .Lsqtt_event.6:
+; CHECK-NEXT:    s_ttracedata
+; CHECK-NEXT:    ; sched_barrier mask(0x00000000)
+; CHECK-NEXT:    s_or_b64 exec, exec, s[0:1]
+; CHECK-NEXT:    s_waitcnt vmcnt(0)
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
+entry:
+  %id = call i32 @llvm.amdgcn.workitem.id.x()
+  %c = icmp ult i32 %id, 32
+  br i1 %c, label %ret, label %trap
+
+ret:
+  store i32 1, ptr addrspace(1) %p
+  ret void
+
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
 declare i32 @llvm.amdgcn.workitem.id.x()
 declare i32 @llvm.amdgcn.readfirstlane.i32(i32)
+declare void @llvm.trap()
 
 attributes #0 = { "amdgpu-sqtt-instrument" }
