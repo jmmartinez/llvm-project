@@ -60,11 +60,6 @@
 using namespace clang;
 using namespace CodeGen;
 
-static std::string getInstrumentFunctionName(const CodeGenOptions &Opts,
-                                             llvm::StringRef Suffix) {
-  return (llvm::StringRef(Opts.InstrumentFunctionPrefix) + Suffix).str();
-}
-
 CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
     : CodeGenTypeCache(cgm), CGM(cgm), Target(cgm.getTarget()),
       Builder(cgm, cgm.getModule().getContext(), CGBuilderInserterTy(this)),
@@ -419,13 +414,11 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   llvm::DebugLoc Loc = EmitReturnBlock();
 
   if (ShouldInstrumentFunction()) {
-    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
-    if (Opts.InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-exit",
-                       getInstrumentFunctionName(Opts, "_func_exit"));
-    if (Opts.InstrumentFunctionsAfterInlining)
+    if (CGM.getCodeGenOpts().InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-exit", "__cyg_profile_func_exit");
+    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-exit-inlined",
-                       getInstrumentFunctionName(Opts, "_func_exit"));
+                       "__cyg_profile_func_exit");
   }
 
   // Emit debug descriptor for function end.
@@ -1190,17 +1183,21 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   }
 
   if (ShouldInstrumentFunction()) {
-    const CodeGenOptions &Opts = CGM.getCodeGenOpts();
-    if (Opts.InstrumentFunctions)
-      CurFn->addFnAttr("instrument-function-entry",
-                       getInstrumentFunctionName(Opts, "_func_enter"));
-    if (Opts.InstrumentFunctionsAfterInlining)
+    if (CGM.getCodeGenOpts().InstrumentFunctions)
+      CurFn->addFnAttr("instrument-function-entry", "__cyg_profile_func_enter");
+    if (CGM.getCodeGenOpts().InstrumentFunctionsAfterInlining)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       getInstrumentFunctionName(Opts, "_func_enter"));
-    if (Opts.InstrumentFunctionEntryBare)
+                       "__cyg_profile_func_enter");
+    if (CGM.getCodeGenOpts().InstrumentFunctionEntryBare)
       CurFn->addFnAttr("instrument-function-entry-inlined",
-                       getInstrumentFunctionName(Opts, "_func_enter_bare"));
+                       "__cyg_profile_func_enter_bare");
   }
+
+  // The SQTT entry and exit events are inserted by an AMDGPU pass that
+  // consumes this attribute.
+  if (CGM.getCodeGenOpts().SQTTInstrument && CGM.getTriple().isAMDGPU() &&
+      CurFuncDecl && !CurFuncDecl->hasAttr<NoInstrumentFunctionAttr>())
+    CurFn->addFnAttr("amdgpu-sqtt-instrument");
 
   // Since emitting the mcount call here impacts optimizations such as function
   // inlining, we just add an attribute to insert a mcount call in backend.

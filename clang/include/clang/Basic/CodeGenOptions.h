@@ -396,9 +396,8 @@ public:
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
 
-  /// Prefix for callbacks from -finstrument-functions{,-after-inlining} and
-  /// -finstrument-function-entry-bare. Defaults to "__cyg_profile".
-  std::string InstrumentFunctionPrefix;
+  /// Whether the SQTT function entry and exit events are inserted.
+  bool SQTTInstrument = false;
 
   /// The name of the relocation model to use.
   llvm::Reloc::Model RelocationModel;

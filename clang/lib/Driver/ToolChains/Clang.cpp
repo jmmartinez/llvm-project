@@ -6766,33 +6766,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  Args.AddLastArg(CmdArgs, options::OPT_finstrument_function_prefix_EQ);
-  if (Arg *SQTTArg = Args.getLastArg(options::OPT_fsqtt_instrument_EQ)) {
-    if (Arg *Conflicting =
-            Args.getLastArg(options::OPT_finstrument_functions,
-                            options::OPT_finstrument_functions_after_inlining,
-                            options::OPT_finstrument_function_entry_bare)) {
-      D.Diag(diag::err_drv_argument_not_allowed_with)
-          << SQTTArg->getAsString(Args) << Conflicting->getAsString(Args);
-    } else if (!IsHIP || IsHIPDevice) {
-      StringRef Val = SQTTArg->getValue();
-      if (Val == "before-inlining") {
-        CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
-        CmdArgs.push_back("-finstrument-functions");
-        CmdArgs.push_back("-finstrument-function-prefix=sqtt");
-      } else if (Val == "after-inlining") {
-        CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
-        CmdArgs.push_back("-finstrument-functions-after-inlining");
-        CmdArgs.push_back("-finstrument-function-prefix=sqtt");
-      } else
-        D.Diag(diag::err_drv_invalid_value)
-            << SQTTArg->getAsString(Args) << Val;
-    }
-  } else {
-    Args.AddLastArg(CmdArgs, options::OPT_finstrument_functions,
-                    options::OPT_finstrument_functions_after_inlining,
-                    options::OPT_finstrument_function_entry_bare);
+  if (Args.hasArg(options::OPT_fsqtt_instrument) && (!IsHIP || IsHIPDevice)) {
+    CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
+    CmdArgs.push_back("-fsqtt-instrument");
   }
+  Args.AddLastArg(CmdArgs, options::OPT_finstrument_functions,
+                  options::OPT_finstrument_functions_after_inlining,
+                  options::OPT_finstrument_function_entry_bare);
   Args.AddLastArg(CmdArgs, options::OPT_fconvergent_functions,
                   options::OPT_fno_convergent_functions);
 
