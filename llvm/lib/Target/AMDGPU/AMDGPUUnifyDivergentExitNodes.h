@@ -25,6 +25,7 @@
 #include "AMDGPU.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/UniformityAnalysis.h"
 
 namespace llvm {
 class BasicBlock;
@@ -36,6 +37,9 @@ class AMDGPUUnifyDivergentExitNodesPass
 public:
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
+
+/// \returns true if \p BB is reachable through only uniform branches.
+bool isUniformlyReached(const UniformityInfo &UA, BasicBlock &BB);
 
 /// Merge the blocks in \p ReturningBlocks, which end with a return, into a new
 /// block named \p Name that holds the only return. \p DTU is updated if it is

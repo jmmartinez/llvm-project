@@ -7,6 +7,7 @@ declare i32 @other()
 
 ; A single return: nothing to merge.
 define void @single_return() #0 {
+;
 ; CHECK-LABEL: define void @single_return() {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i1 true)
@@ -22,6 +23,7 @@ entry:
 ; Both returns of the divergent branch are merged, there is a single exit
 ; event.
 define amdgpu_kernel void @divergent_returns(ptr addrspace(1) %p) #0 {
+;
 ; CHECK-LABEL: define amdgpu_kernel void @divergent_returns(
 ; CHECK-SAME: ptr addrspace(1) [[P:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
@@ -53,20 +55,99 @@ else:
   ret void
 }
 
+; The returns are uniformly reached, each of them keeps its own exit event.
+define amdgpu_kernel void @uniform_returns(ptr addrspace(1) %p, i32 %x) #0 {
+; CHECK-LABEL: define amdgpu_kernel void @uniform_returns(
+; CHECK-SAME: ptr addrspace(1) [[P:%.*]], i32 [[X:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*:]]
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[X]], 16
+; CHECK-NEXT:    br i1 [[C]], label %[[THEN:.*]], label %[[ELSE:.*]]
+; CHECK:       [[THEN]]:
+; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    ret void
+; CHECK:       [[ELSE]]:
+; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5]], i32 poison, i1 true)
+; CHECK-NEXT:    ret void
+;
+entry:
+  %c = icmp ult i32 %x, 16
+  br i1 %c, label %then, label %else
+
+then:
+  store i32 1, ptr addrspace(1) %p
+  ret void
+
+else:
+  store i32 2, ptr addrspace(1) %p
+  ret void
+}
+
+; Only the divergent returns are merged.
+define amdgpu_kernel void @mixed_returns(ptr addrspace(1) %p, i32 %x) #0 {
+; CHECK-LABEL: define amdgpu_kernel void @mixed_returns(
+; CHECK-SAME: ptr addrspace(1) [[P:%.*]], i32 [[X:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*:]]
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META6:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    [[U:%.*]] = icmp eq i32 [[X]], 0
+; CHECK-NEXT:    br i1 [[U]], label %[[UNIFORM_RET:.*]], label %[[DIVERGENT:.*]]
+; CHECK:       [[UNIFORM_RET]]:
+; CHECK-NEXT:    store i32 0, ptr addrspace(1) [[P]], align 4
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    ret void
+; CHECK:       [[DIVERGENT]]:
+; CHECK-NEXT:    [[TID:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
+; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[TID]], 16
+; CHECK-NEXT:    br i1 [[C]], label %[[THEN:.*]], label %[[ELSE:.*]]
+; CHECK:       [[THEN]]:
+; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
+; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK:.*]]
+; CHECK:       [[ELSE]]:
+; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
+; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
+; CHECK:       [[UNIFIEDRETURNBLOCK]]:
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7]], i32 poison, i1 true)
+; CHECK-NEXT:    ret void
+;
+entry:
+  %u = icmp eq i32 %x, 0
+  br i1 %u, label %uniform_ret, label %divergent
+
+uniform_ret:
+  store i32 0, ptr addrspace(1) %p
+  ret void
+
+divergent:
+  %tid = call i32 @llvm.amdgcn.workitem.id.x()
+  %c = icmp ult i32 %tid, 16
+  br i1 %c, label %then, label %else
+
+then:
+  store i32 1, ptr addrspace(1) %p
+  ret void
+
+else:
+  store i32 2, ptr addrspace(1) %p
+  ret void
+}
+
 ; The returned values are merged too.
 define i32 @returns_value(i32 %x) #0 {
+;
 ; CHECK-LABEL: define i32 @returns_value(
 ; CHECK-SAME: i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META8:![0-9]+]], i32 poison, i1 true)
 ; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[X]], 0
-; CHECK-NEXT:    br i1 [[C]], label %[[ZERO:.*]], label %[[NONZERO:.*]]
+; CHECK-NEXT:    br i1 [[C]], label %[[UNIFIEDRETURNBLOCK:.*]], label %[[NONZERO:.*]]
 ; CHECK:       [[NONZERO]]:
 ; CHECK-NEXT:    [[V:%.*]] = call i32 @other()
-; CHECK-NEXT:    br label %[[ZERO]]
-; CHECK:       [[ZERO]]:
+; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
+; CHECK:       [[UNIFIEDRETURNBLOCK]]:
 ; CHECK-NEXT:    [[UNIFIEDRETVAL:%.*]] = phi i32 [ [[V]], %[[NONZERO]] ], [ 7, %[[ENTRY]] ]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META9:![0-9]+]], i32 poison, i1 true)
 ; CHECK-NEXT:    ret i32 [[UNIFIEDRETVAL]]
 ;
 entry:
@@ -84,17 +165,18 @@ nonzero:
 ; The exit event is inserted before the musttail call. It is not merged with the
 ; other return.
 define i32 @musttail(i32 %x) #0 {
+;
 ; CHECK-LABEL: define i32 @musttail(
 ; CHECK-SAME: i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META6:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META10:![0-9]+]], i32 poison, i1 true)
 ; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[C]], label %[[ZERO:.*]], label %[[NONZERO:.*]]
 ; CHECK:       [[ZERO]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11:![0-9]+]], i32 poison, i1 true)
 ; CHECK-NEXT:    ret i32 7
 ; CHECK:       [[NONZERO]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11]], i32 poison, i1 true)
 ; CHECK-NEXT:    [[V:%.*]] = musttail call i32 @musttail(i32 [[X]])
 ; CHECK-NEXT:    ret i32 [[V]]
 ;
@@ -112,6 +194,7 @@ nonzero:
 
 ; Naked functions are not instrumented, the attribute stays.
 define void @naked() #1 {
+;
 ; CHECK-LABEL: define void @naked(
 ; CHECK-SAME: ) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
@@ -125,6 +208,7 @@ entry:
 
 ; Functions without the attribute are not changed.
 define void @not_instrumented() {
+;
 ; CHECK-LABEL: define void @not_instrumented() {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    call void @body()
@@ -146,8 +230,12 @@ attributes #1 = { naked "amdgpu-sqtt-instrument" }
 ; CHECK: [[META1]] = !{i32 1, !"single_return"}
 ; CHECK: [[META2]] = !{i32 0, !"divergent_returns"}
 ; CHECK: [[META3]] = !{i32 1, !"divergent_returns"}
-; CHECK: [[META4]] = !{i32 0, !"returns_value"}
-; CHECK: [[META5]] = !{i32 1, !"returns_value"}
-; CHECK: [[META6]] = !{i32 0, !"musttail"}
-; CHECK: [[META7]] = !{i32 1, !"musttail"}
+; CHECK: [[META4]] = !{i32 0, !"uniform_returns"}
+; CHECK: [[META5]] = !{i32 1, !"uniform_returns"}
+; CHECK: [[META6]] = !{i32 0, !"mixed_returns"}
+; CHECK: [[META7]] = !{i32 1, !"mixed_returns"}
+; CHECK: [[META8]] = !{i32 0, !"returns_value"}
+; CHECK: [[META9]] = !{i32 1, !"returns_value"}
+; CHECK: [[META10]] = !{i32 0, !"musttail"}
+; CHECK: [[META11]] = !{i32 1, !"musttail"}
 ;.

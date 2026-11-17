@@ -111,9 +111,8 @@ void AMDGPUUnifyDivergentExitNodesLegacy::getAnalysisUsage(
   AU.addRequired<TargetTransformInfoWrapperPass>();
 }
 
-/// \returns true if \p BB is reachable through only uniform branches.
 /// XXX - Is there a more efficient way to find this?
-static bool isUniformlyReached(const UniformityInfo &UA, BasicBlock &BB) {
+bool llvm::isUniformlyReached(const UniformityInfo &UA, BasicBlock &BB) {
   SmallVector<BasicBlock *, 8> Stack(predecessors(&BB));
   SmallPtrSet<BasicBlock *, 8> Visited;
 
