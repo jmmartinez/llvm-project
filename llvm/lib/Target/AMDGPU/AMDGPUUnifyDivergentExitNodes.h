@@ -23,13 +23,26 @@
 #define LLVM_LIB_TARGET_AMDGPU_AMDGPUUNIFYDIVERGENTEXITNODES_H
 
 #include "AMDGPU.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace llvm {
+class BasicBlock;
+class DomTreeUpdater;
+class TargetTransformInfo;
+
 class AMDGPUUnifyDivergentExitNodesPass
     : public RequiredPassInfoMixin<AMDGPUUnifyDivergentExitNodesPass> {
 public:
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
+
+/// Merge the blocks in \p ReturningBlocks, which end with a return, into a new
+/// block named \p Name that holds the only return. \p DTU is updated if it is
+/// not null. \returns the new return block.
+BasicBlock *unifyReturnBlockSet(Function &F, DomTreeUpdater *DTU,
+                                ArrayRef<BasicBlock *> ReturningBlocks,
+                                StringRef Name, const TargetTransformInfo &TTI);
 
 } // end namespace llvm
 
