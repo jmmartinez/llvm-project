@@ -849,6 +849,16 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         FPM.addPass(InferAddressSpacesPass());
       });
 
+  // Insert the SQTT function entry/exit events before the inliner. This has
+  // to run before any pass that restructures the CFG, so it is at the very
+  // start of the pipeline.
+  PB.registerPipelineStartEPCallback(
+      [this](ModulePassManager &PM, OptimizationLevel Level) {
+        if (getTargetTriple().isAMDGCN())
+          PM.addPass(createModuleToFunctionPassAdaptor(
+              AMDGPUSQTTFunctionInstrumentPass()));
+      });
+
   PB.registerPipelineEarlySimplificationEPCallback(
       [this](ModulePassManager &PM, OptimizationLevel Level,
              ThinOrFullLTOPhase Phase) {

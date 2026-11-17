@@ -220,6 +220,11 @@ private:
   const AMDGPUTargetMachine &TM;
 };
 
+struct AMDGPUSQTTFunctionInstrumentPass
+    : RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
 
 struct AMDGPUSQTTLowerPass : OptionalPassInfoMixin<AMDGPUSQTTLowerPass> {
