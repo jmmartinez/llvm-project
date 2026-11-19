@@ -1106,6 +1106,18 @@ public:
     return HwregEncoding::encode(ID_HW_ID, /*Offset=*/8, /*Width=*/4);
   }
 
+  /// \returns the s_getreg hwreg encoding of the field that holds the slot of
+  /// the work-group in its compute unit: TG_ID before GFX10, WG_ID on GFX10+.
+  /// The field is fixed for the lifetime of the wave placement.
+  unsigned getWGIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID2.WG_ID is bits [20:16]. Before: HW_ID.TG_ID is bits
+    // [19:16].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID2, /*Offset=*/16, /*Width=*/5);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/16, /*Width=*/4);
+  }
+
   bool supportsBPermute() const {
     return getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
   }

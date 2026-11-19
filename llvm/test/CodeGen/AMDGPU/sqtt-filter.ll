@@ -2,7 +2,8 @@
 ; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-simd-mask=0x1 %s | FileCheck %s --check-prefix=SIMD
 ; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-wave-mask=0x1 %s | FileCheck %s --check-prefix=WAVE
 ; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-cu-mask=0x1 %s | FileCheck %s --check-prefix=CU
-; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-simd-mask=0x1 -amdgpu-sqtt-wave-mask=0x1 -amdgpu-sqtt-cu-mask=0x1 %s | FileCheck %s --check-prefix=ALL
+; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-wg-mask=0x1 %s | FileCheck %s --check-prefix=WG
+; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes=amdgpu-sqtt-lower -amdgpu-sqtt-combine-events-threshold=0 -amdgpu-sqtt-simd-mask=0x1 -amdgpu-sqtt-wave-mask=0x1 -amdgpu-sqtt-cu-mask=0x1 -amdgpu-sqtt-wg-mask=0x1 %s | FileCheck %s --check-prefix=ALL
 
 define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; SIMD-LABEL: define void @if_then_else(
@@ -68,6 +69,27 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; CU:       [[END]]:
 ; CU-NEXT:    ret void
 ;
+; WG-LABEL: define void @if_then_else(
+; WG-SAME: i1 [[COND:%.*]], ptr addrspace(1) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
+; WG-NEXT:    [[TMP1:%.*]] = call range(i32 0, 16) i32 @llvm.amdgcn.s.getreg(i32 7172)
+; WG-NEXT:    [[TMP2:%.*]] = lshr i32 1, [[TMP1]]
+; WG-NEXT:    [[TMP3:%.*]] = and i32 1, [[TMP2]]
+; WG-NEXT:    [[SQTT_ENABLED:%.*]] = icmp ne i32 [[TMP3]], 0
+; WG-NEXT:    br i1 [[COND]], label %[[THEN:.*]], label %[[ELSE:.*]]
+; WG:       [[THEN]]:
+; WG-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
+; WG:       [[BB4]]:
+; WG-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; WG-NEXT:    br label %[[BB5]]
+; WG:       [[BB5]]:
+; WG-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
+; WG-NEXT:    br label %[[END:.*]]
+; WG:       [[ELSE]]:
+; WG-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
+; WG-NEXT:    br label %[[END]]
+; WG:       [[END]]:
+; WG-NEXT:    ret void
+;
 ; ALL-LABEL: define void @if_then_else(
 ; ALL-SAME: i1 [[COND:%.*]], ptr addrspace(1) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
 ; ALL-NEXT:    [[TMP1:%.*]] = call range(i32 0, 4) i32 @llvm.amdgcn.s.getreg(i32 2308)
@@ -79,7 +101,10 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; ALL-NEXT:    [[TMP7:%.*]] = call range(i32 0, 16) i32 @llvm.amdgcn.s.getreg(i32 6660)
 ; ALL-NEXT:    [[TMP8:%.*]] = lshr i32 1, [[TMP7]]
 ; ALL-NEXT:    [[TMP9:%.*]] = and i32 [[TMP6]], [[TMP8]]
-; ALL-NEXT:    [[SQTT_ENABLED:%.*]] = icmp ne i32 [[TMP9]], 0
+; ALL-NEXT:    [[TMP10:%.*]] = call range(i32 0, 16) i32 @llvm.amdgcn.s.getreg(i32 7172)
+; ALL-NEXT:    [[TMP11:%.*]] = lshr i32 1, [[TMP10]]
+; ALL-NEXT:    [[TMP12:%.*]] = and i32 [[TMP9]], [[TMP11]]
+; ALL-NEXT:    [[SQTT_ENABLED:%.*]] = icmp ne i32 [[TMP12]], 0
 ; ALL-NEXT:    br i1 [[COND]], label %[[THEN:.*]], label %[[ELSE:.*]]
 ; ALL:       [[THEN]]:
 ; ALL-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB7:.*]], label %[[BB8:.*]]
@@ -126,6 +151,10 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 ; CU: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
 ; CU: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
+; WG: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
+; WG: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; WG: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+;.
 ; ALL: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; ALL: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
 ; ALL: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
@@ -135,6 +164,8 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
 ; WAVE: [[META0]] = !{i32 0, !"if_then_else"}
 ;.
 ; CU: [[META0]] = !{i32 0, !"if_then_else"}
+;.
+; WG: [[META0]] = !{i32 0, !"if_then_else"}
 ;.
 ; ALL: [[META0]] = !{i32 0, !"if_then_else"}
 ;.
