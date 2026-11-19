@@ -12,9 +12,11 @@
 
 #include "AMDGPU.h"
 #include "AMDGPUTargetMachine.h"
+#include "GCNSubtarget.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -24,6 +26,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #define DEBUG_TYPE "amdgpu-sqtt-lower"
 
@@ -36,6 +39,14 @@ static cl::opt<unsigned>
                            cl::Hidden,
                            cl::desc("Combine consecutive SQTT events separated "
                                     "by a latency of at most this threshold."));
+
+// Bit N is set if the waves running on SIMD N execute the SQTT events.
+static cl::opt<uint32_t>
+    SIMDMask("amdgpu-sqtt-simd-mask",
+             cl::init(std::numeric_limits<uint32_t>::max()), cl::Hidden,
+             cl::desc("Bitmask of the SIMDs whose waves execute the SQTT "
+                      "events (bit N enables SIMD N). Bits above the number "
+                      "of SIMDs are ignored."));
 
 static bool isEvent(const Instruction &I) {
   const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
@@ -242,6 +253,68 @@ static void insertCUBoundaryEvents(Module &M) {
   }
 }
 
+static Value *createHWMask(IRBuilder<> &Builder, unsigned HWRegEncoding,
+                           uint32_t Mask) {
+  // Computes (e.g. for SIMD_ID):
+  //   %simd = call i32 @llvm.amdgcn.s.getreg(<SIMD_ID field>)
+  //   %mask = lshr SIMDMask, %simd  (the lowest bit contains the condition)
+  auto [HwregId, Offset, Width] =
+      AMDGPU::Hwreg::HwregEncoding::decode(HWRegEncoding);
+  unsigned MaxHWReg = 1u << Width;
+  uint32_t AllEanbledMask = maskTrailingOnes<uint32_t>(MaxHWReg);
+  Mask &= AllEanbledMask;
+
+  if (Mask == AllEanbledMask)
+    return Builder.getInt32(-1);
+
+  CallInst *SIMDId = Builder.CreateIntrinsicWithoutFolding(
+      Intrinsic::amdgcn_s_getreg, {}, {Builder.getInt32(HWRegEncoding)});
+  // The field is MaxHWReg values wide, tell the optimizers.
+  SIMDId->addRangeRetAttr(ConstantRange(APInt(32, 0), APInt(32, MaxHWReg)));
+
+  return Builder.CreateLShr(Builder.getInt32(Mask), SIMDId);
+}
+
+static Value *createCondition(IRBuilder<> &Builder, const GCNSubtarget &ST) {
+  Value *FilterBit =
+      createHWMask(Builder, ST.getSIMDIdHwregEncoding(), SIMDMask);
+  Value *Bit = Builder.CreateAnd(Builder.getInt32(1), FilterBit);
+  return Builder.CreateICmpNE(Bit, Builder.getInt32(0), "sqtt.enabled");
+}
+
+void guardEventsWithFilter(const TargetMachine &TM, Function &Intrinsic) {
+  MapVector<Function *, SetVector<BasicBlock *>> BlocksWithEvents;
+
+  for (User *U : Intrinsic.users()) {
+    IntrinsicInst *II = cast<IntrinsicInst>(U);
+    BlocksWithEvents[II->getFunction()].insert(II->getParent());
+  }
+
+  for (auto [F, Blocks] : BlocksWithEvents) {
+    const GCNSubtarget &ST =
+        *static_cast<const GCNSubtarget *>(TM.getSubtargetImpl(*F));
+    IRBuilder<> Builder(&*F->getEntryBlock().getFirstNonPHIOrAlloca());
+    Value *Condition = createCondition(Builder, ST);
+    if (Condition == Builder.getTrue())
+      continue;
+
+    for (BasicBlock *BB : Blocks) {
+      SmallVector<Instruction *> Events;
+      for (Instruction &I : *BB)
+        if (isEvent(I))
+          Events.push_back(&I);
+
+      assert(!Events.empty());
+
+      for (Instruction *E : Events) {
+        Instruction *ThenTerm = SplitBlockAndInsertIfThen(
+            Condition, E->getIterator(), /*Unreachable=*/false);
+        E->moveBefore(ThenTerm->getIterator());
+      }
+    }
+  }
+}
+
 static bool run(Module &M, const TargetMachine &TM) {
   Function *Intrinsic =
       M.getFunction(Intrinsic::getName(Intrinsic::amdgcn_sqtt_event));
@@ -255,6 +328,7 @@ static bool run(Module &M, const TargetMachine &TM) {
   if (CombineEventsThreshold > 0)
     combineEvents(TM, *Intrinsic);
   assignEventIDs(M, *Intrinsic);
+  guardEventsWithFilter(TM, *Intrinsic);
   return true;
 }
 
@@ -266,7 +340,6 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<TargetPassConfig>();
-    AU.setPreservesCFG();
   }
 
   bool runOnModule(Module &M) override;
@@ -282,9 +355,7 @@ bool AMDGPUSQTTLowerLegacy::runOnModule(Module &M) {
 PreservedAnalyses AMDGPUSQTTLowerPass::run(Module &M, ModuleAnalysisManager &) {
   if (!::run(M, TM))
     return PreservedAnalyses::all();
-  PreservedAnalyses PA;
-  PA.preserveSet<CFGAnalyses>();
-  return PA;
+  return PreservedAnalyses::none();
 }
 
 INITIALIZE_PASS_BEGIN(AMDGPUSQTTLowerLegacy, DEBUG_TYPE, "AMDGPU SQTT lower",
