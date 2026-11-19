@@ -1081,6 +1081,18 @@ public:
     return HwregEncoding::encode(ID_HW_ID, /*Offset=*/4, /*Width=*/2);
   }
 
+  /// \returns the s_getreg hwreg encoding of the WAVE_ID field, which holds the
+  /// slot of the wave in its SIMD. The field is fixed for the lifetime of the
+  /// wave placement.
+  unsigned getWaveIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.WAVE_ID is bits [4:0]. Before: HW_ID.WAVE_ID is bits
+    // [3:0].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/0, /*Width=*/5);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/0, /*Width=*/4);
+  }
+
   bool supportsBPermute() const {
     return getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
   }

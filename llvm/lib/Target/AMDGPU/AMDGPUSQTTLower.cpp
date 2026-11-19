@@ -48,6 +48,15 @@ static cl::opt<uint32_t>
                       "events (bit N enables SIMD N). Bits above the number "
                       "of SIMDs are ignored."));
 
+// Bit N is set if the waves that occupy the slot N of their SIMD execute the
+// SQTT events.
+static cl::opt<uint32_t>
+    WaveMask("amdgpu-sqtt-wave-mask",
+             cl::init(std::numeric_limits<uint32_t>::max()), cl::Hidden,
+             cl::desc("Bitmask of the wave slots whose waves execute the SQTT "
+                      "events (bit N enables slot N). Bits above the number "
+                      "of slots are ignored."));
+
 static bool isEvent(const Instruction &I) {
   const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
   return II && II->getIntrinsicID() == Intrinsic::amdgcn_sqtt_event;
@@ -276,9 +285,20 @@ static Value *createHWMask(IRBuilder<> &Builder, unsigned HWRegEncoding,
 }
 
 static Value *createCondition(IRBuilder<> &Builder, const GCNSubtarget &ST) {
-  Value *FilterBit =
-      createHWMask(Builder, ST.getSIMDIdHwregEncoding(), SIMDMask);
-  Value *Bit = Builder.CreateAnd(Builder.getInt32(1), FilterBit);
+  const std::pair<unsigned, uint32_t> Filters[] = {
+      {ST.getSIMDIdHwregEncoding(), SIMDMask},
+      {ST.getWaveIdHwregEncoding(), WaveMask},
+  };
+
+  Value *Bit = Builder.getInt32(1);
+  for (const auto &[HWRegEncoding, Mask] : Filters) {
+    Value *FilterBit = createHWMask(Builder, HWRegEncoding, Mask);
+    ConstantInt *FilterBitConst = dyn_cast<ConstantInt>(FilterBit);
+    if (FilterBitConst && FilterBitConst->isAllOnesValue())
+      continue;
+    Bit = Builder.CreateAnd(Bit, FilterBit);
+  }
+
   return Builder.CreateICmpNE(Bit, Builder.getInt32(0), "sqtt.enabled");
 }
 
