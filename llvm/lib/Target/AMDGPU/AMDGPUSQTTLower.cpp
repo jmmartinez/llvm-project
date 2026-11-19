@@ -95,9 +95,8 @@ removeRedundantSetEventTableEvents(const IntrinsicInst &First,
   Events.erase(EraseBegin, EraseEnd);
 }
 
-static void combineEvents(Module &M, const TargetMachine &TM,
-                          Function &SQTTEventFun) {
-  LLVMContext &C = M.getContext();
+static void combineEvents(const TargetMachine &TM, Function &SQTTEventFun) {
+  LLVMContext &C = SQTTEventFun.getContext();
   MapVector<BasicBlock *, unsigned> IntrinsicBlocks;
   for (User *U : SQTTEventFun.users()) {
     IntrinsicInst *II = cast<IntrinsicInst>(U);
@@ -254,7 +253,7 @@ static bool run(Module &M, const TargetMachine &TM) {
     insertCUBoundaryEvents(M);
 
   if (CombineEventsThreshold > 0)
-    combineEvents(M, TM, *Intrinsic);
+    combineEvents(TM, *Intrinsic);
   assignEventIDs(M, *Intrinsic);
   return true;
 }
