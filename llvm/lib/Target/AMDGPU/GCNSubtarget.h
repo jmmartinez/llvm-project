@@ -1093,6 +1093,19 @@ public:
     return HwregEncoding::encode(ID_HW_ID, /*Offset=*/0, /*Width=*/4);
   }
 
+  /// \returns the s_getreg hwreg encoding of the field that holds the index of
+  /// the compute unit the wave is running on: CU_ID before GFX10, WGP_ID
+  /// (the index of the work-group processor) on GFX10+. The field is fixed for
+  /// the lifetime of the wave placement.
+  unsigned getCUIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.WGP_ID is bits [13:10]. Before: HW_ID.CU_ID is bits
+    // [11:8].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/10, /*Width=*/4);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/8, /*Width=*/4);
+  }
+
   bool supportsBPermute() const {
     return getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
   }
