@@ -66,6 +66,15 @@ static cl::opt<uint32_t>
                     "events (bit N enables CU N, or WGP N on GFX10+). Bits "
                     "above the number of CUs are ignored."));
 
+// Bit N is set if the waves of the work-groups that occupy the slot N of their
+// compute unit execute the SQTT events.
+static cl::opt<uint32_t>
+    WGMask("amdgpu-sqtt-wg-mask",
+           cl::init(std::numeric_limits<uint32_t>::max()),
+           cl::desc("Bitmask of the work-group slots whose waves execute the "
+                    "SQTT events (bit N enables slot N). Bits above the "
+                    "number of slots are ignored."));
+
 static bool isEvent(const Instruction &I) {
   const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
   return II && II->getIntrinsicID() == Intrinsic::amdgcn_sqtt_event;
@@ -298,6 +307,7 @@ static Value *createCondition(IRBuilder<> &Builder, const GCNSubtarget &ST) {
       {ST.getSIMDIdHwregEncoding(), SIMDMask},
       {ST.getWaveIdHwregEncoding(), WaveMask},
       {ST.getCUIdHwregEncoding(), CUMask},
+      {ST.getWGIdHwregEncoding(), WGMask},
   };
 
   Value *Bit = Builder.getInt32(1);
