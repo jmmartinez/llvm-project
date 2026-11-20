@@ -7,11 +7,15 @@
 //===----------------------------------------------------------------------===//
 //
 // Insert the SQTT function entry and exit events in the functions marked with
-// the "amdgpu-sqtt-instrument" attribute. As with the generic function
-// entry/exit instrumentation, the pass has a pre-inlining and a post-inlining
-// variant. The pre-inlining variant runs at the start of the optimization
-// pipeline, before the inliner. The post-inlining variant runs in the codegen
-// pipeline, after all the inlining, but it does not instrument anything yet.
+// the "amdgpu-sqtt-instrument" or the "amdgpu-sqtt-instrument-inlined"
+// attribute. As with the generic function entry/exit instrumentation, there are
+// two variants of the pass:
+//  - Pre-inlining: consumes "amdgpu-sqtt-instrument". It runs at the start of
+//    the optimization pipeline, so the events of an inlined function end up in
+//    its callers.
+//  - Post-inlining: consumes "amdgpu-sqtt-instrument-inlined". It runs in the
+//    codegen pipeline, after all the inlining, so only the functions that are
+//    actually emitted are instrumented.
 //
 // The events describe the execution of a wave, but they are inserted on the
 // thread CFG. If a function has divergent returns, the exit event of each of
@@ -44,14 +48,17 @@ using namespace llvm;
 namespace {
 
 constexpr StringLiteral InstrumentAttr = "amdgpu-sqtt-instrument";
+constexpr StringLiteral InstrumentInlinedAttr =
+    "amdgpu-sqtt-instrument-inlined";
+
+static StringRef getInstrumentAttr(bool PostInlining) {
+  return PostInlining ? InstrumentInlinedAttr : InstrumentAttr;
+}
 
 // Whether \p F has to be instrumented by the variant of the pass selected by
 // \p PostInlining. This is checked before getting any analysis, as most of the
 // functions are not instrumented.
 static bool needsInstrumentation(const Function &F, bool PostInlining) {
-  if (PostInlining)
-    return false;
-
   // Same as the generic entry/exit instrumentation: the asm of a naked function
   // can not be changed, and available_externally functions may not have a
   // definition outside of the module.
@@ -59,7 +66,7 @@ static bool needsInstrumentation(const Function &F, bool PostInlining) {
       F.hasAvailableExternallyLinkage())
     return false;
 
-  return F.hasFnAttribute(InstrumentAttr);
+  return F.hasFnAttribute(getInstrumentAttr(PostInlining));
 }
 
 static void insertEvent(Function &F, sqtt::Event Event, Instruction *InsertPt,
@@ -101,7 +108,7 @@ static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
   assert(needsInstrumentation(F, PostInlining));
 
   // Consume the attribute so that the function is not instrumented twice.
-  F.removeFnAttr(InstrumentAttr);
+  F.removeFnAttr(getInstrumentAttr(PostInlining));
 
   // A musttail call must stay next to its return, and a return that is
   // uniformly reached is executed by the whole wave. Such returns are not
