@@ -27,6 +27,9 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/ValueMapper.h"
+#include <algorithm>
 
 #define DEBUG_TYPE "amdgpu-sqtt-lower"
 
@@ -322,6 +325,77 @@ static Value *createCondition(IRBuilder<> &Builder, const GCNSubtarget &ST) {
   return Builder.CreateICmpNE(Bit, Builder.getInt32(0), "sqtt.enabled");
 }
 
+static bool cannotDuplicate(const Instruction &I) {
+  const CallBase *CB = dyn_cast<CallBase>(&I);
+  return CB && CB->cannotDuplicate();
+}
+
+void guardBlockEventsWithFilter(Value *Condition,
+                                SmallVectorImpl<Instruction *> &Events) {
+  bool CanDuplicate =
+      Events.size() > 1 &&
+      std::none_of(Events.front()->getIterator(), Events.back()->getIterator(),
+                   cannotDuplicate);
+  if (!CanDuplicate) {
+    for (Instruction *E : Events) {
+      Instruction *ThenTerm = SplitBlockAndInsertIfThen(
+          Condition, E->getIterator(), /*Unreachable=*/false);
+      E->moveBefore(ThenTerm->getIterator());
+    }
+    return;
+  }
+
+  // Guard all the events of a basic block (in instruction order) with a single
+  // branch, by versioning the code from the first to the last event:
+  //
+  //   head:
+  //     br i1 %enabled, label %traced, label %untraced
+  //   traced:     ; the original code, with the events
+  //     br label %cont
+  //   untraced:   ; a copy of it, without the events
+  //     br label %cont
+  //   cont:
+  //     ; values defined in the versioned code are merged with PHIs
+  //
+  // This duplicates the code between the events, but only costs a single
+  // branch.
+  BasicBlock &BB = *Events.front()->getParent();
+  Instruction *Last = Events.back();
+  BasicBlock *Cont = BB.splitBasicBlock(Last->getNextNode(), "sqtt.cont");
+  BasicBlock *Traced = BB.splitBasicBlock(Events.front(), "sqtt.traced");
+  Function &F = *BB.getParent();
+
+  ValueToValueMapTy VMap;
+  BasicBlock *Untraced = CloneBasicBlock(Traced, VMap, ".untraced", &F);
+  Traced->moveAfter(Untraced);
+  Cont->moveAfter(Traced);
+
+  for (Instruction &I : *Untraced)
+    RemapInstruction(&I, VMap,
+                     RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
+  for (Instruction *Event : Events)
+    cast<Instruction>(VMap[Event])->eraseFromParent();
+
+  // Choose the version in the head block.
+  BB.getTerminator()->eraseFromParent();
+  IRBuilder<>(&BB).CreateCondBr(Condition, Traced, Untraced);
+
+  // Merge the values defined in the versioned code and used after it. Both
+  // versions fall through to the continuation block, so a PHI there is enough.
+  for (Instruction &I : *Traced) {
+    if (I.getType()->isVoidTy() || !I.isUsedOutsideOfBlock(Traced))
+      continue;
+    // The PHI has no operands yet, so it is not one of the users replaced.
+    PHINode *Merge =
+        PHINode::Create(I.getType(), 2, I.getName(), Cont->begin());
+    I.replaceUsesWithIf(Merge, [&](Use &U) {
+      return cast<Instruction>(U.getUser())->getParent() != Traced;
+    });
+    Merge->addIncoming(&I, Traced);
+    Merge->addIncoming(VMap[&I], Untraced);
+  }
+}
+
 void guardEventsWithFilter(const TargetMachine &TM, Function &Intrinsic) {
   MapVector<Function *, SetVector<BasicBlock *>> BlocksWithEvents;
 
@@ -346,11 +420,7 @@ void guardEventsWithFilter(const TargetMachine &TM, Function &Intrinsic) {
 
       assert(!Events.empty());
 
-      for (Instruction *E : Events) {
-        Instruction *ThenTerm = SplitBlockAndInsertIfThen(
-            Condition, E->getIterator(), /*Unreachable=*/false);
-        E->moveBefore(ThenTerm->getIterator());
-      }
+      guardBlockEventsWithFilter(Condition, Events);
     }
   }
 }
