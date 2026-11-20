@@ -529,6 +529,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPURemoveIncompatibleFunctionsLegacyPass(*PR);
   initializeAMDGPULowerModuleLDSLegacyPass(*PR);
   initializeAMDGPULowerBufferFatPointersPass(*PR);
+  initializeAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass(*PR);
   initializeAMDGPUSQTTLowerLegacyPass(*PR);
   initializeAMDGPULowerIntrinsicsLegacyPass(*PR);
   initializeAMDGPUReserveWWMRegsLegacyPass(*PR);
@@ -790,6 +791,12 @@ parseAMDGPUAtomicOptimizerStrategy(StringRef Params) {
   return make_error<StringError>("invalid parameter", inconvertibleErrorCode());
 }
 
+static Expected<bool>
+parseAMDGPUSQTTFunctionInstrumentPassOptions(StringRef Params) {
+  return PassBuilder::parseSinglePassOption(Params, "post-inline",
+                                            "AMDGPUSQTTFunctionInstrument");
+}
+
 Expected<AMDGPUAttributorOptions>
 parseAMDGPUAttributorPassOptions(StringRef Params) {
   AMDGPUAttributorOptions Result;
@@ -842,12 +849,12 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 
   // Insert the SQTT function entry/exit events before the inliner. This has
   // to run before any pass that restructures the CFG, so it is at the very
-  // start of the pipeline.
+  // start of the pipeline. The events of the functions marked to be
+  // instrumented after inlining are inserted by the codegen pipeline.
   PB.registerPipelineStartEPCallback(
       [this](ModulePassManager &PM, OptimizationLevel Level) {
-        if (getTargetTriple().isAMDGCN())
-          PM.addPass(createModuleToFunctionPassAdaptor(
-              AMDGPUSQTTFunctionInstrumentPass()));
+        PM.addPass(createModuleToFunctionPassAdaptor(
+            AMDGPUSQTTFunctionInstrumentPass(/*PostInlining=*/false)));
       });
 
   PB.registerPipelineEarlySimplificationEPCallback(
@@ -1485,6 +1492,8 @@ void AMDGPUPassConfig::addIRPasses() {
   }
 
   TargetPassConfig::addIRPasses();
+
+  addPass(createAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass());
 
   // EarlyCSE is not always strong enough to clean up what LSR produces. For
   // example, GVN can combine
@@ -2283,6 +2292,8 @@ void AMDGPUCodeGenPassBuilder::addIRPasses(PassManagerWrapper &PMW) {
   }
 
   Base::addIRPasses(PMW);
+
+  addFunctionPass(AMDGPUSQTTFunctionInstrumentPass(/*PostInlining=*/true), PMW);
 
   // EarlyCSE is not always strong enough to clean up what LSR produces. For
   // example, GVN can combine

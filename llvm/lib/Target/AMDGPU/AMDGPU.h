@@ -223,8 +223,18 @@ private:
 
 struct AMDGPUSQTTFunctionInstrumentPass
     : RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass> {
+  AMDGPUSQTTFunctionInstrumentPass(bool PostInlining = false)
+      : PostInlining(PostInlining) {}
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
+
+private:
+  bool PostInlining;
 };
+
+FunctionPass *createAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass();
+void initializeAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass(PassRegistry &);
 
 void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
 
