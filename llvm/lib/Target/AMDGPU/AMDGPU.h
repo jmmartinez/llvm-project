@@ -220,10 +220,25 @@ private:
   const AMDGPUTargetMachine &TM;
 };
 
+// Inserts the SQTT function entry and exit events. \p PostInlining selects the
+// attribute that marks the functions to instrument: the pre-inlining variant
+// handles "amdgpu-sqtt-instrument" and the post-inlining variant handles
+// "amdgpu-sqtt-instrument-inlined".
 struct AMDGPUSQTTFunctionInstrumentPass
     : RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass> {
+  AMDGPUSQTTFunctionInstrumentPass(bool PostInlining = false)
+      : PostInlining(PostInlining) {}
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
+
+private:
+  bool PostInlining;
 };
+
+// The legacy pass manager only runs the post-inlining variant.
+FunctionPass *createAMDGPUSQTTFunctionInstrumentLegacyPass();
+void initializeAMDGPUSQTTFunctionInstrumentLegacyPass(PassRegistry &);
 
 void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
 

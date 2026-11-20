@@ -7,8 +7,11 @@
 //===----------------------------------------------------------------------===//
 //
 // Insert the SQTT function entry and exit events in the functions marked with
-// the "amdgpu-sqtt-instrument" attribute. The pass runs at the start of the
-// pipeline, before the inliner.
+// the "amdgpu-sqtt-instrument" attribute. As with the generic function
+// entry/exit instrumentation, the pass has a pre-inlining and a post-inlining
+// variant. The pre-inlining variant runs at the start of the optimization
+// pipeline, before the inliner. The post-inlining variant runs in the codegen
+// pipeline, after all the inlining, but it does not instrument anything yet.
 //
 // The events describe the execution of a wave, but they are inserted on the
 // thread CFG. If a function has divergent returns, the exit event of each of
@@ -31,13 +34,33 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 
 using namespace llvm;
 
+#define DEBUG_TYPE "amdgpu-sqtt-function-instrument"
+
 namespace {
 
 constexpr StringLiteral InstrumentAttr = "amdgpu-sqtt-instrument";
+
+// Whether \p F has to be instrumented by the variant of the pass selected by
+// \p PostInlining. This is checked before getting any analysis, as most of the
+// functions are not instrumented.
+static bool needsInstrumentation(const Function &F, bool PostInlining) {
+  if (PostInlining)
+    return false;
+
+  // Same as the generic entry/exit instrumentation: the asm of a naked function
+  // can not be changed, and available_externally functions may not have a
+  // definition outside of the module.
+  if (F.isDeclaration() || F.hasFnAttribute(Attribute::Naked) ||
+      F.hasAvailableExternallyLinkage())
+    return false;
+
+  return F.hasFnAttribute(InstrumentAttr);
+}
 
 static void insertEvent(Function &F, sqtt::Event Event, Instruction *InsertPt,
                         const DebugLoc &DL) {
@@ -72,17 +95,10 @@ static Instruction *getExitInsertPt(BasicBlock &BB) {
   return BB.getTerminator();
 }
 
-static bool run(Function &F, const TargetTransformInfo &TTI,
+// Instrument \p F, which must satisfy needsInstrumentation().
+static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
                 const UniformityInfo &UA) {
-  // Same as the generic entry/exit instrumentation: the asm of a naked function
-  // can not be changed, and available_externally functions may not have a
-  // definition outside of the module.
-  if (F.isDeclaration() || F.hasFnAttribute(Attribute::Naked) ||
-      F.hasAvailableExternallyLinkage())
-    return false;
-
-  if (!F.hasFnAttribute(InstrumentAttr))
-    return false;
+  assert(needsInstrumentation(F, PostInlining));
 
   // Consume the attribute so that the function is not instrumented twice.
   F.removeFnAttr(InstrumentAttr);
@@ -128,15 +144,63 @@ static bool run(Function &F, const TargetTransformInfo &TTI,
   return true;
 }
 
+// The legacy pass is only used in the codegen pipeline, so it is always the
+// post-inlining variant.
+class AMDGPUSQTTFunctionInstrumentLegacy : public FunctionPass {
+public:
+  static char ID;
+  AMDGPUSQTTFunctionInstrumentLegacy() : FunctionPass(ID) {}
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<TargetTransformInfoWrapperPass>();
+    AU.addRequired<UniformityInfoWrapperPass>();
+  }
+
+  bool runOnFunction(Function &F) override {
+    if (!needsInstrumentation(F, /*PostInlining=*/true))
+      return false;
+    return ::run(F, /*PostInlining=*/true,
+                 getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F),
+                 getAnalysis<UniformityInfoWrapperPass>().getUniformityInfo());
+  }
+};
+
 } // namespace
+
+char AMDGPUSQTTFunctionInstrumentLegacy::ID = 0;
+
+INITIALIZE_PASS_BEGIN(AMDGPUSQTTFunctionInstrumentLegacy, DEBUG_TYPE,
+                      "AMDGPU SQTT function instrument (post inlining)", false,
+                      false)
+INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(UniformityInfoWrapperPass)
+INITIALIZE_PASS_END(AMDGPUSQTTFunctionInstrumentLegacy, DEBUG_TYPE,
+                    "AMDGPU SQTT function instrument (post inlining)", false,
+                    false)
+
+FunctionPass *llvm::createAMDGPUSQTTFunctionInstrumentLegacyPass() {
+  return new AMDGPUSQTTFunctionInstrumentLegacy();
+}
 
 PreservedAnalyses
 AMDGPUSQTTFunctionInstrumentPass::run(Function &F,
                                       FunctionAnalysisManager &AM) {
-  if (!::run(F, AM.getResult<TargetIRAnalysis>(F),
+  if (!needsInstrumentation(F, PostInlining))
+    return PreservedAnalyses::all();
+  if (!::run(F, PostInlining, AM.getResult<TargetIRAnalysis>(F),
              AM.getResult<UniformityInfoAnalysis>(F)))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
   PA.preserve<TargetIRAnalysis>();
   return PA;
+}
+
+void AMDGPUSQTTFunctionInstrumentPass::printPipeline(
+    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
+  RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass>::printPipeline(
+      OS, MapClassName2PassName);
+  OS << '<';
+  if (PostInlining)
+    OS << "post-inline";
+  OS << '>';
 }
