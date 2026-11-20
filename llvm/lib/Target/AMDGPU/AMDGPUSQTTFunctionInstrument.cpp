@@ -101,9 +101,12 @@ static bool run(Function &F, const TargetTransformInfo &TTI,
       DivergentReturns.push_back(&BB);
   }
 
+  // Insert the entry event after the allocas: the SQTT lowering may later split
+  // the entry block to guard the event, and the allocas left behind in the
+  // split blocks would not be static.
   DebugLoc EntryDL = getEntryDebugLoc(F);
   insertEvent(F, sqtt::Event::functionEntry(F),
-              &*F.getEntryBlock().getFirstInsertionPt(), EntryDL);
+              &*F.getEntryBlock().getFirstNonPHIOrAlloca(), EntryDL);
 
   for (BasicBlock *BB : OtherReturns) {
     Instruction *InsertPt = getExitInsertPt(*BB);
