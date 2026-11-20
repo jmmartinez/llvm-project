@@ -49,6 +49,13 @@ enum class VTableUniquenessKind {
   UniqueIfStrongLinkage,
 };
 
+/// Where the SQTT function entry and exit events are inserted.
+enum class SQTTInstrumentKind {
+  None,
+  BeforeInlining,
+  AfterInlining,
+};
+
 /// Bitfields of CodeGenOptions, split out from CodeGenOptions to ensure
 /// that this large collection of bitfields is a trivial class type.
 class CodeGenOptionsBase {
@@ -402,8 +409,8 @@ public:
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
 
-  /// Whether the SQTT function entry and exit events are inserted.
-  bool SQTTInstrument = false;
+  /// Where the SQTT function entry and exit events are inserted.
+  SQTTInstrumentKind SQTTInstrument = SQTTInstrumentKind::None;
 
   /// The name of the relocation model to use.
   llvm::Reloc::Model RelocationModel;

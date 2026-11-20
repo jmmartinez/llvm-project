@@ -6784,9 +6784,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  if (Args.hasArg(options::OPT_fsqtt_instrument) && (!IsHIP || IsHIPDevice)) {
+  if (Arg *A = Args.getLastArg(options::OPT_fsqtt_instrument_EQ);
+      A && StringRef(A->getValue()) != "none" && (!IsHIP || IsHIPDevice)) {
     CmdArgs.push_back("-D__SQTT_INSTRUMENT__");
-    CmdArgs.push_back("-fsqtt-instrument");
+    A->render(Args, CmdArgs);
   }
   Args.AddLastArg(CmdArgs, options::OPT_finstrument_functions,
                   options::OPT_finstrument_functions_after_inlining,
