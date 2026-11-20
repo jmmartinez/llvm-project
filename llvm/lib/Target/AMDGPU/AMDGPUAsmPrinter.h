@@ -90,6 +90,7 @@ private:
   void initTargetStreamer(Module &M);
 
   void emitAMDGPUInfo(Module &M);
+  void emitSQTTEventTable(Module &M);
   void collectCallEdge(const MachineInstr &MI);
 
   SetVector<std::pair<MCSymbol *, MCSymbol *>> DirectCallEdges;
@@ -155,6 +156,9 @@ public:
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        const char *ExtraCode, raw_ostream &O) override;
+
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNum,
+                             const char *ExtraCode, raw_ostream &O) override;
 
 protected:
   void getAnalysisUsage(AnalysisUsage &AU) const override;

@@ -10,7 +10,6 @@
 
 #include "PluginInterface.h"
 
-#include "Shared/APITypes.h"
 #include "Shared/Debug.h"
 
 #include "ErrorReporting.h"
@@ -19,7 +18,6 @@
 #include "JIT.h"
 #include "Shared/Utils.h"
 #include "Utils/ELF.h"
-#include "omptarget.h"
 #include "print_tracing.h"
 #include "trace.h"
 
@@ -38,12 +36,6 @@ using namespace target;
 using namespace plugin;
 using namespace error;
 using namespace llvm::offload::debug;
-
-namespace llvm::omp::target::plugin {
-// Used for kernel tracing implementation
-int PrintKernelTrace = 0;
-} // namespace llvm::omp::target::plugin
-
 
 AsyncInfoWrapperTy::AsyncInfoWrapperTy(GenericDeviceTy &Device,
                                        __tgt_async_info *AsyncInfoPtr)
@@ -90,6 +82,13 @@ void AsyncInfoWrapperTy::finalize(Error &Err) {
                            AsyncInfoPtr->Queue != nullptr, (bool)Err))
     Err = Device.synchronize(AsyncInfoPtr, /*ReleaseQueue=*/false);
 
+  // The local async info is about to be destroyed; make sure no kernel trace
+  // entry keeps pointing to it. This is done after synchronizing so that a trap
+  // raised while waiting for the kernel can still be attributed to it.
+  if (KernelTraced && AsyncInfoPtr == &LocalAsyncInfo)
+    Device.KernelLaunchTraces.getExclusiveAccessor()->clearAsyncInfo(
+        &LocalAsyncInfo);
+
   // Invalidate the wrapper object.
 
   AsyncInfoPtr = nullptr;
@@ -129,8 +128,12 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice,
 
     auto KernelTraceInfoRecord =
         GenericDevice.KernelLaunchTraces.getExclusiveAccessor();
+    // For a synchronous launch this is the wrapper's stack-local async info;
+    // finalize() removes the reference before that object is destroyed as
+    // otherwise it could be accessed from the trap handlers.
     (*KernelTraceInfoRecord)
         .emplace(this, std::move(StackTrace), AsyncInfoWrapper);
+    AsyncInfoWrapper.setKernelTraced();
   }
 
   uint32_t EffectiveNumThreads[3] = {LaunchArgs.UserThreadLimit[0],
@@ -539,7 +542,7 @@ Error GenericDeviceTy::synchronize(__tgt_async_info *AsyncInfo,
     return Plugin::error(ErrorCode::INVALID_ARGUMENT,
                          "invalid async info queue");
 
-  SmallVector<std::pair<void *, TargetAllocTy>> AllocsToDelete{};
+  SmallVector<std::pair<void *, ol_alloc_type_t>> AllocsToDelete{};
   {
     std::lock_guard<std::mutex> AllocationGuard{AsyncInfo->Mutex};
 
@@ -567,7 +570,7 @@ Error GenericDeviceTy::queryAsync(__tgt_async_info *AsyncInfo,
                          "invalid async info queue");
 
   bool WorkCompleted = false;
-  SmallVector<std::pair<void *, TargetAllocTy>> AllocsToDelete{};
+  SmallVector<std::pair<void *, ol_alloc_type_t>> AllocsToDelete{};
 
   {
     // Query and collect under the mutex, as synchronize does. Querying outside
@@ -602,8 +605,7 @@ Error GenericDeviceTy::getDeviceMemorySize(uint64_t &DSize) {
       "missing getDeviceMemorySize implementation (required by RR-heuristic");
 }
 
-Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, void *HostPtr,
-                                            TargetAllocTy Kind,
+Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, ol_alloc_type_t Kind,
                                             size_t Alignment,
                                             GenericProfilerTy *ProfilerPtr) {
   // Timing is owned by the OpenMP layer, which surrounds this call; see
@@ -611,7 +613,7 @@ Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, void *HostPtr,
   void *Alloc = nullptr;
 
   // TODO Check alignment.
-  auto AllocOrErr = allocate(Size, HostPtr, Kind, Alignment);
+  auto AllocOrErr = allocate(Size, Kind, Alignment);
   if (!AllocOrErr)
     return AllocOrErr.takeError();
   Alloc = *AllocOrErr;
@@ -630,8 +632,8 @@ Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, void *HostPtr,
   return Alloc;
 }
 
-void GenericDeviceTy::recordAllocation(void *DevicePtr, void *HostPtr,
-                                       int64_t Size, TargetAllocTy Kind) {
+void GenericDeviceTy::recordAllocation(void *DevicePtr, int64_t Size,
+                                       ol_alloc_type_t Kind) {
   if (!OMPX_TrackAllocationTraces)
     return;
 
@@ -642,7 +644,6 @@ void GenericDeviceTy::recordAllocation(void *DevicePtr, void *HostPtr,
   AllocationTraceInfoTy *ATI = new AllocationTraceInfoTy();
   ATI->AllocationTrace = std::move(StackTrace);
   ATI->DevicePtr = DevicePtr;
-  ATI->HostPtr = HostPtr;
   ATI->Size = Size;
   ATI->Kind = Kind;
 
@@ -652,7 +653,8 @@ void GenericDeviceTy::recordAllocation(void *DevicePtr, void *HostPtr,
   MapATI = ATI;
 }
 
-void GenericDeviceTy::recordDeallocation(void *DevicePtr, TargetAllocTy Kind) {
+void GenericDeviceTy::recordDeallocation(void *DevicePtr,
+                                         ol_alloc_type_t Kind) {
   if (!OMPX_TrackAllocationTraces)
     return;
 
@@ -683,7 +685,7 @@ void GenericDeviceTy::recordDeallocation(void *DevicePtr, TargetAllocTy Kind) {
   ATI->DeallocationTrace = StackTrace;
 }
 
-Error GenericDeviceTy::dataDelete(void *TgtPtr, TargetAllocTy Kind,
+Error GenericDeviceTy::dataDelete(void *TgtPtr, ol_alloc_type_t Kind,
                                   GenericProfilerTy *ProfilerPtr) {
   // Timing is owned by the OpenMP layer, which surrounds this call; see
   // DeviceTy::deleteData.
@@ -782,17 +784,15 @@ PluginContextTy::~PluginContextTy() {
 
 MemoryManagerTy *
 PluginContextTy::getDeviceMemoryManagerFor(GenericDeviceTy &Device,
-                                           TargetAllocTy Kind) {
+                                           ol_alloc_type_t Kind) {
   if (Device.OMPX_TrackAllocationTraces)
     return nullptr;
 
-  if (Kind == TARGET_ALLOC_DEFAULT)
-    Kind = TARGET_ALLOC_DEVICE;
-  assert((Kind == TARGET_ALLOC_DEVICE || Kind == TARGET_ALLOC_SHARED) &&
+  assert((Kind == OL_ALLOC_TYPE_DEVICE || Kind == OL_ALLOC_TYPE_MANAGED) &&
          "host allocations are not device-bound");
 
   size_t Threshold;
-  if (Kind == TARGET_ALLOC_DEVICE) {
+  if (Kind == OL_ALLOC_TYPE_DEVICE) {
     auto [EnvThreshold, EnableMM] = MemoryManagerTy::getSizeThresholdFromEnv();
     if (!EnableMM)
       return nullptr;
@@ -832,7 +832,7 @@ MemoryManagerTy *PluginContextTy::getHostMemoryManager() {
       std::make_unique<ContextAllocatorTy>(*this, *Devices.front());
   HostMemoryManager.Manager = std::make_unique<MemoryManagerTy>(
       *HostMemoryManager.Allocator, MemoryManagerTy::DefaultSizeThreshold,
-      TARGET_ALLOC_HOST);
+      OL_ALLOC_TYPE_HOST);
   return HostMemoryManager.Manager.get();
 }
 
@@ -843,47 +843,46 @@ void PluginContextTy::releaseMemoryManagers() {
   HostMemoryManager.Allocator.reset();
 }
 
-Expected<void *> ContextAllocatorTy::allocate(size_t Size, void *HstPtr,
-                                              TargetAllocTy Kind,
+Expected<void *> ContextAllocatorTy::allocate(size_t Size, ol_alloc_type_t Kind,
                                               size_t Alignment) {
-  return Context.allocateImpl(Device, Size, HstPtr, Kind, Alignment);
+  return Context.allocateImpl(Device, Size, Kind, Alignment);
 }
 
-Error ContextAllocatorTy::free(void *TgtPtr, TargetAllocTy Kind) {
+Error ContextAllocatorTy::free(void *TgtPtr, ol_alloc_type_t Kind) {
   return Context.deallocateImpl(Device, TgtPtr, Kind);
 }
 
 MemoryManagerTy *PluginContextTy::getMemoryManagerFor(GenericDeviceTy &Device,
-                                                      TargetAllocTy Kind) {
-  return Kind == TARGET_ALLOC_HOST ? getHostMemoryManager()
-                                   : getDeviceMemoryManagerFor(Device, Kind);
+                                                      ol_alloc_type_t Kind) {
+  return Kind == OL_ALLOC_TYPE_HOST ? getHostMemoryManager()
+                                    : getDeviceMemoryManagerFor(Device, Kind);
 }
 
 Expected<void *> PluginContextTy::allocate(GenericDeviceTy &Device,
-                                           int64_t Size, void *HostPtr,
-                                           TargetAllocTy Kind, size_t Alignment,
+                                           int64_t Size, ol_alloc_type_t Kind,
+                                           size_t Alignment,
                                            GenericProfilerTy *ProfilerPtr) {
   MemoryManagerTy *Manager = getMemoryManagerFor(Device, Kind);
-  auto AllocOrErr = Manager ? Manager->allocate(Size, HostPtr, Alignment)
-                            : allocateImpl(Device, Size, HostPtr, Kind,
-                                           Alignment, ProfilerPtr);
+  auto AllocOrErr =
+      Manager ? Manager->allocate(Size, Alignment)
+              : allocateImpl(Device, Size, Kind, Alignment, ProfilerPtr);
   if (!AllocOrErr)
     return AllocOrErr.takeError();
 
   if (*AllocOrErr) {
     trackAllocation(Device, *AllocOrErr, Size, Kind);
-    Device.recordAllocation(*AllocOrErr, HostPtr, Size, Kind);
+    Device.recordAllocation(*AllocOrErr, Size, Kind);
   }
 
   return AllocOrErr;
 }
 
 Expected<void *> PluginContextTy::allocateImpl(GenericDeviceTy &Device,
-                                               int64_t Size, void *HostPtr,
-                                               TargetAllocTy Kind,
+                                               int64_t Size,
+                                               ol_alloc_type_t Kind,
                                                size_t Alignment,
                                                GenericProfilerTy *ProfilerPtr) {
-  return Device.dataAlloc(Size, HostPtr, Kind, Alignment, ProfilerPtr);
+  return Device.dataAlloc(Size, Kind, Alignment, ProfilerPtr);
 }
 
 Error PluginContextTy::deallocate(void *Ptr, GenericProfilerTy *ProfilerPtr) {
@@ -898,7 +897,7 @@ Error PluginContextTy::deallocate(void *Ptr, GenericProfilerTy *ProfilerPtr) {
 }
 
 Error PluginContextTy::deallocate(GenericDeviceTy &Device, void *Ptr,
-                                  TargetAllocTy Kind,
+                                  ol_alloc_type_t Kind,
                                   GenericProfilerTy *ProfilerPtr) {
   Device.recordDeallocation(Ptr, Kind);
   untrackAllocation(Ptr);
@@ -910,7 +909,7 @@ Error PluginContextTy::deallocate(GenericDeviceTy &Device, void *Ptr,
 }
 
 Error PluginContextTy::deallocateImpl(GenericDeviceTy &Device, void *Ptr,
-                                      TargetAllocTy Kind,
+                                      ol_alloc_type_t Kind,
                                       GenericProfilerTy *ProfilerPtr) {
   return Device.dataDelete(Ptr, Kind, ProfilerPtr);
 }
@@ -1275,88 +1274,6 @@ bool GenericPluginTy::is_gfx90a_coarse_grain_usm_map_enabled(int32_t DeviceId) {
   return R;
 }
 
-#if 0//<<<<<<< HEAD
-int32_t GenericPluginTy::create_event(int32_t DeviceId, void **EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).createEvent(EventPtr);
-    if (Err) {
-      REPORT() << "Failure to create event: " << toString(std::move(Err));
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::record_event(int32_t DeviceId, void *EventPtr,
-                                      __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).recordEvent(EventPtr, AsyncInfoPtr);
-    if (Err) {
-      REPORT() << "Failure to record event " << EventPtr << ": "
-               << toString(std::move(Err));
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::wait_event(int32_t DeviceId, void *EventPtr,
-                                    __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).waitEvent(EventPtr, AsyncInfoPtr);
-    if (Err) {
-      REPORT() << "Failure to wait event " << EventPtr << ": "
-               << toString(std::move(Err));
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::sync_event(int32_t DeviceId, void *EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).syncEvent(EventPtr);
-    if (Err) {
-      REPORT() << "Failure to synchronize event " << EventPtr << ": "
-               << toString(std::move(Err));
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return OFFLOAD_SUCCESS;
-}
-
-int32_t GenericPluginTy::destroy_event(int32_t DeviceId, void *EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).destroyEvent(EventPtr);
-    if (Err) {
-      REPORT() << "Failure to destroy event " << EventPtr << ": "
-               << toString(std::move(Err));
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-#endif
 // Register mapped or allocated memory (with omp_target_alloc or omp_alloc)
 // as coarse grain
 // \arg DeviceId is the ID of the device for which the memory should be switched

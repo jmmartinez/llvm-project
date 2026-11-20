@@ -117,6 +117,7 @@ ModulePass *
 createAMDGPULowerModuleLDSLegacyPass(const AMDGPUTargetMachine *TM = nullptr);
 ModulePass *createAMDGPULowerBufferFatPointersPass();
 ModulePass *createAMDGPULowerIntrinsicsLegacyPass();
+ModulePass *createAMDGPUSQTTLowerLegacyPass();
 FunctionPass *createSIModeRegisterPass();
 FunctionPass *createAMDGPUPreloadKernArgPrologLegacyPass();
 ModulePass *createAMDGPUPreloadKernelArgumentsLegacyPass(const TargetMachine *);
@@ -213,6 +214,36 @@ void initializeAMDGPULowerIntrinsicsLegacyPass(PassRegistry &);
 struct AMDGPULowerIntrinsicsPass
     : OptionalPassInfoMixin<AMDGPULowerIntrinsicsPass> {
   AMDGPULowerIntrinsicsPass(const AMDGPUTargetMachine &TM) : TM(TM) {}
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+
+private:
+  const AMDGPUTargetMachine &TM;
+};
+
+// Inserts the SQTT function entry and exit events. \p PostInlining selects the
+// attribute that marks the functions to instrument: the pre-inlining variant
+// handles "amdgpu-sqtt-instrument" and the post-inlining variant handles
+// "amdgpu-sqtt-instrument-inlined".
+struct AMDGPUSQTTFunctionInstrumentPass
+    : RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass> {
+  AMDGPUSQTTFunctionInstrumentPass(bool PostInlining = false)
+      : PostInlining(PostInlining) {}
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
+
+private:
+  bool PostInlining;
+};
+
+// The legacy pass manager only runs the post-inlining variant.
+FunctionPass *createAMDGPUSQTTFunctionInstrumentLegacyPass();
+void initializeAMDGPUSQTTFunctionInstrumentLegacyPass(PassRegistry &);
+
+void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
+
+struct AMDGPUSQTTLowerPass : OptionalPassInfoMixin<AMDGPUSQTTLowerPass> {
+  AMDGPUSQTTLowerPass(const AMDGPUTargetMachine &TM) : TM(TM) {}
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 
 private:

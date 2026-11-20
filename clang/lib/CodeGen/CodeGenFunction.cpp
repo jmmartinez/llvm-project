@@ -824,6 +824,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     if (SanOpts.hasOneOf(SanitizerKind::HWAddress |
                          SanitizerKind::KernelHWAddress))
       Fn->addFnAttr(llvm::Attribute::SanitizeHWAddress);
+    if (SanOpts.has(SanitizerKind::DeviceAddress))
+      Fn->addFnAttr(llvm::Attribute::SanitizeDeviceAddress);
     if (SanOpts.has(SanitizerKind::MemtagStack))
       Fn->addFnAttr(llvm::Attribute::SanitizeMemTag);
     if (SanOpts.has(SanitizerKind::Thread))
@@ -1189,6 +1191,23 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     if (CGM.getCodeGenOpts().InstrumentFunctionEntryBare)
       CurFn->addFnAttr("instrument-function-entry-inlined",
                        "__cyg_profile_func_enter_bare");
+  }
+
+  // The SQTT entry and exit events are inserted by an AMDGPU pass that
+  // consumes these attributes: "amdgpu-sqtt-instrument" is handled before
+  // inlining and "amdgpu-sqtt-instrument-inlined" after it.
+  if (CGM.getTriple().isAMDGPU() && CurFuncDecl &&
+      !CurFuncDecl->hasAttr<NoInstrumentFunctionAttr>()) {
+    switch (CGM.getCodeGenOpts().SQTTInstrument) {
+    case SQTTInstrumentKind::None:
+      break;
+    case SQTTInstrumentKind::BeforeInlining:
+      CurFn->addFnAttr("amdgpu-sqtt-instrument");
+      break;
+    case SQTTInstrumentKind::AfterInlining:
+      CurFn->addFnAttr("amdgpu-sqtt-instrument-inlined");
+      break;
+    }
   }
 
   // Since emitting the mcount call here impacts optimizations such as function

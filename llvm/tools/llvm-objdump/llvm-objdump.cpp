@@ -21,6 +21,7 @@
 #include "MachODump.h"
 #include "ObjdumpOptID.h"
 #include "OffloadDump.h"
+#include "SQTTDump.h"
 #include "SourcePrinter.h"
 #include "WasmDump.h"
 #include "XCOFFDump.h"
@@ -287,6 +288,7 @@ std::string objdump::MCPU;
 std::vector<std::string> objdump::MAttrs;
 bool objdump::ShowRawInsn;
 bool objdump::LeadingAddr;
+cl::LibraryOptionsContext objdump::LibraryOptions;
 static bool Offloading;
 static bool RawClangAST;
 bool objdump::Relocations;
@@ -296,6 +298,7 @@ std::vector<std::string> objdump::FilterSections;
 bool objdump::SectionHeaders;
 static bool ShowAllSymbols;
 static bool ShowLMA;
+static bool SQTT;
 bool objdump::PrintSource;
 
 static uint64_t StartAddress;
@@ -1146,6 +1149,7 @@ DisassemblerTarget::DisassemblerTarget(const Target *TheTarget, ObjectFile &Obj,
     reportError(Obj.getFileName(), "no register info for target " + TripleName);
 
   // Set up disassembler.
+  Options.LibraryOptions = &LibraryOptions;
   AsmInfo.reset(TheTarget->createMCAsmInfo(*RegisterInfo, TheTriple, Options));
   if (!AsmInfo)
     reportError(Obj.getFileName(), "no assembly info for target " + TripleName);
@@ -3594,6 +3598,8 @@ static void dumpObject(ObjectFile *O, const Archive *A = nullptr,
     printFaultMaps(O);
   if (Offloading)
     dumpOffloadBinary(*O, StringRef(ArchName));
+  if (SQTT)
+    dumpSQTT(*O);
 }
 
 static void dumpObject(const COFFImportFile *I, const Archive *A,
@@ -3858,6 +3864,7 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
   SectionHeaders = InputArgs.hasArg(OBJDUMP_section_headers);
   ShowAllSymbols = InputArgs.hasArg(OBJDUMP_show_all_symbols);
   ShowLMA = InputArgs.hasArg(OBJDUMP_show_lma);
+  SQTT = InputArgs.hasArg(OBJDUMP_sqtt);
   PrintSource = InputArgs.hasArg(OBJDUMP_source);
   parseIntArg(InputArgs, OBJDUMP_start_address_EQ, StartAddress);
   HasStartAddressFlag = InputArgs.hasArg(OBJDUMP_start_address_EQ);
@@ -3960,7 +3967,7 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
   if (AsmSyntax)
     Args.push_back(AsmSyntax);
   if (Args.size() > 1)
-    llvm::cl::ParseCommandLineOptions(Args.size(), Args.data());
+    cl::parseCommandLineOptions(LibraryOptions, Args);
 
   // Look up any provided build IDs, then append them to the input filenames.
   for (const opt::Arg *A : InputArgs.filtered(OBJDUMP_build_id)) {
@@ -4084,6 +4091,7 @@ int llvm_objdump_main(int argc, char **argv, const llvm::ToolContext &) {
       DynamicRelocations || FileHeaders || PrivateHeaders || RawClangAST ||
       Relocations || SectionHeaders || SectionContents || SymbolTable ||
       DynamicSymbolTable || UnwindInfo || FaultMapSection || Offloading ||
+      SQTT ||
       (MachOOpt &&
        (Bind || DataInCode || ChainedFixups || DyldInfo || DylibId ||
         DylibsUsed || ExportsTrie || FirstPrivateHeader ||

@@ -296,7 +296,7 @@ defm : ValueField<"amdgpu-memcpy-loop-unroll", "unsigned", "16",
   "Unroll factor (affecting 4x32-bit operations) to use for memory operations when lowering statically-sized memcpy, memmove, or memset as a loop">;
 defm : ValueField<"amdgpu-unroll-max-block-to-analyze", "unsigned", "32",
   "Inner loop block size threshold to analyze in unroll for AMDGPU">;
-defm : BoolField<"amdgpu-unroll-runtime-default", "true",
+defm : BoolField<"amdgpu-unroll-runtime-default", "false",
   "Set default runtime unrolling for AMDGPU">;
 defm : BoolField<"amdgpu-unroll-runtime-local", "true",
   "Allow runtime unroll for AMDGPU if local memory used in a loop">;
@@ -352,6 +352,8 @@ defm : BoolField<"amdgpu-print-rp-downward", "false",
   "Use GCNDownwardRPTracker for GCNRegPressurePrinter pass">;
 
 // GCNSchedStrategy.cpp
+defm : BoolField<"amdgpu-avgpr-banking", "true",
+  "Distribute AVGPR pressure across the ArchVGPR and AGPR banks instead of charging all of it to ArchVGPR">;
 defm : BoolField<"amdgpu-clustered-low-occupancy-reschedule", "true",
   "Enable clustered low occupancy rescheduling for ILP scheduling stage">;
 defm : ValueField<"amdgpu-lirp-instant-lower-bound", "unsigned", "10",

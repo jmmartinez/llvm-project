@@ -49,6 +49,18 @@ enum class VTableUniquenessKind {
   UniqueIfStrongLinkage,
 };
 
+/// Where the SQTT function entry and exit events are inserted.
+enum class SQTTInstrumentKind {
+  /// The functions are not instrumented.
+  None,
+  /// The events are inserted at the start of the optimization pipeline, so the
+  /// events of the inlined functions end up in their callers.
+  BeforeInlining,
+  /// The events are inserted after all the inlining, so only the functions that
+  /// are emitted are instrumented.
+  AfterInlining,
+};
+
 /// Bitfields of CodeGenOptions, split out from CodeGenOptions to ensure
 /// that this large collection of bitfields is a trivial class type.
 class CodeGenOptionsBase {
@@ -395,6 +407,9 @@ public:
 
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
+
+  /// Where the SQTT function entry and exit events are inserted.
+  SQTTInstrumentKind SQTTInstrument = SQTTInstrumentKind::None;
 
   /// The name of the relocation model to use.
   llvm::Reloc::Model RelocationModel;

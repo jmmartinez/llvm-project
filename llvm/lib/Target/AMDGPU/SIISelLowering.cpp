@@ -47,9 +47,11 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/ModRef.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/TargetParser/AtomicScope.h"
 #include "llvm/Transforms/Utils/LowerAtomic.h"
 #include <optional>
@@ -2541,6 +2543,13 @@ bool SITargetLowering::isTypeDesirableForOp(unsigned Op, EVT VT) const {
       (Op == ISD::SINT_TO_FP || Op == ISD::UINT_TO_FP))
     return false;
 
+  // The DAGCombiner replaces a conversion from i1 with a select of the two
+  // exact results. The select avoids an f32 conversion plus rounding for
+  // f16/bf16, a 64-bit conversion for f64 and a missing libcall for f128, and
+  // is the same single v_cndmask for f32.
+  if (VT == MVT::i1 && (Op == ISD::SINT_TO_FP || Op == ISD::UINT_TO_FP))
+    return false;
+
   return TargetLowering::isTypeDesirableForOp(Op, VT);
 }
 
@@ -3838,7 +3847,10 @@ SDValue SITargetLowering::LowerFormalArguments(
       llvm_unreachable("Unexpected register class in LowerFormalArguments!");
 
     Reg = MF.addLiveIn(Reg, RC);
-    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, VT);
+    bool CopyAsI32 =
+        VT.getSizeInBits() == 16 &&
+        (RC == &AMDGPU::SGPR_32RegClass || !Subtarget->useRealTrue16Insts());
+    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, CopyAsI32 ? MVT::i32 : VT);
     if (Arg.Flags.isInReg() && RC == &AMDGPU::VGPR_32RegClass) {
       // FIXME: Need to forward the chains created by `CopyFromReg`s, make sure
       // they will read physical regs before any side effect instructions.
@@ -3847,6 +3859,9 @@ SDValue SITargetLowering::LowerFormalArguments(
       Val = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, Val.getValueType(),
                         ReadFirstLane, Val);
     }
+
+    if (CopyAsI32)
+      Val = DAG.getBitcast(VT, DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, Val));
 
     if (Arg.Flags.isSRet()) {
       // The return object should be reasonably addressable.
@@ -7474,6 +7489,28 @@ SITargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     BB->addSuccessor(TrapBB);
     MI.eraseFromParent();
     return SplitBB;
+  }
+  case AMDGPU::SQTT_EVENT:
+  case AMDGPU::SQTT_EVENT_IMM: {
+    MachineOperand &EventID = MI.getOperand(0);
+    assert(EventID.isImm());
+
+    // m0 is implicitely used by s_ttracedata. s_ttracedata_imm encodes the
+    // event id instead.
+    MachineInstr *TraceData;
+    if (MI.getOpcode() == AMDGPU::SQTT_EVENT_IMM) {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA_IMM))
+                      .addImm(EventID.getImm());
+    } else {
+      TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
+    }
+
+    MCSymbol *Label = MF->getContext().createBlockSymbol(
+        "sqtt_event." + Twine(EventID.getImm()), /*AlwaysEmit=*/true);
+    TraceData->setPreInstrSymbol(*MF, Label);
+
+    MI.eraseFromParent();
+    return BB;
   }
   case AMDGPU::SIMULATED_TRAP: {
     assert(Subtarget->hasPrivEnabledTrap2NopBug());
@@ -12789,6 +12826,64 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
     return SDValue(DAG.getMachineNode(Opc, DL, Op->getVTList(), Ops), 0);
   }
 
+  case Intrinsic::amdgcn_sqtt_event: {
+    const ConstantSDNode *EventID = dyn_cast<ConstantSDNode>(Op.getOperand(3));
+    if (!EventID)
+      return SDValue();
+    bool IsCULocal = Op.getConstantOperandVal(4);
+    SDValue EventIDTgt =
+        DAG.getTargetConstant(EventID->getZExtValue(), DL, MVT::i32);
+    SDValue BarrierMask = DAG.getTargetConstant(0, DL, MVT::i32);
+    // The absolute id of a non CU-local event is only known at runtime, so it
+    // cannot be encoded in s_ttracedata_imm.
+    bool UseImm = IsCULocal &&
+                  Subtarget->canTraceSQTTEventWithImm(EventID->getZExtValue());
+    SDValue M0Value = EventIDTgt;
+    if (!IsCULocal) {
+      // absolute id = event_id + (cu_base - __start___sqtt_events) / ptr_size
+      MachineFunction &MF = DAG.getMachineFunction();
+      auto SymbolAddressLo = [&](const Twine &Name) {
+        const char *Sym = MF.createExternalSymbolName(Name.str());
+        SDValue Lo = DAG.getTargetExternalSymbol(Sym, MVT::i32,
+                                                 SIInstrInfo::MO_REL32_LO);
+        SDValue Hi = DAG.getTargetExternalSymbol(Sym, MVT::i32,
+                                                 SIInstrInfo::MO_REL32_HI);
+        SDValue Addr = SDValue(DAG.getMachineNode(AMDGPU::SI_PC_ADD_REL_OFFSET,
+                                                  DL, MVT::i64, {Lo, Hi}),
+                               0);
+        return DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Addr);
+      };
+      SDValue CUBase = SymbolAddressLo(
+          Twine(MF.getContext().getAsmInfo().getInternalSymbolPrefix()) +
+          sqtt::EventsTableCUStart);
+      SDValue TableBase =
+          SymbolAddressLo(Twine("__start_") + sqtt::EventsTableSection);
+      SDValue ByteOffset =
+          DAG.getNode(ISD::SUB, DL, MVT::i32, CUBase, TableBase);
+      unsigned PtrSize =
+          DAG.getDataLayout().getPointerSize(AMDGPUAS::FLAT_ADDRESS);
+      SDValue CUBaseID =
+          DAG.getNode(ISD::SRL, DL, MVT::i32, ByteOffset,
+                      DAG.getConstant(Log2_32(PtrSize), DL, MVT::i32));
+      M0Value =
+          DAG.getNode(ISD::ADD, DL, MVT::i32, CUBaseID,
+                      DAG.getConstant(EventID->getZExtValue(), DL, MVT::i32));
+    }
+    // SQTT_EVENT_IMM encodes the event id, it doesn't need the m0 write.
+    SDValue M0Chain = UseImm ? Chain : copyToM0(DAG, Chain, DL, M0Value);
+
+    SDValue EventChain =
+        SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                   {BarrierMask, M0Chain}),
+                0);
+    unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
+    EventChain = SDValue(
+        DAG.getMachineNode(Opc, DL, MVT::Other, {EventIDTgt, EventChain}), 0);
+    return SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
+                                      {BarrierMask, EventChain}),
+                   0);
+  }
+
   case Intrinsic::amdgcn_struct_tbuffer_store:
   case Intrinsic::amdgcn_struct_ptr_tbuffer_store: {
     SDValue VData = Op.getOperand(2);
@@ -14395,7 +14490,7 @@ SDValue SITargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
              : AMDGPUAS::GLOBAL_ADDRESS;
 
   unsigned NumElements = VT.getVectorNumElements();
-  if (AS == AMDGPUAS::GLOBAL_ADDRESS || AS == AMDGPUAS::FLAT_ADDRESS) {
+  if (AS == AMDGPUAS::FLAT_ADDRESS || AMDGPU::isExtendedGlobalAddrSpace(AS)) {
     if (NumElements > 4)
       return SplitVectorStore(Op, DAG);
     // v3 stores not supported on SI.
@@ -18187,10 +18282,10 @@ SDValue SITargetLowering::performAddCombine(SDNode *N,
         Src1s.begin()->SrcOp.getValueSizeInBits() >= 32) {
       SmallVector<unsigned, 4> SrcBytes;
       auto Src0Mask = Src0s.begin()->PermMask;
-      SrcBytes.push_back(Src0Mask & 0xFF000000);
+      SrcBytes.push_back((Src0Mask >> 24) & 0xFF);
       bool UniqueEntries = true;
       for (auto I = 1; I < 4; I++) {
-        auto NextByte = Src0Mask & (0xFF << ((3 - I) * 8));
+        auto NextByte = (Src0Mask >> ((3 - I) * 8)) & 0xFF;
 
         if (is_contained(SrcBytes, NextByte)) {
           UniqueEntries = false;
@@ -20349,15 +20444,27 @@ SITargetLowering::getConstraintType(StringRef Constraint) const {
     case 'v':
     case 'a':
       return C_RegisterClass;
+    case 'm':
+      return C_Memory;
     }
   } else if (Constraint.size() == 2) {
     if (Constraint == "VA")
       return C_RegisterClass;
+    if (Constraint == "RF")
+      return C_Memory;
   }
   if (isImmConstraint(Constraint)) {
     return C_Other;
   }
   return TargetLowering::getConstraintType(Constraint);
+}
+
+InlineAsm::ConstraintCode
+SITargetLowering::getInlineAsmMemConstraint(StringRef ConstraintCode) const {
+  if (ConstraintCode == "RF")
+    return InlineAsm::ConstraintCode::RF;
+
+  return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
 }
 
 static uint64_t clearUnusedBits(uint64_t Val, unsigned Size) {
@@ -20748,16 +20855,20 @@ void SITargetLowering::computeKnownBitsForTargetInstr(
 
       KnownBits RHSKnown;
       VT.computeKnownBitsImpl(RHS, RHSKnown, DemandedElts, Depth + 1);
-      if (RHSKnown.isUnknown())
-        break;
 
+      bool SelfMultiply = LHS == RHS;
+
+      // For a self-multiply both operands are the same value, so RHSKnown also
+      // describes the LHS; avoid the duplicated query.
       KnownBits LHSKnown;
-      VT.computeKnownBitsImpl(LHS, LHSKnown, DemandedElts, Depth + 1);
-      if (LHSKnown.isUnknown())
-        break;
+      if (SelfMultiply)
+        LHSKnown = RHSKnown;
+      else
+        VT.computeKnownBitsImpl(LHS, LHSKnown, DemandedElts, Depth + 1);
 
-      bool SelfMultiply =
-          LHS == RHS && isGuaranteedNotToBeUndef(LHS, MRI, Depth + 1);
+      if (SelfMultiply)
+        SelfMultiply &= isGuaranteedNotToBeUndef(LHS, MRI, Depth + 1);
+
       Known = computeKnownBitsForMul24(LHSKnown, RHSKnown, Known.getBitWidth(),
                                        IID == Intrinsic::amdgcn_mul_i24,
                                        SelfMultiply);

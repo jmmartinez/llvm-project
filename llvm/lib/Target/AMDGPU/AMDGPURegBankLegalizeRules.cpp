@@ -1428,6 +1428,8 @@ RegBankLegalizeRules::RegBankLegalizeRules(const GCNSubtarget &_ST,
       .Any({{UniP5, UniS32}, {{SgprP5}, {Sgpr32}, DynStackAlloc}})
       .Any({{UniP5, DivS32}, {{SgprP5}, {Vgpr32}, DynStackAlloc}});
 
+  addRulesForGOpcs({G_STACKRESTORE}).Any({{P5}, {{}, {SgprB32_ReadFirstLane}}});
+
   addRulesForGOpcs({G_ABS}, Standard)
       .Uni(S16, {{Sgpr32Trunc}, {Sgpr32SExt}})
       .Div(S16, {{Vgpr16}, {Vgpr16}, AbsToNegMax})
@@ -1857,6 +1859,9 @@ RegBankLegalizeRules::RegBankLegalizeRules(const GCNSubtarget &_ST,
       .Any({{}, {{}, {IntrId, Sgpr32}}});
 
   addRulesForIOpcs({amdgcn_s_ttracedata}).Any({{}, {{}, {IntrId, SgprB32_M0}}});
+
+  addRulesForIOpcs({amdgcn_sqtt_event})
+      .Any({{}, {{}, {IntrId, None, Sgpr32, Imm}}});
 
   addRulesForIOpcs({amdgcn_s_sleep_var})
       .Any({{}, {{}, {IntrId, SgprB32_ReadFirstLane}}});

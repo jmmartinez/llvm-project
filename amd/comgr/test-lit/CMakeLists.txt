@@ -74,5 +74,6 @@ add_comgr_lit_binary(parse-isa-name c)
 add_comgr_lit_binary(name-expression-map c)
 add_comgr_lit_binary(isa-enumeration c)
 add_comgr_lit_binary(test-get-data-isa-name c)
+add_comgr_lit_binary(sqtt-dump c)
 
 add_dependencies(check-comgr test-lit)

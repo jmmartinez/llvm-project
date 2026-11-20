@@ -43,12 +43,17 @@
 ; GCN-O0-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O0-NEXT:      Expand reduction intrinsics
 ; GCN-O0-NEXT:      Dominator Tree Construction
+; GCN-O0-NEXT:      Cycle Info Analysis
+; GCN-O0-NEXT:      Uniformity Analysis
+; GCN-O0-NEXT:      AMDGPU SQTT function instrument (post inlining)
+; GCN-O0-NEXT:      Dominator Tree Construction
 ; GCN-O0-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O0-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O0-NEXT:      FunctionPass Manager
 ; GCN-O0-NEXT:        Dominator Tree Construction
 ; GCN-O0-NEXT:        Natural Loop Information
 ; GCN-O0-NEXT:        Scalar Evolution Analysis
+; GCN-O0-NEXT:    AMDGPU SQTT lower
 ; GCN-O0-NEXT:    AMDGPU lower intrinsics
 ; GCN-O0-NEXT:    FunctionPass Manager
 ; GCN-O0-NEXT:      Lazy Value Information Analysis
@@ -229,6 +234,9 @@
 ; GCN-O1-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O1-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O1-NEXT:      Expand reduction intrinsics
+; GCN-O1-NEXT:      Cycle Info Analysis
+; GCN-O1-NEXT:      Uniformity Analysis
+; GCN-O1-NEXT:      AMDGPU SQTT function instrument (post inlining)
 ; GCN-O1-NEXT:    AMDGPU Preload Kernel Arguments
 ; GCN-O1-NEXT:    FunctionPass Manager
 ; GCN-O1-NEXT:      Dominator Tree Construction
@@ -244,6 +252,7 @@
 ; GCN-O1-NEXT:        Dominator Tree Construction
 ; GCN-O1-NEXT:        Natural Loop Information
 ; GCN-O1-NEXT:        Scalar Evolution Analysis
+; GCN-O1-NEXT:    AMDGPU SQTT lower
 ; GCN-O1-NEXT:    AMDGPU lower intrinsics
 ; GCN-O1-NEXT:    FunctionPass Manager
 ; GCN-O1-NEXT:      Lazy Value Information Analysis
@@ -536,6 +545,10 @@
 ; GCN-O1-OPTS-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O1-OPTS-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O1-OPTS-NEXT:      Expand reduction intrinsics
+; GCN-O1-OPTS-NEXT:      Cycle Info Analysis
+; GCN-O1-OPTS-NEXT:      Uniformity Analysis
+; GCN-O1-OPTS-NEXT:      AMDGPU SQTT function instrument (post inlining)
+; GCN-O1-OPTS-NEXT:      Dominator Tree Construction
 ; GCN-O1-OPTS-NEXT:      Early CSE
 ; GCN-O1-OPTS-NEXT:    AMDGPU Preload Kernel Arguments
 ; GCN-O1-OPTS-NEXT:    FunctionPass Manager
@@ -558,6 +571,7 @@
 ; GCN-O1-OPTS-NEXT:        Dominator Tree Construction
 ; GCN-O1-OPTS-NEXT:        Natural Loop Information
 ; GCN-O1-OPTS-NEXT:        Scalar Evolution Analysis
+; GCN-O1-OPTS-NEXT:    AMDGPU SQTT lower
 ; GCN-O1-OPTS-NEXT:    AMDGPU lower intrinsics
 ; GCN-O1-OPTS-NEXT:    FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:      Lazy Value Information Analysis
@@ -861,6 +875,10 @@
 ; GCN-O2-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O2-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O2-NEXT:      Expand reduction intrinsics
+; GCN-O2-NEXT:      Cycle Info Analysis
+; GCN-O2-NEXT:      Uniformity Analysis
+; GCN-O2-NEXT:      AMDGPU SQTT function instrument (post inlining)
+; GCN-O2-NEXT:      Dominator Tree Construction
 ; GCN-O2-NEXT:      Early CSE
 ; GCN-O2-NEXT:    AMDGPU Preload Kernel Arguments
 ; GCN-O2-NEXT:    FunctionPass Manager
@@ -883,6 +901,7 @@
 ; GCN-O2-NEXT:        Dominator Tree Construction
 ; GCN-O2-NEXT:        Natural Loop Information
 ; GCN-O2-NEXT:        Scalar Evolution Analysis
+; GCN-O2-NEXT:    AMDGPU SQTT lower
 ; GCN-O2-NEXT:    AMDGPU lower intrinsics
 ; GCN-O2-NEXT:    FunctionPass Manager
 ; GCN-O2-NEXT:      Lazy Value Information Analysis
@@ -1195,6 +1214,10 @@
 ; GCN-O3-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O3-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O3-NEXT:      Expand reduction intrinsics
+; GCN-O3-NEXT:      Cycle Info Analysis
+; GCN-O3-NEXT:      Uniformity Analysis
+; GCN-O3-NEXT:      AMDGPU SQTT function instrument (post inlining)
+; GCN-O3-NEXT:      Dominator Tree Construction
 ; GCN-O3-NEXT:      Natural Loop Information
 ; GCN-O3-NEXT:      Basic Alias Analysis (stateless AA impl)
 ; GCN-O3-NEXT:      Function Alias Analysis Results
@@ -1225,6 +1248,7 @@
 ; GCN-O3-NEXT:        Dominator Tree Construction
 ; GCN-O3-NEXT:        Natural Loop Information
 ; GCN-O3-NEXT:        Scalar Evolution Analysis
+; GCN-O3-NEXT:    AMDGPU SQTT lower
 ; GCN-O3-NEXT:    AMDGPU lower intrinsics
 ; GCN-O3-NEXT:    FunctionPass Manager
 ; GCN-O3-NEXT:      Lazy Value Information Analysis

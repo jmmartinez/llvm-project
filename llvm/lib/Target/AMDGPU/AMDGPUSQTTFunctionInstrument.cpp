@@ -1,0 +1,213 @@
+//===- AMDGPUSQTTFunctionInstrument.cpp -----------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// Insert the SQTT function entry and exit events in the functions marked with
+// the "amdgpu-sqtt-instrument" or the "amdgpu-sqtt-instrument-inlined"
+// attribute. As with the generic function entry/exit instrumentation, there are
+// two variants of the pass:
+//  - Pre-inlining: consumes "amdgpu-sqtt-instrument". It runs at the start of
+//    the optimization pipeline, so the events of an inlined function end up in
+//    its callers.
+//  - Post-inlining: consumes "amdgpu-sqtt-instrument-inlined". It runs in the
+//    codegen pipeline, after all the inlining, so only the functions that are
+//    actually emitted are instrumented.
+//
+// The events describe the execution of a wave, but they are inserted on the
+// thread CFG. If a function has divergent returns, the exit event of each of
+// them would execute for the same wave with a different exec mask. To avoid
+// it, the divergent returns of an instrumented function are first merged into a
+// single return block, which holds their exit event. The returns that are
+// reached through uniform branches are executed by the whole wave, so they
+// keep their own exit event.
+//
+//===----------------------------------------------------------------------===//
+
+#include "AMDGPU.h"
+#include "AMDGPUUnifyDivergentExitNodes.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/Analysis/UniformityAnalysis.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/Target/AMDGPU/SQTTEvent.h"
+
+using namespace llvm;
+
+#define DEBUG_TYPE "amdgpu-sqtt-function-instrument"
+
+namespace {
+
+constexpr StringLiteral InstrumentAttr = "amdgpu-sqtt-instrument";
+constexpr StringLiteral InstrumentInlinedAttr =
+    "amdgpu-sqtt-instrument-inlined";
+
+static StringRef getInstrumentAttr(bool PostInlining) {
+  return PostInlining ? InstrumentInlinedAttr : InstrumentAttr;
+}
+
+// Whether \p F has to be instrumented by the variant of the pass selected by
+// \p PostInlining. This is checked before getting any analysis, as most of the
+// functions are not instrumented.
+static bool needsInstrumentation(const Function &F, bool PostInlining) {
+  // Same as the generic entry/exit instrumentation: the asm of a naked function
+  // can not be changed, and available_externally functions may not have a
+  // definition outside of the module.
+  if (F.isDeclaration() || F.hasFnAttribute(Attribute::Naked) ||
+      F.hasAvailableExternallyLinkage())
+    return false;
+
+  return F.hasFnAttribute(getInstrumentAttr(PostInlining));
+}
+
+static void insertEvent(Function &F, sqtt::Event Event, Instruction *InsertPt,
+                        const DebugLoc &DL) {
+  LLVMContext &C = F.getContext();
+  IRBuilder<> Builder(InsertPt);
+  Builder.SetCurrentDebugLocation(DL);
+  Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event,
+                          {MetadataAsValue::get(C, Event.toMetadata(C)),
+                           PoisonValue::get(Builder.getInt32Ty()),
+                           /*IsCULocal=*/Builder.getTrue()});
+}
+
+static DebugLoc getEntryDebugLoc(const Function &F) {
+  if (DISubprogram *SP = F.getSubprogram())
+    return DILocation::get(SP->getContext(), SP->getScopeLine(), 0, SP);
+  return DebugLoc();
+}
+
+static DebugLoc getExitDebugLoc(const Function &F, const Instruction &Ret) {
+  if (DebugLoc DL = Ret.getDebugLoc())
+    return DL;
+  if (DISubprogram *SP = F.getSubprogram())
+    return DILocation::get(SP->getContext(), 0, 0, SP);
+  return DebugLoc();
+}
+
+// The instruction that the exit event is inserted before: the return or, if
+// there is one, the musttail call that precedes it.
+static Instruction *getExitInsertPt(BasicBlock &BB) {
+  if (CallInst *CI = BB.getTerminatingMustTailCall())
+    return CI;
+  return BB.getTerminator();
+}
+
+// Instrument \p F, which must satisfy needsInstrumentation().
+static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
+                const UniformityInfo &UA) {
+  assert(needsInstrumentation(F, PostInlining));
+
+  // Consume the attribute so that the function is not instrumented twice.
+  F.removeFnAttr(getInstrumentAttr(PostInlining));
+
+  // A musttail call must stay next to its return, and a return that is
+  // uniformly reached is executed by the whole wave. Such returns are not
+  // merged.
+  SmallVector<BasicBlock *> DivergentReturns;
+  SmallVector<BasicBlock *> OtherReturns;
+  for (BasicBlock &BB : F) {
+    if (!isa<ReturnInst>(BB.getTerminator()))
+      continue;
+    if (BB.getTerminatingMustTailCall() || isUniformlyReached(UA, BB))
+      OtherReturns.push_back(&BB);
+    else
+      DivergentReturns.push_back(&BB);
+  }
+
+  // Insert the entry event after the allocas: the SQTT lowering may later split
+  // the entry block to guard the event, and the allocas left behind in the
+  // split blocks would not be static.
+  DebugLoc EntryDL = getEntryDebugLoc(F);
+  insertEvent(F, sqtt::Event::functionEntry(F),
+              &*F.getEntryBlock().getFirstNonPHIOrAlloca(), EntryDL);
+
+  for (BasicBlock *BB : OtherReturns) {
+    Instruction *InsertPt = getExitInsertPt(*BB);
+    insertEvent(F, sqtt::Event::functionExit(F), InsertPt,
+                getExitDebugLoc(F, *BB->getTerminator()));
+  }
+
+  if (DivergentReturns.empty())
+    return true;
+
+  DebugLoc ExitDL =
+      getExitDebugLoc(F, *DivergentReturns.front()->getTerminator());
+  BasicBlock *RetBlock = DivergentReturns.front();
+  if (DivergentReturns.size() > 1)
+    RetBlock = unifyReturnBlockSet(F, /*DTU=*/nullptr, DivergentReturns,
+                                   "UnifiedReturnBlock", TTI);
+  insertEvent(F, sqtt::Event::functionExit(F), RetBlock->getTerminator(),
+              ExitDL);
+  return true;
+}
+
+// The legacy pass is only used in the codegen pipeline, so it is always the
+// post-inlining variant.
+class AMDGPUSQTTFunctionInstrumentLegacy : public FunctionPass {
+public:
+  static char ID;
+  AMDGPUSQTTFunctionInstrumentLegacy() : FunctionPass(ID) {}
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<TargetTransformInfoWrapperPass>();
+    AU.addRequired<UniformityInfoWrapperPass>();
+  }
+
+  bool runOnFunction(Function &F) override {
+    if (!needsInstrumentation(F, /*PostInlining=*/true))
+      return false;
+    return ::run(F, /*PostInlining=*/true,
+                 getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F),
+                 getAnalysis<UniformityInfoWrapperPass>().getUniformityInfo());
+  }
+};
+
+} // namespace
+
+char AMDGPUSQTTFunctionInstrumentLegacy::ID = 0;
+
+INITIALIZE_PASS_BEGIN(AMDGPUSQTTFunctionInstrumentLegacy, DEBUG_TYPE,
+                      "AMDGPU SQTT function instrument (post inlining)", false,
+                      false)
+INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(UniformityInfoWrapperPass)
+INITIALIZE_PASS_END(AMDGPUSQTTFunctionInstrumentLegacy, DEBUG_TYPE,
+                    "AMDGPU SQTT function instrument (post inlining)", false,
+                    false)
+
+FunctionPass *llvm::createAMDGPUSQTTFunctionInstrumentLegacyPass() {
+  return new AMDGPUSQTTFunctionInstrumentLegacy();
+}
+
+PreservedAnalyses
+AMDGPUSQTTFunctionInstrumentPass::run(Function &F,
+                                      FunctionAnalysisManager &AM) {
+  if (!needsInstrumentation(F, PostInlining))
+    return PreservedAnalyses::all();
+  if (!::run(F, PostInlining, AM.getResult<TargetIRAnalysis>(F),
+             AM.getResult<UniformityInfoAnalysis>(F)))
+    return PreservedAnalyses::all();
+  PreservedAnalyses PA;
+  PA.preserve<TargetIRAnalysis>();
+  return PA;
+}
+
+void AMDGPUSQTTFunctionInstrumentPass::printPipeline(
+    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
+  RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass>::printPipeline(
+      OS, MapClassName2PassName);
+  OS << '<';
+  if (PostInlining)
+    OS << "post-inline";
+  OS << '>';
+}

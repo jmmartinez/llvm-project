@@ -412,7 +412,6 @@ static VGPRRegisterRegAlloc greedyRegAllocVGPR(
 
 static VGPRRegisterRegAlloc fastRegAllocVGPR(
   "fast", "fast register allocator", createFastVGPRRegisterAllocator);
-
 static WWMRegisterRegAlloc basicRegAllocWWMReg("basic",
                                                "basic register allocator",
                                                createBasicWWMRegisterAllocator);
@@ -528,6 +527,8 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPURemoveIncompatibleFunctionsLegacyPass(*PR);
   initializeAMDGPULowerModuleLDSLegacyPass(*PR);
   initializeAMDGPULowerBufferFatPointersPass(*PR);
+  initializeAMDGPUSQTTFunctionInstrumentLegacyPass(*PR);
+  initializeAMDGPUSQTTLowerLegacyPass(*PR);
   initializeAMDGPULowerIntrinsicsLegacyPass(*PR);
   initializeAMDGPUReserveWWMRegsLegacyPass(*PR);
   initializeAMDGPURewriteAGPRCopyMFMALegacyPass(*PR);
@@ -771,6 +772,7 @@ AMDGPUTargetMachine::createMachineScheduler(MachineSchedContext *C) const {
 static bool mustPreserveGV(const GlobalValue &GV) {
   if (const Function *F = dyn_cast<Function>(&GV))
     return F->isDeclaration() || F->getName().starts_with("__asan_") ||
+           F->getName().starts_with("__dasan_") ||
            F->getName().starts_with("__sanitizer_") ||
            AMDGPU::isEntryFunctionCC(F->getCallingConv());
 
@@ -796,6 +798,12 @@ parseAMDGPUAtomicOptimizerStrategy(StringRef Params) {
   if (Result)
     return *Result;
   return make_error<StringError>("invalid parameter", inconvertibleErrorCode());
+}
+
+static Expected<bool>
+parseAMDGPUSQTTFunctionInstrumentPassOptions(StringRef Params) {
+  return PassBuilder::parseSinglePassOption(Params, "post-inline",
+                                            "AMDGPUSQTTFunctionInstrument");
 }
 
 Expected<AMDGPUAttributorOptions>
@@ -846,6 +854,17 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
           return;
 
         FPM.addPass(InferAddressSpacesPass());
+      });
+
+  // Insert the SQTT function entry/exit events before the inliner. This has
+  // to run before any pass that restructures the CFG, so it is at the very
+  // start of the pipeline. The events of the functions marked to be
+  // instrumented after inlining are inserted by the codegen pipeline.
+  PB.registerPipelineStartEPCallback(
+      [this](ModulePassManager &PM, OptimizationLevel Level) {
+        if (getTargetTriple().isAMDGCN())
+          PM.addPass(createModuleToFunctionPassAdaptor(
+              AMDGPUSQTTFunctionInstrumentPass(/*PostInlining=*/false)));
       });
 
   PB.registerPipelineEarlySimplificationEPCallback(
@@ -1472,6 +1491,12 @@ void AMDGPUPassConfig::addIRPasses() {
 
   TargetPassConfig::addIRPasses();
 
+  // Insert the SQTT function entry/exit events after all the inlining. This
+  // runs after the generic post-inline entry/exit instrumentation and before
+  // the SQTT lowering.
+  if (TM.getTargetTriple().isAMDGCN())
+    addPass(createAMDGPUSQTTFunctionInstrumentLegacyPass());
+
   // EarlyCSE is not always strong enough to clean up what LSR produces. For
   // example, GVN can combine
   //
@@ -1510,6 +1535,7 @@ void AMDGPUPassConfig::addCodeGenPrepare() {
     // passes can run on the more optimized control flow this pass creates in
     // many cases.
     addPass(createAMDGPULowerBufferFatPointersPass());
+    addPass(createAMDGPUSQTTLowerLegacyPass());
     addPass(createAMDGPULowerIntrinsicsLegacyPass());
   }
 
@@ -1790,7 +1816,7 @@ bool GCNPassConfig::addRegAssignAndRewriteFast() {
   addPass(&SILowerWWMCopiesLegacyID);
   addPass(&AMDGPUReserveWWMRegsLegacyID);
 
-  // For allocating regular VGPRs.
+  // For allocating per-thread VGPRs.
   addPass(createVGPRAllocPass(false));
 
   return true;
@@ -1827,7 +1853,7 @@ bool GCNPassConfig::addRegAssignAndRewriteOptimized() {
   addPass(createVirtRegRewriter(false));
   addPass(&AMDGPUReserveWWMRegsLegacyID);
 
-  // For allocating regular VGPRs.
+  // For allocating per-thread VGPRs.
   addPass(createVGPRAllocPass(true));
 
   addPreRewrite();
@@ -1972,10 +1998,10 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
     // Create a diagnostic for a the register string literal.
     const MemoryBuffer &Buffer =
         *PFS.SM->getMemoryBuffer(PFS.SM->getMainFileID());
-    Error = SMDiagnostic(*PFS.SM, SMLoc(), Buffer.getBufferIdentifier(), 1,
-                         RegName.Value.size(), SourceMgr::DK_Error,
-                         "incorrect register class for field", RegName.Value,
-                         {}, {});
+    Error = SMDiagnostic(
+        *PFS.SM, SMLoc(), Buffer.getBufferIdentifier(), 1,
+        static_cast<int>(RegName.Value.size()), SourceMgr::DK_Error,
+        "incorrect register class for field", RegName.Value, {}, {});
     SourceRange = RegName.SourceRange;
     return true;
   };
@@ -2260,6 +2286,13 @@ void AMDGPUCodeGenPassBuilder::addIRPasses(PassManagerWrapper &PMW) {
 
   Base::addIRPasses(PMW);
 
+  // Insert the SQTT function entry/exit events after all the inlining. This
+  // runs after the generic post-inline entry/exit instrumentation and before
+  // the SQTT lowering.
+  if (TM.getTargetTriple().isAMDGCN())
+    addFunctionPass(AMDGPUSQTTFunctionInstrumentPass(/*PostInlining=*/true),
+                    PMW);
+
   // EarlyCSE is not always strong enough to clean up what LSR produces. For
   // example, GVN can combine
   //
@@ -2302,6 +2335,7 @@ void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(PassManagerWrapper &PMW) {
   flushFPMsToMPM(PMW);
   requireCGSCCOrder(PMW);
 
+  addModulePass(AMDGPUSQTTLowerPass(getTM()), PMW);
   addModulePass(AMDGPULowerIntrinsicsPass(getTM()), PMW);
 
   // LowerSwitch pass may introduce unreachable blocks that can cause unexpected

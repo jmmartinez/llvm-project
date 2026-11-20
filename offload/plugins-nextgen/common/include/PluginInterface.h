@@ -17,11 +17,13 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <mutex>
 #include <shared_mutex>
 #include <variant>
 #include <vector>
 
 #include "ExclusiveAccess.h"
+// Downstream: __tgt_async_info is defined in APITypes.h.
 #include "Shared/APITypes.h"
 #include "Shared/Debug.h"
 #include "Shared/EnvironmentVar.h"
@@ -33,7 +35,6 @@
 #include "MemoryManager.h"
 #include "OffloadError.h"
 #include "RPC.h"
-#include "omptarget.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
@@ -128,6 +129,11 @@ struct AsyncInfoWrapperTy {
   /// provide a __tgt_async_info.
   bool isSynchronous() const { return AsyncInfoPtr == &LocalAsyncInfo; }
 
+  /// Note that a kernel trace entry referencing this wrapper's async info was
+  /// recorded. If the async info is the wrapper's local one, finalize() will
+  /// drop that reference before the local object is destroyed.
+  void setKernelTraced() { KernelTraced = true; }
+
   /// Get the queue.
   template <typename Ty> Ty getQueueAs() {
     static_assert(sizeof(Ty) == sizeof(AsyncInfoPtr->Queue),
@@ -161,6 +167,7 @@ private:
   GenericDeviceTy &Device;
   __tgt_async_info LocalAsyncInfo;
   __tgt_async_info *AsyncInfoPtr;
+  bool KernelTraced = false;
 };
 
 enum class DeviceInfo {
@@ -468,14 +475,11 @@ struct AllocationTraceInfoTy {
   /// The allocated device pointer.
   void *DevicePtr = nullptr;
 
-  /// The corresponding host pointer (can be null).
-  void *HostPtr = nullptr;
-
   /// The size of the allocation.
   uint64_t Size = 0;
 
   /// The kind of the allocation.
-  TargetAllocTy Kind = TargetAllocTy::TARGET_ALLOC_DEFAULT;
+  ol_alloc_type_t Kind = OL_ALLOC_TYPE_DEVICE;
 
   /// Information about the last allocation at this address, if any.
   AllocationTraceInfoTy *LastAllocationInfo = nullptr;
@@ -509,6 +513,15 @@ struct KernelTraceInfoRecordTy {
                __tgt_async_info *AsyncInfo) {
     KTIs[Idx] = {Kernel, std::move(StackTrace), AsyncInfo};
     Idx = (Idx + 1) % size();
+  }
+
+  /// Drop the references to \p AsyncInfo from all entries, keeping the rest of
+  /// the information (kernel, launch trace) available for error reporting.
+  void clearAsyncInfo(const __tgt_async_info *AsyncInfo) {
+    for (auto &KTI : KTIs) {
+      if (KTI.AsyncInfo == AsyncInfo)
+        KTI.AsyncInfo = nullptr;
+    }
   }
 
   /// Return the \p I'th last kernel trace info.
@@ -698,7 +711,7 @@ public:
 /// Description of an allocation: owning device, kind, base address and size.
 struct PluginAllocInfoTy {
   GenericDeviceTy *Device;
-  TargetAllocTy Kind;
+  ol_alloc_type_t Kind;
   void *Base;
   size_t Size;
 };
@@ -710,9 +723,9 @@ public:
   ContextAllocatorTy(PluginContextTy &Context, GenericDeviceTy &Device)
       : Context(Context), Device(Device) {}
 
-  llvm::Expected<void *> allocate(size_t Size, void *HstPtr, TargetAllocTy Kind,
+  llvm::Expected<void *> allocate(size_t Size, ol_alloc_type_t Kind,
                                   size_t Alignment) override;
-  llvm::Error free(void *TgtPtr, TargetAllocTy Kind) override;
+  llvm::Error free(void *TgtPtr, ol_alloc_type_t Kind) override;
 
 private:
   PluginContextTy &Context;
@@ -745,19 +758,15 @@ struct PluginContextTy {
   virtual Error initAsyncInfoImpl(GenericDeviceTy &Device,
                                   AsyncInfoWrapperTy &AsyncInfoWrapper) = 0;
 
-  /// Allocate Size bytes of Kind memory accessible from Device. HostPtr is an
-  /// optional hint (e.g. for pinned-buffer registration); pass nullptr when
-  /// unused.
+  /// Allocate Size bytes of Kind memory accessible from Device.
   llvm::Expected<void *> allocate(GenericDeviceTy &Device, int64_t Size,
-                                  void *HostPtr, TargetAllocTy Kind,
-                                  size_t Alignment,
+                                  ol_alloc_type_t Kind, size_t Alignment,
                                   GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Serve an allocation requested through allocate, which decides pooling.
   virtual llvm::Expected<void *>
-  allocateImpl(GenericDeviceTy &Device, int64_t Size, void *HostPtr,
-               TargetAllocTy Kind, size_t Alignment,
-               GenericProfilerTy *ProfilerPtr = nullptr);
+  allocateImpl(GenericDeviceTy &Device, int64_t Size, ol_alloc_type_t Kind,
+               size_t Alignment, GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Free a pointer returned by allocate; resolves owner/kind via
   /// getAllocInfo. Requires a non-empty device set, so this is only valid on
@@ -766,12 +775,13 @@ struct PluginContextTy {
   llvm::Error deallocate(void *Ptr, GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Free a pointer when the caller already knows the owning device and kind.
-  llvm::Error deallocate(GenericDeviceTy &Device, void *Ptr, TargetAllocTy Kind,
+  llvm::Error deallocate(GenericDeviceTy &Device, void *Ptr,
+                         ol_alloc_type_t Kind,
                          GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Serve the deallocation requested through deallocate.
   virtual llvm::Error deallocateImpl(GenericDeviceTy &Device, void *Ptr,
-                                     TargetAllocTy Kind,
+                                     ol_alloc_type_t Kind,
                                      GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Record that \p Ptr is a live allocation of \p Size bytes of \p Kind
@@ -779,7 +789,7 @@ struct PluginContextTy {
   /// pooled or not, so that an implementation's registry tracks what the user
   /// asked for and not how it was served.
   virtual void trackAllocation(GenericDeviceTy &Device, void *Ptr, int64_t Size,
-                               TargetAllocTy Kind) {}
+                               ol_alloc_type_t Kind) {}
 
   /// Record that \p Ptr is no longer live. Called before the deallocation is
   /// served, as serving it may hand \p Ptr back out to another thread.
@@ -807,9 +817,9 @@ private:
   /// Return the pool that serves allocations of \p Kind memory on \p Device,
   /// or null when they are not pooled.
   MemoryManagerTy *getMemoryManagerFor(GenericDeviceTy &Device,
-                                       TargetAllocTy Kind);
+                                       ol_alloc_type_t Kind);
   MemoryManagerTy *getDeviceMemoryManagerFor(GenericDeviceTy &Device,
-                                             TargetAllocTy Kind);
+                                             ol_alloc_type_t Kind);
   MemoryManagerTy *getHostMemoryManager();
 
   /// A memory pool and the allocator that lets it allocate through this
@@ -937,24 +947,23 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   virtual Error getDeviceMemorySize(uint64_t &DSize);
 
   /// Allocate data on the device or involving the device.
-  Expected<void *> dataAlloc(int64_t Size, void *HostPtr, TargetAllocTy Kind,
+  Expected<void *> dataAlloc(int64_t Size, ol_alloc_type_t Kind,
                              size_t Alignment,
                              GenericProfilerTy *ProfilerPtr = nullptr);
 
   /// Deallocate data from the device or involving the device.
-  Error dataDelete(void *TgtPtr, TargetAllocTy Kind,
+  Error dataDelete(void *TgtPtr, ol_alloc_type_t Kind,
                    GenericProfilerTy *ProfilerPtr = nullptr);
 
-  /// Record the allocation of \p Size bytes of \p Kind memory at \p DevicePtr,
-  /// associated to \p HostPtr, with the stack it was made from. Does nothing
-  /// if allocation traces are not tracked.
-  void recordAllocation(void *DevicePtr, void *HostPtr, int64_t Size,
-                        TargetAllocTy Kind);
+  /// Record the allocation of \p Size bytes of \p Kind memory at \p DevicePtr
+  /// with the stack it was made from. Does nothing if allocation traces are not
+  /// tracked.
+  void recordAllocation(void *DevicePtr, int64_t Size, ol_alloc_type_t Kind);
 
   /// Record the deallocation of \p Kind memory at \p DevicePtr, and report it
   /// if the allocation it refers to was never made, is already deallocated, or
   /// was of another kind. Does nothing if allocation traces are not tracked.
-  void recordDeallocation(void *DevicePtr, TargetAllocTy Kind);
+  void recordDeallocation(void *DevicePtr, ol_alloc_type_t Kind);
 
   /// Pin or register host memory to optimize transfers and return the device
   /// accessible pointer that devices should use for memory transfers involving
@@ -1068,7 +1077,6 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
 
   // Returns true if coarse graining of mapped variables is
   // enabled on MI200 GPUs.
-  // virtual bool IsGfx90aCoarseGrainUsmMapEnabled() { return false; }
   bool IsGfx90aCoarseGrainUsmMapEnabled();
   virtual bool IsGfx90aCoarseGrainUsmMapEnabledImpl() { return false; }
 
@@ -1388,10 +1396,6 @@ protected:
 
   /// The total per-block native shared memory that a kernel may use.
   size_t MaxBlockSharedMemSize = 0;
-private:
-  /// Return the kernel environment object for kernel \p Name.
-  Expected<KernelEnvironmentTy>
-  getKernelEnvironmentForKernel(StringRef Name, DeviceImageTy &Image);
 };
 
 /// Class implementing common functionalities of offload plugins. Each plugin
@@ -1589,9 +1593,6 @@ public:
   /// Returns if GFX90A coarse graining of OpenMP mapped
   /// variables is enabled under unified shared memory.
   bool is_gfx90a_coarse_grain_usm_map_enabled(int32_t DeviceId);
-
-  /// Creates an asynchronous queue for the given plugin.
-  int32_t init_async_info(int32_t DeviceId, __tgt_async_info **AsyncInfoPtr);
 
   /// Sets the region of memory that is considered coarse grained.
   int set_coarse_grain_mem_region(int32_t DeviceId, void *ptr, int64_t size);

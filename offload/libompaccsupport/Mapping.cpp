@@ -81,8 +81,7 @@ int MappingInfoTy::associatePtr(void *HstPtrBegin, void *TgtPtrBegin,
                /*HstPtrEnd=*/(uintptr_t)HstPtrBegin + Size,
                /*TgtAllocBegin=*/(uintptr_t)TgtPtrBegin,
                /*TgtPtrBegin=*/(uintptr_t)TgtPtrBegin,
-               /*UseHoldRefCount=*/false,
-               /*Name=*/nullptr,
+               /*UseHoldRefCount=*/false, /*Name=*/nullptr,
                /*IsRefCountINF=*/true))
            .first->HDTT;
   ODBG(ODT_Mapping) << "Creating new map entry: HstBase="
@@ -275,8 +274,8 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
     if (Size) {
       // For MI200, when allocating under unified_shared_memory, amdgpu plugin
       // can optimize memory access latency by registering allocated
-      // memory as coarse-grained. The usage of coarse-grained memory can be
-      // overriden by setting the env-var OMPX_DISABLE_USM_MAPS=1.
+      // memory as coarse-grained. This is enabled by setting the env-var
+      // OMPX_ENABLE_GFX90A_COARSE_GRAIN_USM_MAPS=1.
       if (HstPtrBegin && Device.getConfig().SupportsCoarseGrainMemory &&
           llvm::offload::tmp::__ol_tgt_IsGfx90aCoarseGrainUsmMapEnabled(
               Device.DeviceHandle)) {
