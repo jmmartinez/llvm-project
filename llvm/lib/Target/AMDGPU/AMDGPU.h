@@ -107,6 +107,7 @@ FunctionPass *createSIAnnotateControlFlowLegacyPass();
 FunctionPass *createSILowerI1CopiesLegacyPass();
 FunctionPass *createSIShrinkInstructionsLegacyPass();
 FunctionPass *createSIMemoryLegalizerPass();
+FunctionPass *createSIInsertAsyncBarrierArriveWorkaroundPass();
 FunctionPass *createSIInsertWaitcntsPass();
 
 FunctionPass *createAMDGPUImageIntrinsicOptimizerPass(const TargetMachine *);
@@ -117,6 +118,7 @@ ModulePass *
 createAMDGPULowerModuleLDSLegacyPass(const AMDGPUTargetMachine *TM = nullptr);
 ModulePass *createAMDGPULowerBufferFatPointersPass();
 ModulePass *createAMDGPULowerIntrinsicsLegacyPass();
+ModulePass *createAMDGPUSQTTLowerLegacyPass();
 FunctionPass *createSIModeRegisterPass();
 FunctionPass *createAMDGPUPreloadKernArgPrologLegacyPass();
 ModulePass *createAMDGPUPreloadKernelArgumentsLegacyPass(const TargetMachine *);
@@ -213,6 +215,31 @@ void initializeAMDGPULowerIntrinsicsLegacyPass(PassRegistry &);
 struct AMDGPULowerIntrinsicsPass
     : OptionalPassInfoMixin<AMDGPULowerIntrinsicsPass> {
   AMDGPULowerIntrinsicsPass(const AMDGPUTargetMachine &TM) : TM(TM) {}
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+
+private:
+  const AMDGPUTargetMachine &TM;
+};
+
+struct AMDGPUSQTTFunctionInstrumentPass
+    : RequiredPassInfoMixin<AMDGPUSQTTFunctionInstrumentPass> {
+  AMDGPUSQTTFunctionInstrumentPass(bool PostInlining = false)
+      : PostInlining(PostInlining) {}
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
+
+private:
+  bool PostInlining;
+};
+
+FunctionPass *createAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass();
+void initializeAMDGPUSQTTFunctionInstrumentPostInlineLegacyPass(PassRegistry &);
+
+void initializeAMDGPUSQTTLowerLegacyPass(PassRegistry &);
+
+struct AMDGPUSQTTLowerPass : OptionalPassInfoMixin<AMDGPUSQTTLowerPass> {
+  AMDGPUSQTTLowerPass(const AMDGPUTargetMachine &TM) : TM(TM) {}
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 
 private:
@@ -486,6 +513,13 @@ public:
                         MachineFunctionAnalysisManager &AM);
 };
 
+class SIInsertAsyncBarrierArriveWorkaroundPass
+    : public RequiredPassInfoMixin<SIInsertAsyncBarrierArriveWorkaroundPass> {
+public:
+  PreservedAnalyses run(MachineFunction &MF,
+                        MachineFunctionAnalysisManager &MFAM);
+};
+
 class SIInsertWaitcntsPass
     : public RequiredPassInfoMixin<SIInsertWaitcntsPass> {
 public:
@@ -599,6 +633,8 @@ extern char &AMDGPULowerVGPREncodingLegacyID;
 void initializeSIInsertHardClausesLegacyPass(PassRegistry &);
 extern char &SIInsertHardClausesID;
 
+void initializeSIInsertAsyncBarrierArriveWorkaroundLegacyPass(PassRegistry &);
+
 void initializeSIInsertWaitcntsLegacyPass(PassRegistry &);
 extern char &SIInsertWaitcntsID;
 
@@ -671,6 +707,9 @@ enum TargetIndex {
 
 static inline bool addrspacesMayAlias(unsigned AS1, unsigned AS2) {
   if (AS1 > AMDGPUAS::MAX_AMDGPU_ADDRESS || AS2 > AMDGPUAS::MAX_AMDGPU_ADDRESS)
+    return true;
+
+  if (isReservedAddressSpace(AS1) || isReservedAddressSpace(AS2))
     return true;
 
   // clang-format off

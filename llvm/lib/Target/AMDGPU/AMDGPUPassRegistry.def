@@ -22,6 +22,7 @@ MODULE_PASS("amdgpu-asm-printer-end", AMDGPUAsmPrinterEndPass())
 MODULE_PASS("amdgpu-export-kernel-runtime-handles", AMDGPUExportKernelRuntimeHandlesPass())
 MODULE_PASS("amdgpu-lower-buffer-fat-pointers",
             AMDGPULowerBufferFatPointersPass(*this))
+MODULE_PASS("amdgpu-sqtt-lower", AMDGPUSQTTLowerPass(*this))
 MODULE_PASS("amdgpu-lower-intrinsics", AMDGPULowerIntrinsicsPass(*this))
 MODULE_PASS("amdgpu-lower-ctor-dtor", AMDGPUCtorDtorLoweringPass())
 MODULE_PASS("amdgpu-lower-module-lds", AMDGPULowerModuleLDSPass(*this))
@@ -102,6 +103,13 @@ FUNCTION_PASS_WITH_PARAMS(
       return AMDGPUAtomicOptimizerPass(*this, Strategy);
     },
     parseAMDGPUAtomicOptimizerStrategy, "strategy=dpp|iterative|none")
+FUNCTION_PASS_WITH_PARAMS(
+    "amdgpu-sqtt-function-instrument",
+    "AMDGPUSQTTFunctionInstrumentPass",
+    [=](bool PostInlining) {
+      return AMDGPUSQTTFunctionInstrumentPass(PostInlining);
+    },
+    parseAMDGPUSQTTFunctionInstrumentPassOptions, "post-inline")
 #undef FUNCTION_PASS_WITH_PARAMS
 
 #ifndef MACHINE_FUNCTION_ANALYSIS
@@ -147,6 +155,8 @@ MACHINE_FUNCTION_PASS("si-fix-vgpr-copies", SIFixVGPRCopiesPass())
 MACHINE_FUNCTION_PASS("si-fold-operands", SIFoldOperandsPass());
 MACHINE_FUNCTION_PASS("si-form-memory-clauses", SIFormMemoryClausesPass())
 MACHINE_FUNCTION_PASS("si-i1-copies", SILowerI1CopiesPass())
+MACHINE_FUNCTION_PASS("si-insert-async-barrier-arrive-workaround",
+                      SIInsertAsyncBarrierArriveWorkaroundPass())
 MACHINE_FUNCTION_PASS("si-insert-hard-clauses", SIInsertHardClausesPass())
 MACHINE_FUNCTION_PASS("si-insert-waitcnts", SIInsertWaitcntsPass())
 MACHINE_FUNCTION_PASS("si-late-branch-lowering", SILateBranchLoweringPass())

@@ -267,8 +267,7 @@ class AMDGPULowerModuleLDS {
     Function *Decl = Intrinsic::getOrInsertDeclaration(
         Func->getParent(), Intrinsic::donothing, {});
 
-    Value *UseInstance[1] = {
-        Builder.CreateConstInBoundsGEP1_32(SGV->getValueType(), SGV, 0)};
+    Value *UseInstance[] = {SGV};
 
     Builder.CreateCall(
         Decl, {}, {OperandBundleDefT<Value *>("ExplicitUse", UseInstance)});
@@ -952,14 +951,12 @@ public:
 
       std::string StructName =
           F->hasLocalLinkage()
-              ? ("__amdgpu_lds." + F->getName() + ModuleId).str()
+              ? ("__amdgpu_lds." + F->getName() + "." + ModuleId).str()
               : ("__amdgpu_lds." + F->getName()).str();
       LDSVariableReplacement Replacement =
           createLDSVariableReplacement(M, StructName, FuncScopeVars);
 
       GlobalVariable *SGV = Replacement.SGV;
-      SGV->setLinkage(GlobalValue::ExternalLinkage);
-      SGV->setInitializer(nullptr);
       FuncToLdsStruct.push_back({F, SGV});
 
       replaceLDSVariablesWithStruct(
@@ -976,13 +973,11 @@ public:
     // different TUs). Pack them into a single per-module struct with a
     // module-unique name so the linker treats them as one allocation unit.
     if (!InternalMultiUserVars.empty()) {
-      std::string StructName = "__amdgpu_lds.__internal" + ModuleId;
+      std::string StructName = "__amdgpu_lds.__internal." + ModuleId;
       LDSVariableReplacement Replacement =
           createLDSVariableReplacement(M, StructName, InternalMultiUserVars);
 
       GlobalVariable *SGV = Replacement.SGV;
-      SGV->setLinkage(GlobalValue::ExternalLinkage);
-      SGV->setInitializer(nullptr);
 
       replaceLDSVariablesWithStruct(
           M, InternalMultiUserVars, Replacement,
@@ -1000,29 +995,14 @@ public:
                              InternalMultiUserVars.end());
     }
 
-    // Convert global-scope LDS to external declarations. Their uses remain
-    // intact and ISel generates R_AMDGPU_ABS32_LO relocations for them.
-    for (GlobalVariable *V : GlobalScopeVars) {
-      V->setInitializer(nullptr);
-      V->setLinkage(GlobalValue::ExternalLinkage);
-    }
+    // Externalize LDS allocations and record their function-use edges.
+    for (auto &[F, SGV] : FuncToLdsStruct)
+      recordLDSUseForObjectLinking(*F, *SGV);
 
-    // Emit amdgpu.lds.uses metadata for struct and global-scope LDS.
-    {
-      LLVMContext &Ctx = M.getContext();
-      NamedMDNode *LdsMD = M.getOrInsertNamedMetadata("amdgpu.lds.uses");
-
-      for (auto &[F, SGV] : FuncToLdsStruct)
-        LdsMD->addOperand(MDNode::get(
-            Ctx, {ValueAsMetadata::get(F), ValueAsMetadata::get(SGV)}));
-
-      for (auto &[V, Funcs] : VarToFuncs) {
-        if (GlobalScopeVars.count(V) && !InternalMultiUserVars.count(V)) {
-          for (Function *F : Funcs) {
-            LdsMD->addOperand(MDNode::get(
-                Ctx, {ValueAsMetadata::get(F), ValueAsMetadata::get(V)}));
-          }
-        }
+    for (auto &[V, Funcs] : VarToFuncs) {
+      if (GlobalScopeVars.count(V) && !InternalMultiUserVars.count(V)) {
+        for (Function *F : Funcs)
+          recordLDSUseForObjectLinking(*F, *V);
       }
     }
 
@@ -1121,8 +1101,6 @@ public:
                                       KernelsThatIndirectlyAllocateDynamicLDS);
 
     if (!KernelsThatAllocateTableLDS.empty()) {
-      IRBuilder<> Builder(M);
-
       // The order must be consistent between lookup table and accesses to
       // lookup table
       auto TableLookupVariablesOrdered =

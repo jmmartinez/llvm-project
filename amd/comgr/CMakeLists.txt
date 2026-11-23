@@ -107,6 +107,7 @@ set(SOURCES
   src/comgr-metadata.cpp
   src/comgr-signal.cpp
   src/comgr-spirv-command.cpp
+  src/comgr-sqtt.cpp
   src/comgr-symbol.cpp
   src/comgr-symbolizer.cpp
   src/comgr-unbundle-command.cpp

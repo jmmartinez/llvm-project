@@ -345,8 +345,42 @@ public:
 
   bool isXNACKEnabled() const { return TargetID.isXnackOnOrAny(); }
 
+  bool needsAsyncBarrierArriveReplayWorkaround() const {
+    // Generic 12.5 code has no explicit XNACK setting; keep the workaround.
+    return hasAsyncBarrierArriveReplayBug() &&
+           TargetID.getXnackSetting() != AMDGPU::TargetIDSetting::Off;
+  }
+
   bool hasRelaxedBufferOOBMode() const { return BufferOOBRelaxed; }
   bool hasRelaxedTBufferOOBMode() const { return TBufferOOBRelaxed; }
+
+  /// Return the maximum allowed load/store width for the given type and
+  /// alignment combination based on subtarget flags.
+  /// 1. If unaligned accesses are not enabled, then any load/store that is less
+  /// than word-aligned has to be handled one byte or ushort at a time.
+  /// 2. If relaxed OOB mode is not set, we must ensure that the in-bounds
+  /// part of a partially out of bounds read/write is performed correctly. This
+  /// means that any load that isn't naturally aligned has to be split into
+  /// parts that are naturally aligned, so that, after bitcasting, we don't have
+  /// unaligned loads that could discard valid data.
+  ///
+  /// For example, if we're loading a <8 x i8>, that's actually a load of a <2 x
+  /// i32>, and if we load from an align(2) address, that address might be 2
+  /// bytes from the end of the buffer. The hardware will, when performing the
+  /// <2 x i32> load, mask off the entire first word, causing the two in-bounds
+  /// bytes to be masked off. However, if we know the offset can't be too close
+  /// to the number of records in the buffer (if known), we can skip this
+  /// expansion.
+  ///
+  /// Unlike the complete disablement of unaligned accesses from point 1,
+  /// this does not apply to unaligned scalars, but will apply to cases like
+  /// `load <2 x i32>, align 4` since the left element might be out of bounds.
+  /// Note that if we know that the base offset is known to be
+  /// less than `uint32_max - byte_size(Ty)`, we can skip these alignment
+  /// checks.
+  uint64_t getMaxBufferIntrinsicWidth(const DataLayout &DL, Type *T, Align A,
+                                      bool NoWrapFromMax,
+                                      bool NoPartialOOB) const;
 
   /// Return the width, in bits, of the num_records field of a buffer resource
   /// (V#) on this subtarget, or std::nullopt if not yet known.
@@ -478,6 +512,12 @@ public:
 
   bool enableSubRegLiveness() const override { return true; }
 
+  // canReassign() walks the whole allocation order of the evictee on every
+  // local eviction query, which is expensive with a very large VGPR file.
+  bool enableRALocalReassignment(CodeGenOptLevel OptLevel) const override {
+    return !hasVGPRMSBs();
+  }
+
   // XXX - Why is this here if it isn't in the default pass set?
   bool enableEarlyIfConversion() const override { return true; }
 
@@ -532,9 +572,6 @@ public:
   }
 
   bool hasMadF16() const;
-
-  // Scalar and global loads support scale_offset bit.
-  bool hasScaleOffset() const { return HasGFX1250Insts; }
 
   // FLAT GLOBAL VOffset is signed
   bool hasSignedGVSOffset() const { return HasGFX1250Insts; }
@@ -1028,6 +1065,63 @@ public:
     if (getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS)
       return 4;
     return 3;
+  }
+
+  /// \returns true if the SQTT event \p EventId can be traced with
+  /// s_ttracedata_imm.
+  bool canTraceSQTTEventWithImm(uint64_t EventId) const {
+    // The immediate is encoded on 16 bits, but only its low 8 bits are
+    // recorded.
+    return hasGFX10Insts() && isUInt<8>(EventId);
+  }
+
+  /// \returns the s_getreg hwreg encoding of the SIMD_ID field, which holds
+  /// the index (0-3) of the SIMD the wave is running on. The field is fixed
+  /// for the lifetime of the wave placement.
+  unsigned getSIMDIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.SIMD_ID is bits [9:8]. Before: HW_ID.SIMD_ID is bits
+    // [5:4].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/8, /*Width=*/2);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/4, /*Width=*/2);
+  }
+
+  /// \returns the s_getreg hwreg encoding of the WAVE_ID field, which holds the
+  /// slot of the wave in its SIMD. The field is fixed for the lifetime of the
+  /// wave placement.
+  unsigned getWaveIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.WAVE_ID is bits [4:0]. Before: HW_ID.WAVE_ID is bits
+    // [3:0].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/0, /*Width=*/5);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/0, /*Width=*/4);
+  }
+
+  /// \returns the s_getreg hwreg encoding of the field that holds the index of
+  /// the compute unit the wave is running on: CU_ID before GFX10, WGP_ID
+  /// (the index of the work-group processor) on GFX10+. The field is fixed for
+  /// the lifetime of the wave placement.
+  unsigned getCUIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID1.WGP_ID is bits [13:10]. Before: HW_ID.CU_ID is bits
+    // [11:8].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID1, /*Offset=*/10, /*Width=*/4);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/8, /*Width=*/4);
+  }
+
+  /// \returns the s_getreg hwreg encoding of the field that holds the slot of
+  /// the work-group in its compute unit: TG_ID before GFX10, WG_ID on GFX10+.
+  /// The field is fixed for the lifetime of the wave placement.
+  unsigned getWGIdHwregEncoding() const {
+    using namespace AMDGPU::Hwreg;
+    // GFX10+: HW_ID2.WG_ID is bits [20:16]. Before: HW_ID.TG_ID is bits
+    // [19:16].
+    if (hasGFX10Insts())
+      return HwregEncoding::encode(ID_HW_ID2, /*Offset=*/16, /*Width=*/5);
+    return HwregEncoding::encode(ID_HW_ID, /*Offset=*/16, /*Width=*/4);
   }
 
   bool supportsBPermute() const {

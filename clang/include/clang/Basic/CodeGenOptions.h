@@ -49,6 +49,13 @@ enum class VTableUniquenessKind {
   UniqueIfStrongLinkage,
 };
 
+/// Where the SQTT function entry and exit events are inserted.
+enum class SQTTInstrumentKind {
+  None,
+  BeforeInlining,
+  AfterInlining,
+};
+
 /// Bitfields of CodeGenOptions, split out from CodeGenOptions to ensure
 /// that this large collection of bitfields is a trivial class type.
 class CodeGenOptionsBase {
@@ -291,6 +298,12 @@ public:
     ForceDisable, // Always disable regardless of the target default.
   };
 
+  enum class SmallIntABICompatKind {
+    Platform, // Compat with platform ABI (high bits unspecified).
+    Clang23,  // Compat with old Clang ABI (high bits zero/sign-extended).
+    Both,     // Compat with both. Extend in caller, don't assume in callee.
+  };
+
   /// The code model to use (-mcmodel).
   std::string CodeModel;
 
@@ -395,6 +408,9 @@ public:
 
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
+
+  /// Where the SQTT function entry and exit events are inserted.
+  SQTTInstrumentKind SQTTInstrument = SQTTInstrumentKind::None;
 
   /// The name of the relocation model to use.
   llvm::Reloc::Model RelocationModel;
