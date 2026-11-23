@@ -2114,11 +2114,15 @@ def int_amdgcn_s_ttracedata_imm :
   DefaultAttrsIntrinsic<[], [llvm_i16_ty],
                         [IntrNoMem, IntrHasSideEffects, ImmArg<ArgIndex<0>>]>;
 
+// Arguments: the event metadata, the event id (assigned by the SQTT lowering
+// pass, poison before it), and the event table base. The base is either an
+// i32 constant, which is subtracted from the event id to get the logged value,
+// or undef, which means the event is not CU-local and the logged value is the
+// event id relative to the CU base computed at runtime.
 def int_amdgcn_sqtt_event :
-  DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty, llvm_i1_ty],
+  DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty, llvm_i32_ty],
                         [IntrNoMem, IntrHasSideEffects, IntrWillReturn,
-                         IntrNoCallback, IntrNoFree, IntrConvergent,
-                         ImmArg<ArgIndex<2>>]>;
+                         IntrNoCallback, IntrNoFree, IntrConvergent]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
 def int_amdgcn_s_getreg :

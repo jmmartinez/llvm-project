@@ -12,14 +12,14 @@ define i32 @one_event(i32 %a) {
 ; CHECK-NEXT:    [[X:%.*]] = add i32 [[A]], 1
 ; CHECK-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; CHECK:       [[BB4]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; CHECK-NEXT:    br label %[[BB5]]
 ; CHECK:       [[BB5]]:
 ; CHECK-NEXT:    [[Y:%.*]] = mul i32 [[X]], 3
 ; CHECK-NEXT:    ret i32 [[Y]]
 ;
   %x = add i32 %a, 1
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0)
   %y = mul i32 %x, 3
   ret i32 %y
 }
@@ -39,23 +39,23 @@ define i32 @two_events(i32 %a) {
 ; CHECK-NEXT:    [[X_UNTRACED:%.*]] = add i32 [[A]], 1
 ; CHECK-NEXT:    br label %[[SQTT_CONT:.*]]
 ; CHECK:       [[SQTT_TRACED]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0)
 ; CHECK-NEXT:    [[X:%.*]] = add i32 [[A]], 1
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0)
 ; CHECK-NEXT:    br label %[[SQTT_CONT]]
 ; CHECK:       [[SQTT_CONT]]:
 ; CHECK-NEXT:    [[X1:%.*]] = phi i32 [ [[X]], %[[SQTT_TRACED]] ], [ [[X_UNTRACED]], %[[SQTT_TRACED_UNTRACED]] ]
 ; CHECK-NEXT:    [[Y:%.*]] = mul i32 [[X1]], 3
 ; CHECK-NEXT:    ret i32 [[Y]]
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i32 0)
   %x = add i32 %a, 1
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i32 0)
   %y = mul i32 %x, 3
   ret i32 %y
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 !0 = !{i32 0, !"one_event"}
 !1 = !{i32 0, !"two_events"}

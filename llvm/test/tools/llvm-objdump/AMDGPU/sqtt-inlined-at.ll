@@ -48,12 +48,12 @@
 ; CHECK-NEXT: ]
 
 define void @kernel() !dbg !10 {
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true), !dbg !20
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i1 true), !dbg !23
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0), !dbg !20
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i32 0), !dbg !23
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 !0 = !{i32 2, !"inlined"}
 !1 = !{i32 3, !"not_inlined"}

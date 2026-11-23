@@ -7,10 +7,10 @@
 
 // NONE-NOT: @llvm.amdgcn.sqtt.event
 // CHECK-LABEL: @test_user_markers(
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[FUNC_ENTRY:![0-9]+]], i32 poison, i1 true)
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[ENTRY:![0-9]+]], i32 poison, i1 true)
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[EXIT:![0-9]+]], i32 poison, i1 true)
-// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[FUNC_EXIT:![0-9]+]], i32 poison, i1 true)
+// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[FUNC_ENTRY:![0-9]+]], i32 poison, i32 0)
+// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[ENTRY:![0-9]+]], i32 poison, i32 0)
+// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[EXIT:![0-9]+]], i32 poison, i32 0)
+// CHECK: call void @llvm.amdgcn.sqtt.event(metadata [[FUNC_EXIT:![0-9]+]], i32 poison, i32 0)
 extern "C" __device__ void test_user_markers() {
   __builtin_amdgcn_sqtt_user_entry("foo");
   __builtin_amdgcn_sqtt_user_exit("foo");

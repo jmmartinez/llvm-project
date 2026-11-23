@@ -117,10 +117,12 @@ def SQTT_EVENT : SPseudoInstSI<(outs), (ins i32imm:$event_id), [],
   let Uses = [M0];
 }
 
-// Same as SQTT_EVENT, but expanded into an s_ttracedata_imm. The event id is
-// encoded in the instruction, so no m0 write is needed.
-def SQTT_EVENT_IMM : SPseudoInstSI<(outs), (ins i32imm:$event_id), [],
-                                   "SQTT_EVENT_IMM $event_id"> {
+// Same as SQTT_EVENT, but expanded into an s_ttracedata_imm. The logged value
+// is encoded in the instruction, so no m0 write is needed. It can differ from
+// the event id, which is only used for the label.
+def SQTT_EVENT_IMM : SPseudoInstSI<(outs), (ins i32imm:$event_id,
+                                                i32imm:$logged_value), [],
+                                   "SQTT_EVENT_IMM $event_id, $logged_value"> {
   let hasSideEffects = 1;
   let usesCustomInserter = 1;
   let SubtargetPredicate = isGFX10Plus;

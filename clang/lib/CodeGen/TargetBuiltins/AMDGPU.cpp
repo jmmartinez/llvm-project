@@ -44,7 +44,7 @@ static Value *emitSQTTUserEvent(CodeGenFunction &CGF, sqtt::EventType Kind,
       Intrinsic::amdgcn_sqtt_event,
       {MetadataAsValue::get(C, MDNode::get(C, {TypeMD, PayloadMD})),
        /*ID=*/PoisonValue::get(CGF.Int32Ty),
-       /*IsCULocal=*/CGF.Builder.getTrue()});
+       /*Base=*/CGF.Builder.getInt32(0)});
 }
 
 static Value *emitAMDGPUSBufferLoadBuiltin(CodeGenFunction &CGF,

@@ -46,7 +46,7 @@ define void @sqtt_event_entry() !dbg !10 {
 ; GFX10-NEXT:    .loc 0 28 3 ; llvm.amdgcn.sqtt.event.ll:28:3
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 ; GFX10-NEXT:  .Ltmp1:
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true), !dbg !11
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0), !dbg !11
   ret void, !dbg !12
 }
 
@@ -88,7 +88,7 @@ define void @sqtt_event_exit() !dbg !20 {
 ; GFX10-NEXT:    .loc 0 52 3 ; llvm.amdgcn.sqtt.event.ll:52:3
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 ; GFX10-NEXT:  .Ltmp3:
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i1 true), !dbg !21
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i32 0), !dbg !21
   ret void, !dbg !22
 }
 
@@ -130,8 +130,8 @@ define void @sqtt_events_merged() !dbg !30 {
 ; GFX10-NEXT:    .loc 0 77 3 ; llvm.amdgcn.sqtt.event.ll:77:3
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 ; GFX10-NEXT:  .Ltmp5:
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i1 true), !dbg !31
-  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i1 true), !dbg !32
+  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i32 0), !dbg !31
+  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i32 0), !dbg !32
   ret void, !dbg !33
 }
 
@@ -173,7 +173,7 @@ define void @sqtt_event_user_entry() !dbg !40 {
 ; GFX10-NEXT:    .loc 0 101 3 ; llvm.amdgcn.sqtt.event.ll:101:3
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 ; GFX10-NEXT:  .Ltmp7:
-  call void @llvm.amdgcn.sqtt.event(metadata !4, i32 poison, i1 true), !dbg !41
+  call void @llvm.amdgcn.sqtt.event(metadata !4, i32 poison, i32 0), !dbg !41
   ret void, !dbg !42
 }
 
@@ -215,11 +215,11 @@ define void @sqtt_event_user_exit() !dbg !50 {
 ; GFX10-NEXT:    .loc 0 125 3 ; llvm.amdgcn.sqtt.event.ll:125:3
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 ; GFX10-NEXT:  .Ltmp9:
-  call void @llvm.amdgcn.sqtt.event(metadata !5, i32 poison, i1 true), !dbg !51
+  call void @llvm.amdgcn.sqtt.event(metadata !5, i32 poison, i32 0), !dbg !51
   ret void, !dbg !52
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 !0 = !{i32 0, !"sqtt_event_entry"}
 !1 = !{i32 1, !"sqtt_event_exit"}

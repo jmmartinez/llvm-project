@@ -16,7 +16,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; SIMD:       [[THEN]]:
 ; SIMD-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; SIMD:       [[BB4]]:
-; SIMD-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; SIMD-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; SIMD-NEXT:    br label %[[BB5]]
 ; SIMD:       [[BB5]]:
 ; SIMD-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -37,7 +37,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; WAVE:       [[THEN]]:
 ; WAVE-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; WAVE:       [[BB4]]:
-; WAVE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; WAVE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; WAVE-NEXT:    br label %[[BB5]]
 ; WAVE:       [[BB5]]:
 ; WAVE-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -58,7 +58,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; CU:       [[THEN]]:
 ; CU-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; CU:       [[BB4]]:
-; CU-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; CU-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; CU-NEXT:    br label %[[BB5]]
 ; CU:       [[BB5]]:
 ; CU-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -79,7 +79,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; WG:       [[THEN]]:
 ; WG-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; WG:       [[BB4]]:
-; WG-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; WG-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; WG-NEXT:    br label %[[BB5]]
 ; WG:       [[BB5]]:
 ; WG-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -109,7 +109,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; ALL:       [[THEN]]:
 ; ALL-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB7:.*]], label %[[BB8:.*]]
 ; ALL:       [[BB7]]:
-; ALL-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; ALL-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; ALL-NEXT:    br label %[[BB8]]
 ; ALL:       [[BB8]]:
 ; ALL-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -123,7 +123,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
   br i1 %cond, label %then, label %else
 
 then:
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0)
   store i32 1, ptr addrspace(1) %p
   br label %end
 
@@ -135,7 +135,7 @@ end:
   ret void
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 !0 = !{i32 0, !"if_then_else"}
 ;.

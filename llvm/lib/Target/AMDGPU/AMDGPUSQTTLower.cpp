@@ -113,7 +113,12 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
 static void
 removeRedundantSetEventTableEvents(const IntrinsicInst &First,
                                    SmallVectorImpl<sqtt::Event> &Events) {
-  bool IsCULocal = cast<ConstantInt>(First.getArgOperand(2))->getZExtValue();
+  // The table base of the first event is the offset in effect when the merged
+  // event starts. Undef means the event is not CU-local.
+  const Value *Base = First.getArgOperand(2);
+  uint32_t IncomingIndex = isa<UndefValue>(Base)
+                               ? sqtt::SectionBase
+                               : cast<ConstantInt>(Base)->getZExtValue();
 
   // We want to preserve only the last setEventTableBase event. And only if the
   // BaseOffset actually changes at the end of the event.
@@ -129,7 +134,6 @@ removeRedundantSetEventTableEvents(const IntrinsicInst &First,
 
   // The last event sets the base offset to the same value as the incoming
   // offset, we can drop it too.
-  uint32_t IncomingIndex = IsCULocal ? 0 : sqtt::SectionBase;
   if (LastSetEventTableBase->getIndex() == IncomingIndex)
     ++EraseEnd;
 
@@ -221,9 +225,11 @@ static CallInst *insertSetEventTableBase(Instruction &InsertBefore,
   IRBuilder<> Builder(&InsertBefore);
   LLVMContext &C = Builder.getContext();
   Metadata *EventMD = sqtt::Event::setEventTableBase(Index).toMetadata(C);
+  // Undef means non-CU-local, otherwise the table base is 0.
+  Value *Base = IsCULocal ? static_cast<Value *>(Builder.getInt32(0))
+                          : UndefValue::get(Builder.getInt32Ty());
   Value *Args[] = {MetadataAsValue::get(C, EventMD),
-                   PoisonValue::get(Builder.getInt32Ty()),
-                   Builder.getInt1(IsCULocal)};
+                   PoisonValue::get(Builder.getInt32Ty()), Base};
   return Builder.CreateIntrinsicWithoutFolding(Intrinsic::amdgcn_sqtt_event,
                                                Args);
 }

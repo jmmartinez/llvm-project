@@ -6,33 +6,33 @@
 define i32 @near_events(i32 %x) {
 ; T0-LABEL: define i32 @near_events(
 ; T0-SAME: i32 [[X:%.*]]) {
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; T0-NEXT:    [[A:%.*]] = add i32 [[X]], 1
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i1 true)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0)
 ; T0-NEXT:    ret i32 [[A]]
 ;
 ; T8-LABEL: define i32 @near_events(
 ; T8-SAME: i32 [[X:%.*]]) {
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; T8-NEXT:    [[A:%.*]] = add i32 [[X]], 1
 ; T8-NEXT:    ret i32 [[A]]
 ;
 ; T1000-LABEL: define i32 @near_events(
 ; T1000-SAME: i32 [[X:%.*]]) {
-; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i1 true)
+; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
 ; T1000-NEXT:    [[A:%.*]] = add i32 [[X]], 1
 ; T1000-NEXT:    ret i32 [[A]]
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0)
   %a = add i32 %x, 1
-  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !1, i32 poison, i32 0)
   ret i32 %a
 }
 
 define i32 @far_events(i32 %x) {
 ; T0-LABEL: define i32 @far_events(
 ; T0-SAME: i32 [[X:%.*]]) {
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i1 true)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0)
 ; T0-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T0-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T0-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1
@@ -49,12 +49,12 @@ define i32 @far_events(i32 %x) {
 ; T0-NEXT:    [[A14:%.*]] = add i32 [[A13]], 1
 ; T0-NEXT:    [[A15:%.*]] = add i32 [[A14]], 1
 ; T0-NEXT:    [[A16:%.*]] = add i32 [[A15]], 1
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 3, i1 true)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 3, i32 0)
 ; T0-NEXT:    ret i32 [[A16]]
 ;
 ; T8-LABEL: define i32 @far_events(
 ; T8-SAME: i32 [[X:%.*]]) {
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i1 true)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0)
 ; T8-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T8-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T8-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1
@@ -71,12 +71,12 @@ define i32 @far_events(i32 %x) {
 ; T8-NEXT:    [[A14:%.*]] = add i32 [[A13]], 1
 ; T8-NEXT:    [[A15:%.*]] = add i32 [[A14]], 1
 ; T8-NEXT:    [[A16:%.*]] = add i32 [[A15]], 1
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i1 true)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i32 0)
 ; T8-NEXT:    ret i32 [[A16]]
 ;
 ; T1000-LABEL: define i32 @far_events(
 ; T1000-SAME: i32 [[X:%.*]]) {
-; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i1 true)
+; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0)
 ; T1000-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T1000-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T1000-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1
@@ -95,7 +95,7 @@ define i32 @far_events(i32 %x) {
 ; T1000-NEXT:    [[A16:%.*]] = add i32 [[A15]], 1
 ; T1000-NEXT:    ret i32 [[A16]]
 ;
-  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i32 0)
   %a1 = add i32 %x, 1
   %a2 = add i32 %a1, 1
   %a3 = add i32 %a2, 1
@@ -112,11 +112,11 @@ define i32 @far_events(i32 %x) {
   %a14 = add i32 %a13, 1
   %a15 = add i32 %a14, 1
   %a16 = add i32 %a15, 1
-  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i1 true)
+  call void @llvm.amdgcn.sqtt.event(metadata !3, i32 poison, i32 0)
   ret i32 %a16
 }
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 !0 = !{i32 0, !"near0"}
 !1 = !{i32 1, !"near1"}

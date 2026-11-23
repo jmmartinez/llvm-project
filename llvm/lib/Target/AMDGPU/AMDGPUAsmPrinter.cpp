@@ -203,13 +203,10 @@ void AMDGPUAsmPrinter::emitSQTTEventTable(Module &M) {
   OutStreamer->switchSection(OutContext.getELFSection(
       sqtt::EventsTableSection, ELF::SHT_PROGBITS, /*Flags=*/0));
 
-  MCSymbol *CUBase = nullptr;
-  if (AMDGPUTargetMachine::EnableObjectLinking) {
-    CUBase = OutContext.getOrCreateSymbol(
-        Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
-        sqtt::EventsTableCUStart);
-    OutStreamer->emitLabel(CUBase);
-  }
+  MCSymbol *CUBase = OutContext.getOrCreateSymbol(
+      Twine(OutContext.getAsmInfo().getInternalSymbolPrefix()) +
+      sqtt::EventsTableCUStart);
+  OutStreamer->emitLabel(CUBase);
 
   const unsigned PtrSize = getPointerSize();
   const unsigned NumEvents = Events->getNumOperands();

@@ -2,7 +2,7 @@
 ; RUN: llc -global-isel=0 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking < %s | FileCheck --check-prefix=CHECK %s
 ; RUN: llc -global-isel=1 -mtriple=amdgpu9.00-amd-amdhsa -mcpu=gfx900 -amdgpu-enable-object-linking < %s | FileCheck --check-prefix=CHECK %s
 
-declare void @llvm.amdgcn.sqtt.event(metadata, i32, i1 immarg)
+declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 
 define void @sqtt_event(ptr addrspace(1) %out) !dbg !10 {
 ; CHECK-LABEL: sqtt_event:
@@ -59,7 +59,7 @@ define void @sqtt_event(ptr addrspace(1) %out) !dbg !10 {
 ; CHECK-NEXT:    s_setpc_b64 s[30:31]
 ; CHECK-NEXT:  .Ltmp1:
   store i32 1, ptr addrspace(1) %out, !dbg !11
-  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i1 true), !dbg !12
+  call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0), !dbg !12
   store i32 2, ptr addrspace(1) %out, !dbg !13
   ret void, !dbg !14
 }

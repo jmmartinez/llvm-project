@@ -19,9 +19,9 @@ define void @only_pre() #0 {
 ; POST-NEXT:    ret void
 ;
 ; PRE-LABEL: define void @only_pre() {
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i1 true)
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i32 0)
 ; PRE-NEXT:    call void @body()
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i1 true)
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i32 0)
 ; PRE-NEXT:    ret void
 ;
   call void @body()
@@ -31,9 +31,9 @@ define void @only_pre() #0 {
 ; Only the post-inlining variant instruments it.
 define void @only_post() #1 {
 ; POST-LABEL: define void @only_post() {
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    call void @body()
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    ret void
 ;
 ; PRE-LABEL: define void @only_post(
@@ -50,16 +50,16 @@ define void @only_post() #1 {
 define void @both() #2 {
 ; POST-LABEL: define void @both(
 ; POST-SAME: ) #[[ATTR1]] {
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    call void @body()
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    ret void
 ;
 ; PRE-LABEL: define void @both(
 ; PRE-SAME: ) #[[ATTR1]] {
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i1 true)
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i32 0)
 ; PRE-NEXT:    call void @body()
-; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i1 true)
+; PRE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i32 0)
 ; PRE-NEXT:    ret void
 ;
   call void @body()
@@ -72,7 +72,7 @@ define amdgpu_kernel void @divergent_returns(ptr addrspace(1) %p) #1 {
 ; POST-LABEL: define amdgpu_kernel void @divergent_returns(
 ; POST-SAME: ptr addrspace(1) [[P:%.*]]) {
 ; POST-NEXT:  [[ENTRY:.*:]]
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    [[TID:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; POST-NEXT:    [[C:%.*]] = icmp ult i32 [[TID]], 16
 ; POST-NEXT:    br i1 [[C]], label %[[THEN:.*]], label %[[ELSE:.*]]
@@ -83,7 +83,7 @@ define amdgpu_kernel void @divergent_returns(ptr addrspace(1) %p) #1 {
 ; POST-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
 ; POST-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
 ; POST:       [[UNIFIEDRETURNBLOCK]]:
-; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i1 true)
+; POST-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i32 0)
 ; POST-NEXT:    ret void
 ;
 ; PRE-LABEL: define amdgpu_kernel void @divergent_returns(

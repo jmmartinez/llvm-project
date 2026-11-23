@@ -78,7 +78,7 @@ static void insertEvent(Function &F, sqtt::Event Event, Instruction *InsertPt,
   Builder.CreateIntrinsic(Intrinsic::amdgcn_sqtt_event,
                           {MetadataAsValue::get(C, Event.toMetadata(C)),
                            PoisonValue::get(Builder.getInt32Ty()),
-                           /*IsCULocal=*/Builder.getTrue()});
+                           /*Base=*/Builder.getInt32(0)});
 }
 
 static DebugLoc getEntryDebugLoc(const Function &F) {

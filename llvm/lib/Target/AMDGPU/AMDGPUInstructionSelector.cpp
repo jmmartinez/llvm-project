@@ -1757,19 +1757,30 @@ bool AMDGPUInstructionSelector::selectRelocConstant(MachineInstr &I) const {
 }
 
 bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
+  Register EventIDReg = I.getOperand(2).getReg();
   std::optional<ValueAndVReg> EventID =
-      getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), *MRI);
+      getIConstantVRegValWithLookThrough(EventIDReg, *MRI);
   if (!EventID)
     return false;
 
   MachineBasicBlock &BB = *I.getParent();
   const DebugLoc &DL = I.getDebugLoc();
   int64_t Id = EventID->Value.getZExtValue();
-  bool IsCULocal = I.getOperand(3).getImm();
+
+  // An undef table base means the event is not CU-local.
+  // Otherwise, the base is a value subtracted from the event id to get the
+  // logged value.
+  Register BaseReg = I.getOperand(3).getReg();
+  bool IsCULocal = getDefIgnoringCopies(BaseReg, *MRI)->getOpcode() !=
+                   AMDGPU::G_IMPLICIT_DEF;
+
+  std::optional<ValueAndVReg> BaseVal =
+      getIConstantVRegValWithLookThrough(BaseReg, *MRI);
 
   // The absolute id of a non CU-local event is only known at runtime, so it
   // cannot be encoded in s_ttracedata_imm.
-  bool UseImm = IsCULocal && Subtarget->canTraceSQTTEventWithImm(Id);
+  bool UseImm = BaseVal && Subtarget->canTraceSQTTEventWithImm(
+                               Id - BaseVal->Value.getZExtValue());
   if (!IsCULocal) {
     // absolute id = event_id + (cu_base - __start___sqtt_events) / ptr_size
     auto SymbolAddress = [&](const Twine &Name) {
@@ -1808,11 +1819,18 @@ bool AMDGPUInstructionSelector::selectSQTTEvent(MachineInstr &I) const {
     }
     BuildMI(BB, &I, DL, TII.get(AMDGPU::COPY), AMDGPU::M0).addReg(AbsoluteID);
   } else if (!UseImm) {
-    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0).addImm(Id);
+    Register BaseAdjId = MRI->createVirtualRegister(&AMDGPU::SReg_32RegClass);
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_SUB_I32), BaseAdjId)
+        .addReg(EventIDReg)
+        .addReg(BaseReg);
+    BuildMI(BB, &I, DL, TII.get(AMDGPU::S_MOV_B32), AMDGPU::M0)
+        .addReg(BaseAdjId);
   }
   BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
   unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
-  BuildMI(BB, &I, DL, TII.get(Opc)).addImm(Id);
+  MachineInstrBuilder Event = BuildMI(BB, &I, DL, TII.get(Opc)).addImm(Id);
+  if (UseImm)
+    Event.addImm(Id - BaseVal->Value.getZExtValue());
   BuildMI(BB, &I, DL, TII.get(AMDGPU::SCHED_BARRIER)).addImm(0);
 
   I.eraseFromParent();

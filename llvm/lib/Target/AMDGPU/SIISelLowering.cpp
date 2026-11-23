@@ -7504,11 +7504,11 @@ SITargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     assert(EventID.isImm());
 
     // m0 is implicitely used by s_ttracedata. s_ttracedata_imm encodes the
-    // event id instead.
+    // logged value instead.
     MachineInstr *TraceData;
     if (MI.getOpcode() == AMDGPU::SQTT_EVENT_IMM) {
       TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA_IMM))
-                      .addImm(EventID.getImm());
+                      .addImm(MI.getOperand(1).getImm());
     } else {
       TraceData = BuildMI(*BB, MI, DL, TII->get(AMDGPU::S_TTRACEDATA));
     }
@@ -12906,15 +12906,23 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
     const ConstantSDNode *EventID = dyn_cast<ConstantSDNode>(Op.getOperand(3));
     if (!EventID)
       return SDValue();
-    bool IsCULocal = Op.getConstantOperandVal(4);
+    // An undef table base means the event is not CU-local. Otherwise, the base
+    // is a constant subtracted from the event id to get the logged value.
+    SDValue BaseOp = Op.getOperand(4);
+    bool IsCULocal = !BaseOp.isUndef();
+    const ConstantSDNode *BaseNode = dyn_cast<ConstantSDNode>(BaseOp);
+
     SDValue EventIDTgt =
         DAG.getTargetConstant(EventID->getZExtValue(), DL, MVT::i32);
+
     SDValue BarrierMask = DAG.getTargetConstant(0, DL, MVT::i32);
+
     // The absolute id of a non CU-local event is only known at runtime, so it
     // cannot be encoded in s_ttracedata_imm.
-    bool UseImm = IsCULocal &&
-                  Subtarget->canTraceSQTTEventWithImm(EventID->getZExtValue());
-    SDValue M0Value = EventIDTgt;
+    bool UseImm = BaseNode &&
+                  Subtarget->canTraceSQTTEventWithImm(EventID->getZExtValue() -
+                                                      BaseNode->getZExtValue());
+    SDValue M0Value;
     if (!IsCULocal) {
       // absolute id = event_id + (cu_base - __start___sqtt_events) / ptr_size
       MachineFunction &MF = DAG.getMachineFunction();
@@ -12944,8 +12952,10 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
       M0Value =
           DAG.getNode(ISD::ADD, DL, MVT::i32, CUBaseID,
                       DAG.getConstant(EventID->getZExtValue(), DL, MVT::i32));
+    } else {
+      M0Value = DAG.getNode(ISD::SUB, DL, MVT::i32, EventIDTgt, BaseOp);
     }
-    // SQTT_EVENT_IMM encodes the event id, it doesn't need the m0 write.
+    // SQTT_EVENT_IMM encodes the logged value, it doesn't need the m0 write.
     SDValue M0Chain = UseImm ? Chain : copyToM0(DAG, Chain, DL, M0Value);
 
     SDValue EventChain =
@@ -12953,8 +12963,12 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
                                    {BarrierMask, M0Chain}),
                 0);
     unsigned Opc = UseImm ? AMDGPU::SQTT_EVENT_IMM : AMDGPU::SQTT_EVENT;
-    EventChain = SDValue(
-        DAG.getMachineNode(Opc, DL, MVT::Other, {EventIDTgt, EventChain}), 0);
+    SmallVector<SDValue, 3> EventOps = {EventIDTgt};
+    if (UseImm)
+      EventOps.push_back(DAG.getTargetConstant(
+          EventID->getZExtValue() - BaseNode->getZExtValue(), DL, MVT::i32));
+    EventOps.push_back(EventChain);
+    EventChain = SDValue(DAG.getMachineNode(Opc, DL, MVT::Other, EventOps), 0);
     return SDValue(DAG.getMachineNode(AMDGPU::SCHED_BARRIER, DL, MVT::Other,
                                       {BarrierMask, EventChain}),
                    0);

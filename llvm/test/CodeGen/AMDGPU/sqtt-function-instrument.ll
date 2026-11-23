@@ -10,9 +10,9 @@ define void @single_return() #0 {
 ;
 ; CHECK-LABEL: define void @single_return() {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    call void @body()
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -27,7 +27,7 @@ define amdgpu_kernel void @divergent_returns(ptr addrspace(1) %p) #0 {
 ; CHECK-LABEL: define amdgpu_kernel void @divergent_returns(
 ; CHECK-SAME: ptr addrspace(1) [[P:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[TID:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[TID]], 16
 ; CHECK-NEXT:    br i1 [[C]], label %[[THEN:.*]], label %[[ELSE:.*]]
@@ -38,7 +38,7 @@ define amdgpu_kernel void @divergent_returns(ptr addrspace(1) %p) #0 {
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
 ; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
 ; CHECK:       [[UNIFIEDRETURNBLOCK]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -60,16 +60,16 @@ define amdgpu_kernel void @uniform_returns(ptr addrspace(1) %p, i32 %x) #0 {
 ; CHECK-LABEL: define amdgpu_kernel void @uniform_returns(
 ; CHECK-SAME: ptr addrspace(1) [[P:%.*]], i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[X]], 16
 ; CHECK-NEXT:    br i1 [[C]], label %[[THEN:.*]], label %[[ELSE:.*]]
 ; CHECK:       [[THEN]]:
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ; CHECK:       [[ELSE]]:
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -90,12 +90,12 @@ define amdgpu_kernel void @mixed_returns(ptr addrspace(1) %p, i32 %x) #0 {
 ; CHECK-LABEL: define amdgpu_kernel void @mixed_returns(
 ; CHECK-SAME: ptr addrspace(1) [[P:%.*]], i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META6:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META6:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[U:%.*]] = icmp eq i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[U]], label %[[UNIFORM_RET:.*]], label %[[DIVERGENT:.*]]
 ; CHECK:       [[UNIFORM_RET]]:
 ; CHECK-NEXT:    store i32 0, ptr addrspace(1) [[P]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ; CHECK:       [[DIVERGENT]]:
 ; CHECK-NEXT:    [[TID:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
@@ -108,7 +108,7 @@ define amdgpu_kernel void @mixed_returns(ptr addrspace(1) %p, i32 %x) #0 {
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[P]], align 4
 ; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
 ; CHECK:       [[UNIFIEDRETURNBLOCK]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META7]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -139,7 +139,7 @@ define i32 @returns_value(i32 %x) #0 {
 ; CHECK-LABEL: define i32 @returns_value(
 ; CHECK-SAME: i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META8:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META8:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[C]], label %[[UNIFIEDRETURNBLOCK:.*]], label %[[NONZERO:.*]]
 ; CHECK:       [[NONZERO]]:
@@ -147,7 +147,7 @@ define i32 @returns_value(i32 %x) #0 {
 ; CHECK-NEXT:    br label %[[UNIFIEDRETURNBLOCK]]
 ; CHECK:       [[UNIFIEDRETURNBLOCK]]:
 ; CHECK-NEXT:    [[UNIFIEDRETVAL:%.*]] = phi i32 [ [[V]], %[[NONZERO]] ], [ 7, %[[ENTRY]] ]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META9:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META9:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret i32 [[UNIFIEDRETVAL]]
 ;
 entry:
@@ -169,14 +169,14 @@ define i32 @musttail(i32 %x) #0 {
 ; CHECK-LABEL: define i32 @musttail(
 ; CHECK-SAME: i32 [[X:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META10:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META10:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[C]], label %[[ZERO:.*]], label %[[NONZERO:.*]]
 ; CHECK:       [[ZERO]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11:![0-9]+]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11:![0-9]+]], i32 poison, i32 0)
 ; CHECK-NEXT:    ret i32 7
 ; CHECK:       [[NONZERO]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11]], i32 poison, i1 true)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META11]], i32 poison, i32 0)
 ; CHECK-NEXT:    [[V:%.*]] = musttail call i32 @musttail(i32 [[X]])
 ; CHECK-NEXT:    ret i32 [[V]]
 ;
