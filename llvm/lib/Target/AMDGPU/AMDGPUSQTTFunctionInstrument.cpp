@@ -25,10 +25,12 @@
 
 #include "AMDGPU.h"
 #include "AMDGPUUnifyDivergentExitNodes.h"
+#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/UniformityAnalysis.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
@@ -95,7 +97,7 @@ static Instruction *getExitInsertPt(BasicBlock &BB) {
 }
 
 static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
-                const UniformityInfo &UA) {
+                const UniformityInfo &UA, DominatorTree *DT) {
   assert(needsInstrumentation(F, PostInlining));
 
   // Consume the attribute so that the function is not instrumented twice.
@@ -134,9 +136,11 @@ static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
   DebugLoc ExitDL =
       getExitDebugLoc(F, *DivergentReturns.front()->getTerminator());
   BasicBlock *RetBlock = DivergentReturns.front();
-  if (DivergentReturns.size() > 1)
-    RetBlock = unifyReturnBlockSet(F, /*DTU=*/nullptr, DivergentReturns,
+  if (DivergentReturns.size() > 1) {
+    DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
+    RetBlock = unifyReturnBlockSet(F, DT ? &DTU : nullptr, DivergentReturns,
                                    "UnifiedReturnBlock", TTI);
+  }
   insertEvent(F, sqtt::Event::functionExit(F), RetBlock->getTerminator(),
               ExitDL);
   return true;
@@ -150,14 +154,17 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<TargetTransformInfoWrapperPass>();
     AU.addRequired<UniformityInfoWrapperPass>();
+    AU.addPreserved<DominatorTreeWrapperPass>();
   }
 
   bool runOnFunction(Function &F) override {
     if (!needsInstrumentation(F, /*PostInlining=*/true))
       return false;
+    auto *DTWP = getAnalysisIfAvailable<DominatorTreeWrapperPass>();
     return ::run(F, /*PostInlining=*/true,
                  getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F),
-                 getAnalysis<UniformityInfoWrapperPass>().getUniformityInfo());
+                 getAnalysis<UniformityInfoWrapperPass>().getUniformityInfo(),
+                 DTWP ? &DTWP->getDomTree() : nullptr);
   }
 };
 
@@ -183,11 +190,14 @@ AMDGPUSQTTFunctionInstrumentPass::run(Function &F,
                                       FunctionAnalysisManager &AM) {
   if (!needsInstrumentation(F, PostInlining))
     return PreservedAnalyses::all();
-  if (!::run(F, PostInlining, AM.getResult<TargetIRAnalysis>(F),
-             AM.getResult<UniformityInfoAnalysis>(F)))
+  const auto &TTI = AM.getResult<TargetIRAnalysis>(F);
+  const auto &UA = AM.getResult<UniformityInfoAnalysis>(F);
+  if (!::run(F, PostInlining, TTI, UA,
+             AM.getCachedResult<DominatorTreeAnalysis>(F)))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
   PA.preserve<TargetIRAnalysis>();
+  PA.preserve<DominatorTreeAnalysis>();
   return PA;
 }
 
