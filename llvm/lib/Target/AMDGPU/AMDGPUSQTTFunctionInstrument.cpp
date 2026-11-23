@@ -25,10 +25,14 @@
 // reached through uniform branches are executed by the whole wave, so they
 // keep their own exit event.
 //
+// The functions that are not kernels, have a single basic block, and have a
+// code size lower than a threshold are not instrumented.
+//
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPU.h"
 #include "AMDGPUUnifyDivergentExitNodes.h"
+#include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/UniformityAnalysis.h"
@@ -41,6 +45,7 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 
 using namespace llvm;
@@ -48,6 +53,13 @@ using namespace llvm;
 #define DEBUG_TYPE "amdgpu-sqtt-function-instrument"
 
 namespace {
+
+static cl::opt<unsigned> SkipThreshold(
+    "amdgpu-sqtt-function-instrument-skip-threshold",
+    cl::init(4 * TargetTransformInfo::TCC_Basic),
+    cl::desc("Do not insert the entry and exit events in the functions with a "
+             "single basic block and a code size lower than this threshold. 0 "
+             "disables it."));
 
 constexpr StringLiteral InstrumentAttr = "amdgpu-sqtt-instrument";
 constexpr StringLiteral InstrumentInlinedAttr =
@@ -101,6 +113,26 @@ static Instruction *getExitInsertPt(BasicBlock &BB) {
   if (CallInst *CI = BB.getTerminatingMustTailCall())
     return CI;
   return BB.getTerminator();
+}
+
+static bool isTooSmallToInstrument(const Function &F,
+                                   const TargetTransformInfo &TTI) {
+  if (SkipThreshold == 0)
+    return false;
+
+  if (AMDGPU::isKernel(F))
+    return false;
+
+  if (F.size() != 1)
+    return false;
+
+  InstructionCost CodeSize = 0;
+  for (const Instruction &I : F.getEntryBlock()) {
+    CodeSize += TTI.getInstructionCost(&I, TargetTransformInfo::TCK_CodeSize);
+    if (CodeSize >= SkipThreshold)
+      return false;
+  }
+  return true;
 }
 
 static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
@@ -165,11 +197,18 @@ public:
   }
 
   bool runOnFunction(Function &F) override {
-    if (!needsInstrumentation(F, /*PostInlining=*/true))
+    constexpr bool PostInlining = true;
+    if (!needsInstrumentation(F, PostInlining))
       return false;
+
+    const auto &TTI = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+    if (isTooSmallToInstrument(F, TTI)) {
+      F.removeFnAttr(getInstrumentAttr(PostInlining));
+      return true;
+    }
+
     auto *DTWP = getAnalysisIfAvailable<DominatorTreeWrapperPass>();
-    return ::run(F, /*PostInlining=*/true,
-                 getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F),
+    return ::run(F, /*PostInlining=*/true, TTI,
                  getAnalysis<UniformityInfoWrapperPass>().getUniformityInfo(),
                  DTWP ? &DTWP->getDomTree() : nullptr);
   }
@@ -197,7 +236,13 @@ AMDGPUSQTTFunctionInstrumentPass::run(Function &F,
                                       FunctionAnalysisManager &AM) {
   if (!needsInstrumentation(F, PostInlining))
     return PreservedAnalyses::all();
+
   const auto &TTI = AM.getResult<TargetIRAnalysis>(F);
+  if (isTooSmallToInstrument(F, TTI)) {
+    F.removeFnAttr(getInstrumentAttr(PostInlining));
+    return PreservedAnalyses::all();
+  }
+
   const auto &UA = AM.getResult<UniformityInfoAnalysis>(F);
   if (!::run(F, PostInlining, TTI, UA,
              AM.getCachedResult<DominatorTreeAnalysis>(F)))
