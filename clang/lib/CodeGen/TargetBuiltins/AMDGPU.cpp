@@ -2399,6 +2399,9 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
                                                Intrinsic::amdgcn_permlane_xor);
   case AMDGPU::BI__builtin_amdgcn_sqtt_user_entry:
   case AMDGPU::BI__builtin_amdgcn_sqtt_user_exit: {
+    if (CGM.getCodeGenOpts().SQTTInstrument == SQTTInstrumentKind::None)
+      return PoisonValue::get(VoidTy);
+
     const auto *Name = cast<StringLiteral>(E->getArg(0)->IgnoreParenImpCasts());
     return emitSQTTUserEvent(*this,
                              BuiltinID ==
