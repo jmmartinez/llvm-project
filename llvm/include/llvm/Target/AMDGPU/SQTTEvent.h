@@ -27,6 +27,7 @@ namespace llvm {
 class Function;
 class LLVMContext;
 class Metadata;
+class MDNode;
 namespace object {
 class ObjectFile;
 } // namespace object
@@ -74,7 +75,7 @@ public:
   StringRef getPayload() const { return StringPayload; }
   uint32_t getIndex() const { return IntPayload; }
 
-  Metadata *toMetadata(LLVMContext &Ctx) const;
+  MDNode *toMetadata(LLVMContext &Ctx) const;
   static Event fromMetadata(Metadata *MD);
   LLVM_ABI static bool hasStringPayload(EventType Type);
 };
@@ -87,7 +88,7 @@ public:
   ArrayRef<Event> events() const { return Events; }
   size_t size() const { return Events.size(); }
 
-  Metadata *toMetadata(LLVMContext &Ctx) const;
+  MDNode *toMetadata(LLVMContext &Ctx) const;
   static EventRecord fromMetadata(Metadata *MD);
 };
 

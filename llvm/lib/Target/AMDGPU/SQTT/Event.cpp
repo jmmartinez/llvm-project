@@ -36,7 +36,7 @@ Event Event::setEventTableBase(uint32_t Index) {
   return Event(EventType::SetEventTableBase, Index);
 }
 
-Metadata *Event::toMetadata(LLVMContext &Ctx) const {
+MDNode *Event::toMetadata(LLVMContext &Ctx) const {
   auto *IntTy = Type::getInt32Ty(Ctx);
   Metadata *TypeMD = ConstantAsMetadata::get(
       ConstantInt::get(IntTy, static_cast<uint32_t>(Type)));
@@ -91,13 +91,14 @@ EventRecord EventRecord::fromMetadata(Metadata *MD) {
   return {Events};
 }
 
-Metadata *EventRecord::toMetadata(LLVMContext &Ctx) const {
+MDNode *EventRecord::toMetadata(LLVMContext &Ctx) const {
+
+  if (Events.size() == 1)
+    return Events.front().toMetadata(Ctx);
+
   SmallVector<Metadata *, 4> Ops;
   for (const Event &Ev : Events)
     Ops.push_back(Ev.toMetadata(Ctx));
-
-  if (Ops.size() == 1)
-    return Ops.front();
 
   return MDNode::get(Ctx, Ops);
 }
