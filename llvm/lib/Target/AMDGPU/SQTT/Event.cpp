@@ -65,6 +65,14 @@ Event Event::fromMetadata(Metadata *MD) {
   return {Type, Payload};
 }
 
+std::optional<uint32_t> EventRecord::getSetEventTableBase() const {
+  for (const Event &Ev : reverse(events())) {
+    if (Ev.getType() == EventType::SetEventTableBase)
+      return Ev.getIndex();
+  }
+  return std::nullopt;
+}
+
 bool Event::hasStringPayload(EventType Type) {
   switch (Type) {
   case EventType::FunctionEntry:
