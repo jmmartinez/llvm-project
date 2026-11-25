@@ -2121,8 +2121,7 @@ def int_amdgcn_s_ttracedata_imm :
 // event id relative to the CU base computed at runtime.
 def int_amdgcn_sqtt_event :
   DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty, llvm_i32_ty],
-                        [IntrNoMem, IntrHasSideEffects, IntrWillReturn,
-                         IntrNoCallback, IntrNoFree, IntrConvergent]>;
+                        [IntrNoMem, IntrHasSideEffects, IntrConvergent]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
 def int_amdgcn_s_getreg :
