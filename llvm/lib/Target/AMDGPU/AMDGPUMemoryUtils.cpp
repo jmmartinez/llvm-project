@@ -419,6 +419,7 @@ bool isReallyAClobber(const Value *Ptr, MemoryDef *Def, AAResults *AA) {
     case Intrinsic::amdgcn_sched_barrier:
     case Intrinsic::amdgcn_sched_group_barrier:
     case Intrinsic::amdgcn_iglp_opt:
+    case Intrinsic::amdgcn_s_getreg:
       return false;
     default:
       break;
