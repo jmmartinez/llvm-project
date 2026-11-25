@@ -110,7 +110,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !1 = !{i32 2, !"kernel_1"}
 !2 = !{i32 2, !"private_func"}
 ;.
-; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ;.
 ; CHECK: [[META0]] = !{i32 4, i32 0}
 ; CHECK: [[META1]] = !{i32 4, i32 -1}

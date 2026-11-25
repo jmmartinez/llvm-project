@@ -140,23 +140,23 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !0 = !{i32 0, !"if_then_else"}
 ;.
 ; SIMD: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; SIMD: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; SIMD: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; SIMD: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; WAVE: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; WAVE: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; WAVE: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; WAVE: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; CU: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; CU: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; CU: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; CU: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; WG: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; WG: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; WG: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; WG: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; ALL: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; ALL: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; ALL: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; ALL: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; SIMD: [[META0]] = !{i32 0, !"if_then_else"}

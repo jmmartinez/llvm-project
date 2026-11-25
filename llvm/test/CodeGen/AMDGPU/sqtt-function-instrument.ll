@@ -224,7 +224,7 @@ attributes #1 = { naked "amdgpu-sqtt-instrument" }
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 ; CHECK: attributes #[[ATTR1]] = { naked "amdgpu-sqtt-instrument" }
-; CHECK: attributes #[[ATTR2:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR2:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ;.
 ; CHECK: [[META0]] = !{i32 0, !"single_return"}
 ; CHECK: [[META1]] = !{i32 1, !"single_return"}

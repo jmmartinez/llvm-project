@@ -47,7 +47,7 @@ declare void @side_effect()
 !4 = !{i32 2, !"single"}
 !5 = !{i32 4, i32 0}
 ;.
-; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ;.
 ; CHECK: [[META0]] = !{[[META1:![0-9]+]], [[META2:![0-9]+]]}
 ; CHECK: [[META1]] = !{i32 0, !"contiguous0"}

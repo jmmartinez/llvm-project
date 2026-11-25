@@ -2119,9 +2119,14 @@ def int_amdgcn_s_ttracedata_imm :
 // i32 constant, which is subtracted from the event id to get the logged value,
 // or undef, which means the event is not CU-local and the logged value is the
 // event id relative to the CU base computed at runtime.
+//
+// The event writes to the trace, which is not visible from the IR. This is
+// modeled as an access to inaccessible memory: the event is not removed,
+// merged, or reordered with other events, but accesses to other memory can
+// move across it.
 def int_amdgcn_sqtt_event :
   DefaultAttrsIntrinsic<[], [llvm_metadata_ty, llvm_i32_ty, llvm_i32_ty],
-                        [IntrNoMem, IntrHasSideEffects, IntrConvergent]>;
+                        [IntrInaccessibleMemOnly, IntrConvergent]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
 def int_amdgcn_s_getreg :

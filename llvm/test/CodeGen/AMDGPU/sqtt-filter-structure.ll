@@ -62,7 +62,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !2 = !{i32 1, !"two_events"}
 ;.
 ; CHECK: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
-; CHECK: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn "target-cpu"="gfx900" }
+; CHECK: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; CHECK: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
 ;.
 ; CHECK: [[META0]] = !{i32 0, !"one_event"}

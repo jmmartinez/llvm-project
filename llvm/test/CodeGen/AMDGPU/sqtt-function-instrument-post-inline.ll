@@ -137,12 +137,12 @@ attributes #3 = { naked "amdgpu-sqtt-instrument-inlined" }
 ; POST: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 ; POST: attributes #[[ATTR1]] = { "amdgpu-sqtt-instrument" }
 ; POST: attributes #[[ATTR2]] = { naked "amdgpu-sqtt-instrument-inlined" }
-; POST: attributes #[[ATTR3:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
+; POST: attributes #[[ATTR3:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ;.
 ; PRE: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 ; PRE: attributes #[[ATTR1]] = { "amdgpu-sqtt-instrument-inlined" }
 ; PRE: attributes #[[ATTR2]] = { naked "amdgpu-sqtt-instrument-inlined" }
-; PRE: attributes #[[ATTR3:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn }
+; PRE: attributes #[[ATTR3:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ;.
 ; POST: [[META0]] = !{i32 0, !"only_post"}
 ; POST: [[META1]] = !{i32 1, !"only_post"}
