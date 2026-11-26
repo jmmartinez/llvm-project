@@ -3,7 +3,7 @@
 
 define void @contiguous_events() {
 ; CHECK-LABEL: define void @contiguous_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0)
@@ -13,9 +13,9 @@ define void @contiguous_events() {
 
 define void @separate_events() {
 ; CHECK-LABEL: define void @separate_events() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    call void @side_effect()
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.amdgcn.sqtt.event(metadata !2, i32 poison, i32 0)
@@ -29,7 +29,7 @@ define void @separate_events() {
 ; unwrapped.
 define void @pathological_single_event_after_combine() {
 ; CHECK-LABEL: define void @pathological_single_event_after_combine() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 3, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META5:![0-9]+]], i32 3, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.amdgcn.sqtt.event(metadata !4, i32 poison, i32 0)
@@ -48,6 +48,7 @@ declare void @side_effect()
 !5 = !{i32 4, i32 0}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
+; CHECK: attributes #[[ATTR1]] = { noduplicate }
 ;.
 ; CHECK: [[META0]] = !{[[META1:![0-9]+]], [[META2:![0-9]+]]}
 ; CHECK: [[META1]] = !{i32 0, !"contiguous0"}

@@ -12,7 +12,7 @@ define i32 @one_event(i32 %a) {
 ; CHECK-NEXT:    [[X:%.*]] = add i32 [[A]], 1
 ; CHECK-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; CHECK:       [[BB4]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; CHECK-NEXT:    br label %[[BB5]]
 ; CHECK:       [[BB5]]:
 ; CHECK-NEXT:    [[Y:%.*]] = mul i32 [[X]], 3
@@ -39,9 +39,9 @@ define i32 @two_events(i32 %a) {
 ; CHECK-NEXT:    [[X_UNTRACED:%.*]] = add i32 [[A]], 1
 ; CHECK-NEXT:    br label %[[SQTT_CONT:.*]]
 ; CHECK:       [[SQTT_TRACED]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0) #[[ATTR3]]
 ; CHECK-NEXT:    [[X:%.*]] = add i32 [[A]], 1
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0) #[[ATTR3]]
 ; CHECK-NEXT:    br label %[[SQTT_CONT]]
 ; CHECK:       [[SQTT_CONT]]:
 ; CHECK-NEXT:    [[X1:%.*]] = phi i32 [ [[X]], %[[SQTT_TRACED]] ], [ [[X_UNTRACED]], %[[SQTT_TRACED_UNTRACED]] ]
@@ -64,6 +64,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 ; CHECK: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; CHECK: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; CHECK: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; CHECK: [[META0]] = !{i32 0, !"one_event"}
 ; CHECK: [[META1]] = !{i32 0, !"two_events"}

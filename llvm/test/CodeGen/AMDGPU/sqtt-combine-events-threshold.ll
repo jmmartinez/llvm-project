@@ -6,20 +6,20 @@
 define i32 @near_events(i32 %x) {
 ; T0-LABEL: define i32 @near_events(
 ; T0-SAME: i32 [[X:%.*]]) {
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR1:[0-9]+]]
 ; T0-NEXT:    [[A:%.*]] = add i32 [[X]], 1
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0) #[[ATTR1]]
 ; T0-NEXT:    ret i32 [[A]]
 ;
 ; T8-LABEL: define i32 @near_events(
 ; T8-SAME: i32 [[X:%.*]]) {
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR1:[0-9]+]]
 ; T8-NEXT:    [[A:%.*]] = add i32 [[X]], 1
 ; T8-NEXT:    ret i32 [[A]]
 ;
 ; T1000-LABEL: define i32 @near_events(
 ; T1000-SAME: i32 [[X:%.*]]) {
-; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR1:[0-9]+]]
 ; T1000-NEXT:    [[A:%.*]] = add i32 [[X]], 1
 ; T1000-NEXT:    ret i32 [[A]]
 ;
@@ -32,7 +32,7 @@ define i32 @near_events(i32 %x) {
 define i32 @far_events(i32 %x) {
 ; T0-LABEL: define i32 @far_events(
 ; T0-SAME: i32 [[X:%.*]]) {
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 2, i32 0) #[[ATTR1]]
 ; T0-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T0-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T0-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1
@@ -49,12 +49,12 @@ define i32 @far_events(i32 %x) {
 ; T0-NEXT:    [[A14:%.*]] = add i32 [[A13]], 1
 ; T0-NEXT:    [[A15:%.*]] = add i32 [[A14]], 1
 ; T0-NEXT:    [[A16:%.*]] = add i32 [[A15]], 1
-; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 3, i32 0)
+; T0-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 3, i32 0) #[[ATTR1]]
 ; T0-NEXT:    ret i32 [[A16]]
 ;
 ; T8-LABEL: define i32 @far_events(
 ; T8-SAME: i32 [[X:%.*]]) {
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0) #[[ATTR1]]
 ; T8-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T8-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T8-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1
@@ -71,12 +71,12 @@ define i32 @far_events(i32 %x) {
 ; T8-NEXT:    [[A14:%.*]] = add i32 [[A13]], 1
 ; T8-NEXT:    [[A15:%.*]] = add i32 [[A14]], 1
 ; T8-NEXT:    [[A16:%.*]] = add i32 [[A15]], 1
-; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i32 0)
+; T8-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 2, i32 0) #[[ATTR1]]
 ; T8-NEXT:    ret i32 [[A16]]
 ;
 ; T1000-LABEL: define i32 @far_events(
 ; T1000-SAME: i32 [[X:%.*]]) {
-; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0)
+; T1000-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 1, i32 0) #[[ATTR1]]
 ; T1000-NEXT:    [[A1:%.*]] = add i32 [[X]], 1
 ; T1000-NEXT:    [[A2:%.*]] = add i32 [[A1]], 1
 ; T1000-NEXT:    [[A3:%.*]] = add i32 [[A2]], 1

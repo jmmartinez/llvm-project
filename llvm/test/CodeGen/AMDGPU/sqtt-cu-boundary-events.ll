@@ -5,7 +5,7 @@ define internal void @private_func(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define internal void @private_func(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 10, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META2:![0-9]+]], i32 10, i32 0) #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -18,11 +18,11 @@ define internal void @private_func(ptr addrspace(1) %out) {
 define void @public_func(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define void @public_func(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 9, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 9, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 11, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META3:![0-9]+]], i32 11, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 8, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 8, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    ret void
 ;
   store i32 1, ptr addrspace(1) %out
@@ -41,9 +41,9 @@ define void @pathological_public_func() {
 define amdgpu_kernel void @kernel_1(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define amdgpu_kernel void @kernel_1(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 7, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 7, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 12, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META4:![0-9]+]], i32 12, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -56,11 +56,11 @@ define amdgpu_kernel void @kernel_1(ptr addrspace(1) %out) {
 define amdgpu_kernel void @kernel_2(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define amdgpu_kernel void @kernel_2(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 6, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 6, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1]], i32 3, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1]], i32 3, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    call void @public_func(ptr addrspace(1) [[OUT]])
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 2, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 2, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -73,7 +73,7 @@ define amdgpu_kernel void @kernel_2(ptr addrspace(1) %out) {
 define amdgpu_kernel void @kernel_3(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define amdgpu_kernel void @kernel_3(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 5, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 5, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
 ; CHECK-NEXT:    call void @private_func(ptr addrspace(1) [[OUT]])
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
@@ -88,12 +88,12 @@ define amdgpu_kernel void @kernel_3(ptr addrspace(1) %out) {
 define amdgpu_kernel void @kernel_4(ptr addrspace(1) %out) {
 ; CHECK-LABEL: define amdgpu_kernel void @kernel_4(
 ; CHECK-SAME: ptr addrspace(1) [[OUT:%.*]]) {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 4, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 4, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[OUT]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1]], i32 1, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1]], i32 1, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    call void @public_func(ptr addrspace(1) [[OUT]])
 ; CHECK-NEXT:    call void @public_func(ptr addrspace(1) [[OUT]])
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 0, i32 undef)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 0, i32 undef) #[[ATTR1]]
 ; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[OUT]], align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -111,6 +111,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !2 = !{i32 2, !"private_func"}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
+; CHECK: attributes #[[ATTR1]] = { noduplicate }
 ;.
 ; CHECK: [[META0]] = !{i32 4, i32 0}
 ; CHECK: [[META1]] = !{i32 4, i32 -1}

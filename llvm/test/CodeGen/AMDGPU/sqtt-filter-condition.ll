@@ -16,7 +16,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; SIMD:       [[THEN]]:
 ; SIMD-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; SIMD:       [[BB4]]:
-; SIMD-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; SIMD-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; SIMD-NEXT:    br label %[[BB5]]
 ; SIMD:       [[BB5]]:
 ; SIMD-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -37,7 +37,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; WAVE:       [[THEN]]:
 ; WAVE-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; WAVE:       [[BB4]]:
-; WAVE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; WAVE-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; WAVE-NEXT:    br label %[[BB5]]
 ; WAVE:       [[BB5]]:
 ; WAVE-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -58,7 +58,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; CU:       [[THEN]]:
 ; CU-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; CU:       [[BB4]]:
-; CU-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; CU-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; CU-NEXT:    br label %[[BB5]]
 ; CU:       [[BB5]]:
 ; CU-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -79,7 +79,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; WG:       [[THEN]]:
 ; WG-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB4:.*]], label %[[BB5:.*]]
 ; WG:       [[BB4]]:
-; WG-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; WG-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; WG-NEXT:    br label %[[BB5]]
 ; WG:       [[BB5]]:
 ; WG-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -109,7 +109,7 @@ define void @if_then_else(i1 %cond, ptr addrspace(1) %p) {
 ; ALL:       [[THEN]]:
 ; ALL-NEXT:    br i1 [[SQTT_ENABLED]], label %[[BB7:.*]], label %[[BB8:.*]]
 ; ALL:       [[BB7]]:
-; ALL-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
+; ALL-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR3:[0-9]+]]
 ; ALL-NEXT:    br label %[[BB8]]
 ; ALL:       [[BB8]]:
 ; ALL-NEXT:    store i32 1, ptr addrspace(1) [[P]], align 4
@@ -142,22 +142,27 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 ; SIMD: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; SIMD: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; SIMD: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; SIMD: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; WAVE: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; WAVE: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; WAVE: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; WAVE: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; CU: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; CU: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; CU: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; CU: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; WG: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; WG: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; WG: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; WG: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; ALL: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; ALL: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
 ; ALL: attributes #[[ATTR2:[0-9]+]] = { nocallback nofree nosync nounwind willreturn }
+; ALL: attributes #[[ATTR3]] = { noduplicate }
 ;.
 ; SIMD: [[META0]] = !{i32 0, !"if_then_else"}
 ;.

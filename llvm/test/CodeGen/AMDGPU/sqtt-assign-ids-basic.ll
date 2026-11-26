@@ -3,8 +3,8 @@
 
 define void @foo() {
 ; CHECK-LABEL: define void @foo() {
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0)
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR1:[0-9]+]]
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META1:![0-9]+]], i32 1, i32 0) #[[ATTR1]]
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.amdgcn.sqtt.event(metadata !0, i32 poison, i32 0)
@@ -18,6 +18,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !1 = !{i32 1, !"foo"}
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
+; CHECK: attributes #[[ATTR1]] = { noduplicate }
 ;.
 ; CHECK: [[META0]] = !{i32 0, !"foo"}
 ; CHECK: [[META1]] = !{i32 1, !"foo"}

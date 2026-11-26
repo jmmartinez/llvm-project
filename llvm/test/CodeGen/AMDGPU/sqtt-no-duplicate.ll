@@ -2,25 +2,22 @@
 ; RUN: opt -S -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -passes='amdgpu-sqtt-lower,loop-unroll' -amdgpu-sqtt-combine-events-threshold=0 %s | FileCheck %s
 
 ; Events must not be duplicated by later transformations: every copy would
-; report the same event ID. Fully unrolling the loop currently duplicates the
-; event, so all the copies share the same ID.
+; report the same event ID. The events are marked noduplicate, so the loop is
+; not unrolled.
 define void @unroll(ptr addrspace(1) %p) {
 ; CHECK-LABEL: define void @unroll(
 ; CHECK-SAME: ptr addrspace(1) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:  [[ENTRY:.*:]]
+; CHECK-NEXT:  [[ENTRY:.*]]:
 ; CHECK-NEXT:    br label %[[LOOP:.*]]
 ; CHECK:       [[LOOP]]:
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0)
-; CHECK-NEXT:    store i32 0, ptr addrspace(1) [[P]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 0, i32 0)
-; CHECK-NEXT:    [[GEP_1:%.*]] = getelementptr i32, ptr addrspace(1) [[P]], i32 1
-; CHECK-NEXT:    store i32 1, ptr addrspace(1) [[GEP_1]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 0, i32 0)
-; CHECK-NEXT:    [[GEP_2:%.*]] = getelementptr i32, ptr addrspace(1) [[P]], i32 2
-; CHECK-NEXT:    store i32 2, ptr addrspace(1) [[GEP_2]], align 4
-; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0]], i32 0, i32 0)
-; CHECK-NEXT:    [[GEP_3:%.*]] = getelementptr i32, ptr addrspace(1) [[P]], i32 3
-; CHECK-NEXT:    store i32 3, ptr addrspace(1) [[GEP_3]], align 4
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    call void @llvm.amdgcn.sqtt.event(metadata [[META0:![0-9]+]], i32 0, i32 0) #[[ATTR2:[0-9]+]]
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr i32, ptr addrspace(1) [[P]], i32 [[I]]
+; CHECK-NEXT:    store i32 [[I]], ptr addrspace(1) [[GEP]], align 4
+; CHECK-NEXT:    [[I_NEXT]] = add nuw i32 [[I]], 1
+; CHECK-NEXT:    [[COND:%.*]] = icmp ult i32 [[I_NEXT]], 4
+; CHECK-NEXT:    br i1 [[COND]], label %[[LOOP]], label %[[EXIT:.*]]
+; CHECK:       [[EXIT]]:
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -45,6 +42,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 ;.
 ; CHECK: attributes #[[ATTR0]] = { "target-cpu"="gfx900" }
 ; CHECK: attributes #[[ATTR1:[0-9]+]] = { convergent nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) "target-cpu"="gfx900" }
+; CHECK: attributes #[[ATTR2]] = { noduplicate }
 ;.
 ; CHECK: [[META0]] = !{i32 0, !"unroll"}
 ;.

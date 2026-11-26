@@ -110,6 +110,10 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
     Use &EventIdOperand = II->getArgOperandUse(1);
     EventIdOperand.set(ConstantInt::get(IdTy, EventsMD->getNumOperands()));
     EventsMD->addOperand(getEventMetadata(*II));
+
+    // Later transforms must not create copies of the event, which would
+    // break the event ID uniqueness.
+    II->setCannotDuplicate();
   }
 }
 
@@ -316,7 +320,7 @@ static Value *createCondition(IRBuilder<> &Builder, const GCNSubtarget &ST) {
 
 static bool cannotDuplicate(const Instruction &I) {
   const CallBase *CB = dyn_cast<CallBase>(&I);
-  return CB && CB->cannotDuplicate();
+  return CB && CB->cannotDuplicate() && !isEvent(I);
 }
 
 void guardBlockEventsWithFilter(Value *Condition,
