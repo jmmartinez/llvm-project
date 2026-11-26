@@ -728,6 +728,9 @@ GCNTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
   case Intrinsic::amdgcn_queue_ptr:
     // Read from an argument register.
     return 0;
+  case Intrinsic::amdgcn_sqtt_event:
+    // Treat as if it was a no-op to avoid polluting the optimizer decisions.
+    return 0;
   default:
     break;
   }
