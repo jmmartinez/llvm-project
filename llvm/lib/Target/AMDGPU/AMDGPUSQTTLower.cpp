@@ -110,9 +110,8 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
   }
 }
 
-static void
-removeRedundantSetEventTableEvents(const IntrinsicInst &First,
-                                   SmallVectorImpl<sqtt::Event> &Events) {
+static void removeRedundantEvents(const IntrinsicInst &First,
+                                  SmallVectorImpl<sqtt::Event> &Events) {
   // The table base of the first event is the offset in effect when the merged
   // event starts. Undef means the event is not CU-local.
   const Value *Base = First.getArgOperand(2);
@@ -120,24 +119,7 @@ removeRedundantSetEventTableEvents(const IntrinsicInst &First,
                                ? sqtt::SectionBase
                                : cast<ConstantInt>(Base)->getZExtValue();
 
-  // We want to preserve only the last setEventTableBase event. And only if the
-  // BaseOffset actually changes at the end of the event.
-  auto LastSetEventTableBase =
-      find_if(Events.rbegin(), Events.rend(),
-              std::mem_fn(&sqtt::Event::isSetEventTableBase));
-  if (LastSetEventTableBase == Events.rend())
-    return;
-
-  auto EraseEnd = LastSetEventTableBase.base() - 1;
-  auto EraseBegin = remove_if(Events.begin(), EraseEnd,
-                              std::mem_fn(&sqtt::Event::isSetEventTableBase));
-
-  // The last event sets the base offset to the same value as the incoming
-  // offset, we can drop it too.
-  if (LastSetEventTableBase->getIndex() == IncomingIndex)
-    ++EraseEnd;
-
-  Events.erase(EraseBegin, EraseEnd);
+  sqtt::EventRecord::simplfy(Events, IncomingIndex);
 }
 
 static void combineEvents(const TargetMachine &TM, Function &SQTTEventFun) {
@@ -171,7 +153,7 @@ static void combineEvents(const TargetMachine &TM, Function &SQTTEventFun) {
         Events.emplace_back(sqtt::Event::fromMetadata(MD));
       }
 
-      removeRedundantSetEventTableEvents(First, Events);
+      removeRedundantEvents(First, Events);
 
       if (Events.empty()) {
         for_each(ToMerge, std::mem_fn(&Instruction::eraseFromParent));

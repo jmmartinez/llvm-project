@@ -91,6 +91,7 @@ public:
   MDNode *toMetadata(LLVMContext &Ctx) const;
   static EventRecord fromMetadata(Metadata *MD);
   std::optional<uint32_t> getSetEventTableBase() const;
+  static void simplfy(SmallVectorImpl<Event> &Events, uint32_t IncomingBase);
 };
 
 class BinarySQTTRecord : public EventRecord {

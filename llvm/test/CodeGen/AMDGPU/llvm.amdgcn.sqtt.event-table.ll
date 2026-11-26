@@ -52,7 +52,7 @@
 ; CHECK-NEXT:       },
 ; CHECK-NEXT:       {
 ; CHECK-NEXT:         "type": "FunctionExit",
-; CHECK-NEXT:         "payload": "sqtt_events_merged"
+; CHECK-NEXT:         "payload": "sqtt_events_merged_exit"
 ; CHECK-NEXT:       }
 ; CHECK-NEXT:     ]
 ; CHECK-NEXT:   },

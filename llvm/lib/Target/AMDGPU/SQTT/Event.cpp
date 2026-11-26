@@ -16,6 +16,22 @@
 using namespace llvm;
 using namespace llvm::sqtt;
 
+namespace {
+
+static bool isStartAndEndEvents(const Event &Start, const Event &End) {
+  switch (Start.getType()) {
+  case EventType::FunctionEntry:
+    return End.getType() == EventType::FunctionExit &&
+           End.getPayload() == Start.getPayload();
+  case EventType::UserEntry:
+    return End.getType() == EventType::UserExit &&
+           End.getPayload() == Start.getPayload();
+  default:
+    return false;
+  }
+}
+} // namespace
+
 Event Event::functionEntry(const Function &F) {
   return Event(EventType::FunctionEntry, F.getName());
 }
@@ -71,6 +87,38 @@ std::optional<uint32_t> EventRecord::getSetEventTableBase() const {
       return Ev.getIndex();
   }
   return std::nullopt;
+}
+
+void EventRecord::simplfy(SmallVectorImpl<Event> &Events,
+                          uint32_t IncomingBase) {
+  if (Events.size() < 1)
+    return;
+
+  std::optional<uint32_t> OutIndex = std::nullopt;
+  auto LastSet =
+      find_if(reverse(Events), std::mem_fn(&Event::isSetEventTableBase));
+  if (LastSet != Events.rend() && LastSet->getIndex() != IncomingBase) {
+    OutIndex = LastSet->getIndex();
+  }
+
+  // Keep a single set event table base event in the last position
+  Events.erase(remove_if(Events, std::mem_fn(&Event::isSetEventTableBase)),
+               Events.end());
+  if (OutIndex)
+    Events.push_back(Event::setEventTableBase(*OutIndex));
+
+  unsigned I = 0;
+  unsigned Size = Events.size();
+  while (I + 1 < Size) {
+    if (isStartAndEndEvents(Events[I], Events[I + 1])) {
+      Events.erase(Events.begin() + I, Events.begin() + I + 2);
+      Size -= 2;
+      if (I > 0)
+        --I;
+    } else {
+      ++I;
+    }
+  }
 }
 
 bool Event::hasStringPayload(EventType Type) {

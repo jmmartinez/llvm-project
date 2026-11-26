@@ -224,7 +224,7 @@ declare void @llvm.amdgcn.sqtt.event(metadata, i32, i32)
 !0 = !{i32 0, !"sqtt_event_entry"}
 !1 = !{i32 1, !"sqtt_event_exit"}
 !2 = !{i32 0, !"sqtt_events_merged"}
-!3 = !{i32 1, !"sqtt_events_merged"}
+!3 = !{i32 1, !"sqtt_events_merged_exit"}
 !4 = !{i32 2, !"user_entry"}
 !5 = !{i32 3, !"user_exit"}
 
