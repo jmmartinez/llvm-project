@@ -25,6 +25,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -78,6 +79,10 @@ static cl::opt<uint32_t>
                     "SQTT events (bit N enables slot N). Bits above the "
                     "number of slots are ignored."));
 
+auto intrinsic_users(Function &F) {
+  return map_range(F.users(), CastTo<IntrinsicInst>);
+}
+
 static bool isEvent(const Instruction &I) {
   const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
   return II && II->getIntrinsicID() == Intrinsic::amdgcn_sqtt_event;
@@ -101,9 +106,7 @@ static void assignEventIDs(Module &M, Function &SQTTEventFun) {
 
   NamedMDNode *EventsMD = M.getOrInsertNamedMetadata(sqtt::EventsTableMetadata);
 
-  for (User *U : SQTTEventFun.users()) {
-    IntrinsicInst *II = cast<IntrinsicInst>(U);
-
+  for (IntrinsicInst *II : intrinsic_users(SQTTEventFun)) {
     Use &EventIdOperand = II->getArgOperandUse(1);
     EventIdOperand.set(ConstantInt::get(IdTy, EventsMD->getNumOperands()));
     EventsMD->addOperand(getEventMetadata(*II));
@@ -125,10 +128,8 @@ static void removeRedundantEvents(const IntrinsicInst &First,
 static void combineEvents(const TargetMachine &TM, Function &SQTTEventFun) {
   LLVMContext &C = SQTTEventFun.getContext();
   MapVector<BasicBlock *, unsigned> IntrinsicBlocks;
-  for (User *U : SQTTEventFun.users()) {
-    IntrinsicInst *II = cast<IntrinsicInst>(U);
+  for (IntrinsicInst *II : intrinsic_users(SQTTEventFun))
     ++IntrinsicBlocks[II->getParent()];
-  }
 
   for (auto &[BB, IntrinsicCount] : IntrinsicBlocks) {
     if (IntrinsicCount < 2)
@@ -387,10 +388,8 @@ void guardBlockEventsWithFilter(Value *Condition,
 void guardEventsWithFilter(const TargetMachine &TM, Function &Intrinsic) {
   MapVector<Function *, SetVector<BasicBlock *>> BlocksWithEvents;
 
-  for (User *U : Intrinsic.users()) {
-    IntrinsicInst *II = cast<IntrinsicInst>(U);
+  for (IntrinsicInst *II : intrinsic_users(Intrinsic))
     BlocksWithEvents[II->getFunction()].insert(II->getParent());
-  }
 
   for (auto [F, Blocks] : BlocksWithEvents) {
     const GCNSubtarget &ST =
