@@ -41,11 +41,18 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/AMDGPU/SQTTEvent.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "amdgpu-sqtt-function-instrument"
+
+static cl::opt<unsigned> SmallFunctionMaxInstructions(
+    "amdgpu-sqtt-function-instrument-small-function-limit",
+    cl::desc("Do not instrument the functions with a single block and at most "
+             "this number of instructions (0 instruments all of them)"),
+    cl::init(64), cl::Hidden);
 
 namespace {
 
@@ -109,6 +116,13 @@ static bool run(Function &F, bool PostInlining, const TargetTransformInfo &TTI,
 
   // Consume the attribute so that the function is not instrumented twice.
   F.removeFnAttr(getInstrumentAttr(PostInlining));
+
+  // Do not instrument the tiny functions with a trivial CFG, like the HIP math
+  // wrappers (isfinite, powf, __half2float, ...): they are going to be
+  // inlined, and their events would only end up in the middle of their callers,
+  // where they get in the way of optimizations.
+  if (F.size() == 1 && F.getInstructionCount() <= SmallFunctionMaxInstructions)
+    return true;
 
   // A musttail call must stay next to its return, and a return that is
   // uniformly reached is executed by the whole wave. Such returns are not

@@ -1,5 +1,5 @@
 // REQUIRES: amdgpu-registered-target
-// RUN: %clang_cc1 -triple amdgpu-amd-amdhsa -fcuda-is-device -fsqtt-instrument -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple amdgpu-amd-amdhsa -fcuda-is-device -fsqtt-instrument -mllvm -amdgpu-sqtt-function-instrument-small-function-limit=0 -emit-llvm -o - %s | FileCheck %s
 // RUN: %clang_cc1 -triple amdgpu-amd-amdhsa -fcuda-is-device -emit-llvm -o - %s | FileCheck --check-prefix=NONE %s
 // RUN: %clang_cc1 -triple amdgpu-amd-amdhsa -fcuda-is-device -fsqtt-instrument=none -emit-llvm -o - %s | FileCheck --check-prefix=NONE %s
 
